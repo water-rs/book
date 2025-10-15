@@ -36,7 +36,7 @@ mod tests {
         }
 
         let mut counter = Counter::new(0);
-        counter.increment(1);
+        counter.increment();
         assert_eq!(counter.get_value(), 1);
     }
 }
