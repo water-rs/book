@@ -6,8 +6,8 @@ edition = "2024"
 # Tutorial book for testing code examples with real WaterUI
 
 [dependencies]
-# Real WaterUI dependencies from the workspace
-waterui = { path = ".." }
+# Real WaterUI dependencies from the upstream repository
+waterui = { git = "https://github.com/water-rs/waterui" }
 
 
 # Common dependencies

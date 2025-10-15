@@ -22,7 +22,7 @@ This eliminates a huge amount of boilerplate code. You don't need to write manua
 The easiest way to create forms in WaterUI is using the `#[derive(FormBuilder)]` macro:
 
 ```rust
-use waterui_form::{FormBuilder, form};
+use waterui::form::{FormBuilder, form};
 use waterui::reactive::Binding;
 
 #[derive(Default, Clone, Debug, FormBuilder)]
@@ -68,11 +68,11 @@ The `FormBuilder` macro automatically maps Rust types to appropriate form compon
 Let's build a more comprehensive form:
 
 ```rust
-use waterui_form::{FormBuilder, form};
+use waterui::form::{FormBuilder, form};
 use waterui::reactive::Binding;
 use waterui::Color;
 use waterui::component::layout::stack::vstack;
-use waterui_text::text;
+use waterui::text::text;
 
 #[derive(Default, Clone, Debug, FormBuilder)]
 struct RegistrationForm {
@@ -124,7 +124,7 @@ You can also use form controls individually:
 ### Text Fields
 
 ```rust
-use waterui_form::{TextField, field};
+use waterui::form::{TextField, field};
 use waterui::reactive::binding;
 
 fn text_field_example() -> impl View {
@@ -136,7 +136,7 @@ fn text_field_example() -> impl View {
 ### Toggle Switches
 
 ```rust
-use waterui_form::{Toggle, toggle};
+use waterui::form::{Toggle, toggle};
 use waterui::reactive::binding;
 
 fn toggle_example() -> impl View {
@@ -148,7 +148,7 @@ fn toggle_example() -> impl View {
 ### Number Steppers
 
 ```rust
-use waterui_form::{Stepper, stepper};
+use waterui::form::{Stepper, stepper};
 use waterui::reactive::binding;
 
 fn stepper_example() -> impl View {
@@ -160,7 +160,7 @@ fn stepper_example() -> impl View {
 ### Sliders
 
 ```rust
-use waterui_form::Slider;
+use waterui::form::Slider;
 use waterui::reactive::binding;
 
 fn slider_example() -> impl View {
@@ -228,7 +228,7 @@ fn registration_wizard() -> impl View {
 For complete control over form layout, implement `FormBuilder` manually:
 
 ```rust
-use waterui_form::{FormBuilder, TextField, Toggle};
+use waterui::form::{FormBuilder, TextField, Toggle};
 use waterui::{
     core::Binding,
     component::layout::stack::{vstack, hstack},
@@ -263,7 +263,7 @@ impl FormBuilder for CustomForm {
 For sensitive data like passwords:
 
 ```rust
-use waterui_form::{SecureField, secure};
+use waterui::form::{SecureField, secure};
 use waterui::reactive::binding;
 
 fn password_form() -> impl View {

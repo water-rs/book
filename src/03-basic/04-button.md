@@ -52,14 +52,20 @@ other extractors using tuples:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::core::extract::{Use, UseEnv};
+use waterui::Environment;
 
 #[derive(Clone)]
 struct Analytics;
 
 fn delete_button(item_id: Binding<Option<u64>>) -> impl View {
     button("Delete")
-        .action_with(&item_id, |id, (Use(analytics), UseEnv(env)): (Use<Analytics>, UseEnv<Environment>)| {
+        .with(Analytics)
+        .action_with(&item_id, |id, env: Environment| {
+            let analytics = env
+                .get::<Analytics>()
+                .cloned()
+                .expect("Analytics service should be installed");
+
             if let Some(id) = id.get() {
                 analytics.track_delete(id);
                 env.log("Item deleted");
@@ -68,8 +74,8 @@ fn delete_button(item_id: Binding<Option<u64>>) -> impl View {
 }
 ```
 
-> **Tip**: Extractors live in `waterui::core::extract`. They let you pull services (analytics,
-> database pools, etc.) from the environment at the moment the handler runs.
+> **Tip**: Handler parameters that implement the `Extractor` trait—such as `Environment` and values
+> registered with `.with()`—are pulled from the environment automatically before your closure runs.
 
 ## Custom Labels and Composition
 

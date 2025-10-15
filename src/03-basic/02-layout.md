@@ -4,7 +4,7 @@ Layouts determine how views measure themselves and where they end up on screen. 
 a two-stage process similar to SwiftUI and Flutter: first the framework proposes sizes to each
 child, then it places those children inside the final bounds returned by the renderer. This
 chapter documents the high-level containers you will reach for most often and explains how they
-map to the lower-level layout primitives exposed in `waterui_layout`.
+map to the lower-level layout primitives exposed in `waterui::layout`.
 
 ## How the Layout Pass Works
 
@@ -83,7 +83,7 @@ background effects.
 use waterui::prelude::*;
 use waterui::component::layout::padding::EdgeInsets;
 use waterui::component::layout::stack::zstack;
-use waterui::components::media::Photo;
+use waterui::component::media::Photo;
 
 pub fn photo_with_badge() -> impl View {
     zstack((
@@ -233,6 +233,6 @@ create predictable compositions.
 ## Where to Go Next
 
 Explore the advanced layout chapter for details on implementing custom `Layout` types, or scan the
-`waterui_layout` crate for lower-level primitives like `Container` and `ProposalSize`. Armed with
+`waterui::layout` module for lower-level primitives like `Container` and `ProposalSize`. Armed with
 stacks, spacers, padding, grids, and frames you can replicate the majority of everyday UI
 structures in a clear, declarative style.

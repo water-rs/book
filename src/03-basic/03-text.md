@@ -13,7 +13,7 @@ SwiftUI, or Flutter differentiates `Text` from const literals.
 | Styled or reactive text | `Text` / `text!` macro | Full typography control and automatic updates when bound data changes. |
 | Format existing signals | `text!("Total: {amount:.2}", amount)` | Uses the `nami::s!` formatter under the hood. |
 | Display non-string signals | `Text::display(binding_of_number)` | Wraps any `Display` value, recalculating when the binding updates. |
-| Custom formatter (locale-aware, currency, dates) | `Text::format(value, Formatter)` | See `waterui_text::locale` for predefined formatters. |
+| Custom formatter (locale-aware, currency, dates) | `Text::format(value, Formatter)` | See `waterui::text::locale` for predefined formatters. |
 
 ## Labels: Zero-Cost Strings
 
@@ -65,7 +65,7 @@ Avoid `format!(…)` + `text(...)`; the one-off string will not update when data
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::reactive::binding;
-use waterui_text::font::FontWeight;
+use waterui::text::font::FontWeight;
 
 pub fn ticker(price: Binding<f32>) -> impl View {
     text!("${price:.2}")
@@ -98,14 +98,14 @@ pub fn stats() -> impl View {
 
     vstack((
         Text::display(active_users),
-        Text::format(uptime, waterui_text::locale::Percent::default()),
+        Text::format(uptime, waterui::text::locale::Percent::default()),
     ))
 }
 ```
 
 `Text::display` converts any `Signal<Output = impl Display>` into a reactive string. For complex
 localised formatting (currency, dates), `Text::format` interoperates with the formatters in
-`waterui_text::locale`.
+`waterui::text::locale`.
 
 ### Working with `Binding<Option<T>>`
 

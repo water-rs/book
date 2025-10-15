@@ -19,8 +19,8 @@ struct AppConfig {
 
 #[derive(Debug, Clone)]
 struct Theme {
-    primary_color: waterui::core::Color,
-    background_color: waterui::core::Color,
+    primary_color: waterui::Color,
+    background_color: waterui::Color,
 }
 
 pub fn entry() -> impl View {
@@ -47,6 +47,8 @@ pub fn home() -> impl View{
 Views can access environment values in their `body` method:
 
 ```rust,ignore
+use waterui::{prelude::*, Environment};
+
 struct ApiStatusView;
 
 impl View for ApiStatusView {
@@ -59,8 +61,10 @@ impl View for ApiStatusView {
             .expect("Theme should be provided");
         
         vstack((
-            waterui_text::Text::new(config.api_url.clone()).foreground(theme.primary_color.clone()),
-            waterui_text::Text::new(format!("Timeout: {}s", config.timeout_seconds)).size(14.0),
+            text!("{}", config.api_url)
+                .foreground(theme.primary_color.clone()),
+            text!("Timeout: {}s", config.timeout_seconds)
+                .size(14.0),
         ))
         .background(waterui::background::Background::color(theme.background_color.clone()))
     }
@@ -74,6 +78,7 @@ Function views don't directly receive the `env` parameter. Instead, you can comp
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::reactive::binding;
+use waterui::Environment;
 
 #[derive(Debug, Clone)]
 pub struct Message(&'static str);
@@ -81,8 +86,13 @@ pub struct Message(&'static str);
 pub fn click_me() -> impl View {
     let value = binding(String::new());
     vstack((
-        button("Show environment value").action_with(&value, |value, msg: waterui::core::extract::Use<Message>| {
-            value.set(msg.0 .0.to_string());
+        button("Show environment value").action_with(&value, |value, env: Environment| {
+            let message = env
+                .get::<Message>()
+                .cloned()
+                .expect("Message should be installed in the environment");
+
+            value.set(message.0.to_string());
         }),
         text!("{}", value),
     ))

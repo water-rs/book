@@ -8,7 +8,7 @@ The simplest way to use Suspense is with async functions that return views:
 
 ```rust,no_run
 use waterui::{View};
-use waterui_text::text;
+use waterui::text::text;
 use waterui::component::layout::stack::{vstack};
 use waterui::widget::suspense::Suspense;
 
@@ -41,7 +41,7 @@ You can set up default loading views in your application's environment:
 use waterui::{Environment};
 use waterui::view::AnyViewBuilder;
 use waterui::widget::suspense::{Suspense, DefaultLoadingView};
-use waterui_text::text;
+use waterui::text::text;
 use waterui::component::layout::stack::vstack;
 use waterui::component::layout::{Edge, Frame};
 
@@ -77,7 +77,7 @@ pub trait SuspendedView: 'static {
 
 ```rust,no_run
 use waterui::widget::suspense::{Suspense, SuspendedView};
-use waterui_text::text;
+use waterui::text::text;
 
 // These all work with Suspense automatically:
 
@@ -118,7 +118,7 @@ For more complex scenarios, you can implement `SuspendedView` manually:
 ```rust,no_run
 use waterui::{Environment, View};
 use waterui::widget::suspense::SuspendedView;
-use waterui_text::text;
+use waterui::text::text;
 use waterui::component::layout::stack::vstack;
 
 struct DataLoader {
