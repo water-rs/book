@@ -48,18 +48,21 @@ the handler you can call any of the convenience methods exposed by nami (`.incre
 ## Passing Data into Handlers
 
 Handlers can receive additional state or values from the environment in any order. Compose them with
-other extractors using tuples:
+other extractors using tuples, and prefer `Use<T>` to pull typed services out of the environment without
+manual lookups:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::core::extract::{Use, UseEnv};
+use waterui::Environment;
+use waterui_core::extract::Use;
 
 #[derive(Clone)]
 struct Analytics;
 
 fn delete_button(item_id: Binding<Option<u64>>) -> impl View {
     button("Delete")
-        .action_with(&item_id, |id, (Use(analytics), UseEnv(env)): (Use<Analytics>, UseEnv<Environment>)| {
+        .with(Analytics)
+        .action_with(&item_id, |id, Use(analytics): Use<Analytics>, env: Environment| {
             if let Some(id) = id.get() {
                 analytics.track_delete(id);
                 env.log("Item deleted");
@@ -68,8 +71,8 @@ fn delete_button(item_id: Binding<Option<u64>>) -> impl View {
 }
 ```
 
-> **Tip**: Extractors live in `waterui::core::extract`. They let you pull services (analytics,
-> database pools, etc.) from the environment at the moment the handler runs.
+> **Tip**: Handler parameters that implement the `Extractor` trait—such as `Environment` and values
+> registered with `.with()`—are pulled from the environment automatically before your closure runs.
 
 ## Custom Labels and Composition
 
@@ -77,8 +80,8 @@ Because labels are just views, you can craft rich buttons with icons, nested sta
 content.
 
 ```rust,ignore
+use waterui::layout::{padding::EdgeInsets, stack::hstack};
 use waterui::prelude::*;
-use waterui::component::layout::{padding::EdgeInsets, stack::hstack};
 
 fn hero_button() -> impl View {
     button(

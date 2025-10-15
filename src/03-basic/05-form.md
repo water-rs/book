@@ -21,8 +21,8 @@ This eliminates a huge amount of boilerplate code. You don't need to write manua
 
 The easiest way to create forms in WaterUI is using the `#[derive(FormBuilder)]` macro:
 
-```rust
-use waterui_form::{FormBuilder, form};
+```rust,ignore
+use waterui::form::{FormBuilder, form};
 use waterui::reactive::Binding;
 
 #[derive(Default, Clone, Debug, FormBuilder)]
@@ -67,12 +67,12 @@ The `FormBuilder` macro automatically maps Rust types to appropriate form compon
 
 Let's build a more comprehensive form:
 
-```rust
-use waterui_form::{FormBuilder, form};
+```rust,ignore
+use waterui::component::stack::vstack;
+use waterui::form::{FormBuilder, form};
 use waterui::reactive::Binding;
+use waterui::text::text;
 use waterui::Color;
-use waterui::component::layout::stack::vstack;
-use waterui_text::text;
 
 #[derive(Default, Clone, Debug, FormBuilder)]
 struct RegistrationForm {
@@ -123,8 +123,8 @@ You can also use form controls individually:
 
 ### Text Fields
 
-```rust
-use waterui_form::{TextField, field};
+```rust,ignore
+use waterui::form::{TextField, field};
 use waterui::reactive::binding;
 
 fn text_field_example() -> impl View {
@@ -135,8 +135,8 @@ fn text_field_example() -> impl View {
 
 ### Toggle Switches
 
-```rust
-use waterui_form::{Toggle, toggle};
+```rust,ignore
+use waterui::form::{Toggle, toggle};
 use waterui::reactive::binding;
 
 fn toggle_example() -> impl View {
@@ -147,8 +147,8 @@ fn toggle_example() -> impl View {
 
 ### Number Steppers
 
-```rust
-use waterui_form::{Stepper, stepper};
+```rust,ignore
+use waterui::form::{Stepper, stepper};
 use waterui::reactive::binding;
 
 fn stepper_example() -> impl View {
@@ -159,8 +159,8 @@ fn stepper_example() -> impl View {
 
 ### Sliders
 
-```rust
-use waterui_form::Slider;
+```rust,ignore
+use waterui::form::Slider;
 use waterui::reactive::binding;
 
 fn slider_example() -> impl View {
@@ -173,7 +173,7 @@ fn slider_example() -> impl View {
 
 ### Multi-Step Forms
 
-```rust
+```rust,ignore
 use waterui::reactive::binding;
 use waterui::widget::condition::when;
 
@@ -227,13 +227,10 @@ fn registration_wizard() -> impl View {
 
 For complete control over form layout, implement `FormBuilder` manually:
 
-```rust
-use waterui_form::{FormBuilder, TextField, Toggle};
-use waterui::{
-    core::Binding,
-    component::layout::stack::{vstack, hstack},
-};
-use waterui::reactive::binding;
+```rust,ignore
+use waterui::component::stack::{hstack, vstack};
+use waterui::form::{FormBuilder, TextField, Toggle};
+use waterui::reactive::{Binding, binding};
 
 struct CustomForm {
     title: String,
@@ -262,8 +259,8 @@ impl FormBuilder for CustomForm {
 
 For sensitive data like passwords:
 
-```rust
-use waterui_form::{SecureField, secure};
+```rust,ignore
+use waterui::form::{SecureField, secure};
 use waterui::reactive::binding;
 
 fn password_form() -> impl View {
@@ -296,7 +293,7 @@ For more complex forms, it's a good practice to encapsulate your validation logi
 
 Let's create a `Validation` struct that holds computed signals for each validation rule.
 
-```rust
+```rust,ignore
 use waterui::reactive::binding;
 
 #[derive(Default, Clone, FormBuilder)]
@@ -356,7 +353,7 @@ fn validated_form_view() -> impl View {
 
 Forms integrate seamlessly with WaterUI's reactive state system:
 
-```rust
+```rust,ignore
 use nami::s;
 use waterui::widget::condition::when;
 

@@ -4,7 +4,7 @@ Layouts determine how views measure themselves and where they end up on screen. 
 a two-stage process similar to SwiftUI and Flutter: first the framework proposes sizes to each
 child, then it places those children inside the final bounds returned by the renderer. This
 chapter documents the high-level containers you will reach for most often and explains how they
-map to the lower-level layout primitives exposed in `waterui_layout`.
+map to the lower-level layout primitives exposed in `waterui::layout`.
 
 ## How the Layout Pass Works
 
@@ -27,8 +27,8 @@ and are zero-cost abstractions once the layout pass completes.
 ### Vertical Stacks (`vstack` / `VStack`)
 
 ```rust,ignore
+use waterui::layout::stack::vstack;
 use waterui::prelude::*;
-use waterui::component::layout::stack::vstack;
 use waterui::reactive::binding;
 
 pub fn profile_card() -> impl View {
@@ -55,8 +55,8 @@ Key points:
 ### Horizontal Stacks (`hstack` / `HStack`)
 
 ```rust,ignore
+use waterui::layout::{spacer, stack::hstack};
 use waterui::prelude::*;
-use waterui::component::layout::{spacer, stack::hstack};
 
 pub fn toolbar() -> impl View {
     hstack((
@@ -80,10 +80,10 @@ behaviour, spacing applies horizontally, and spacers expand along the x-axis.
 background effects.
 
 ```rust,ignore
+use waterui::layout::padding::EdgeInsets;
+use waterui::layout::stack::zstack;
+use waterui::media::Photo;
 use waterui::prelude::*;
-use waterui::component::layout::padding::EdgeInsets;
-use waterui::component::layout::stack::zstack;
-use waterui::components::media::Photo;
 
 pub fn photo_with_badge() -> impl View {
     zstack((
@@ -107,8 +107,8 @@ Combined with padding you can fine-tune overlay offsets without writing custom l
 SwiftUI’s spacer or Flutter’s `Expanded` with a default flex of 1.
 
 ```rust,ignore
+use waterui::layout::{spacer, stack::hstack};
 use waterui::prelude::*;
-use waterui::component::layout::{spacer, stack::hstack};
 
 pub fn pagination_controls() -> impl View {
     hstack((
@@ -129,8 +129,8 @@ minimum gap.
 Any view gains padding via `ViewExt::padding()` or `padding_with(EdgeInsets)`.
 
 ```rust,ignore
+use waterui::layout::padding::EdgeInsets;
 use waterui::prelude::*;
-use waterui::component::layout::padding::EdgeInsets;
 
 fn message_bubble(text: impl Into<Str>) -> impl View {
     text(text)
@@ -151,8 +151,8 @@ WaterUI exposes scroll containers that delegate behaviour to the active renderer
 content might overflow the viewport:
 
 ```rust,ignore
+use waterui::layout::scroll::{scroll, scroll_both, scroll_horizontal};
 use waterui::prelude::*;
-use waterui::component::layout::scroll::{scroll, scroll_horizontal, scroll_both};
 
 pub fn article(body: impl View) -> impl View {
     scroll(body.padding())
@@ -173,8 +173,8 @@ The `grid` API arranges rows and columns with consistent spacing. Every row is a
 container needs the number of columns up front.
 
 ```rust,ignore
+use waterui::layout::grid::{grid, row};
 use waterui::prelude::*;
-use waterui::component::layout::grid::{grid, row};
 
 pub fn emoji_palette() -> impl View {
     grid(4, [
@@ -202,9 +202,8 @@ common SwiftUI pattern; in WaterUI you construct an explicit frame via `ViewExt:
 methods on `Frame`:
 
 ```rust,ignore
+use waterui::layout::frame::Frame;
 use waterui::prelude::*;
-use waterui::component::layout::frame::Frame;
-use waterui::component::layout::stack::vstack;
 
 fn gallery_thumbnail(content: impl View) -> impl View {
     Frame::new(content)
@@ -233,6 +232,6 @@ create predictable compositions.
 ## Where to Go Next
 
 Explore the advanced layout chapter for details on implementing custom `Layout` types, or scan the
-`waterui_layout` crate for lower-level primitives like `Container` and `ProposalSize`. Armed with
+`waterui::layout` module for lower-level primitives like `Container` and `ProposalSize`. Armed with
 stacks, spacers, padding, grids, and frames you can replicate the majority of everyday UI
 structures in a clear, declarative style.

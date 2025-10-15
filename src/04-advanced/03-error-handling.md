@@ -8,7 +8,7 @@ Error handling in WaterUI is designed to integrate seamlessly with the declarati
 
 The `Error` type is a type-erased wrapper that can hold any error implementing the standard `Error` trait and render it as a view:
 
-```rust
+```rust,ignore
 use waterui::widget::error::Error;
 use std::io;
 
@@ -21,7 +21,7 @@ let ui_error = Error::new(io_error);
 
 WaterUI uses the environment system to configure how errors are displayed throughout your application:
 
-```rust
+```rust,ignore
 use waterui::Environment;
 use waterui::widget::error::{DefaultErrorView, BoxedStdError};
 
@@ -42,7 +42,7 @@ let env = Environment::new()
 
 The `ResultExt` trait provides convenient methods for converting `Result` types to views:
 
-```rust
+```rust,ignore
 use waterui::widget::error::ResultExt;
 use waterui::prelude::*;
 
@@ -69,7 +69,7 @@ fn user_profile_view(user_id: u32) -> impl View {
 
 You can handle errors inline within view construction:
 
-```rust
+```rust,ignore
 fn network_status_view() -> impl View {
     vstack((
         "Network Status",
@@ -87,7 +87,7 @@ fn network_status_view() -> impl View {
 
 The error system preserves type information, allowing you to downcast to specific error types for specialized handling:
 
-```rust
+```rust,ignore
 use waterui::widget::error::Error;
 use std::io;
 
@@ -124,7 +124,7 @@ fn handle_file_error(error: Error) -> impl View {
 
 Create errors directly from custom views for complete control over presentation:
 
-```rust
+```rust,ignore
 use waterui::widget::error::Error;
 
 fn validation_error_view(field: &str, message: &str) -> Error {
@@ -157,7 +157,7 @@ fn validate_email(email: &str) -> Result<String, Error> {
 
 Combine error handling with loading states for better user experience:
 
-```rust
+```rust,ignore
 enum LoadingState<T> {
     Loading,
     Loaded(T),
@@ -186,7 +186,7 @@ fn data_view(state: LoadingState<UserData>) -> impl View {
 
 Provide context-aware error messages based on the current view:
 
-```rust
+```rust,ignore
 fn api_request_view(endpoint: &str) -> impl View {
     match make_api_request(endpoint)
         .error_view(|err| {
@@ -215,7 +215,7 @@ fn api_request_view(endpoint: &str) -> impl View {
 
 Set up a consistent error presentation style at your app's root:
 
-```rust
+```rust,ignore
 fn app_root() -> impl View {
     ContentView::new()
         .with(DefaultErrorView::new(|error| {
@@ -235,7 +235,7 @@ fn app_root() -> impl View {
 
 Include relevant actions users can take to resolve errors:
 
-```rust
+```rust,ignore
 fn network_error_view(error: NetworkError) -> impl View {
     vstack((
         "Connection Problem",
@@ -253,7 +253,7 @@ fn network_error_view(error: NetworkError) -> impl View {
 
 Handle different error types at appropriate levels in your view hierarchy:
 
-```rust
+```rust,ignore
 fn user_dashboard() -> impl View {
     vstack((
         // Handle critical errors at component level

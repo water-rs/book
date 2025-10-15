@@ -19,8 +19,8 @@ struct AppConfig {
 
 #[derive(Debug, Clone)]
 struct Theme {
-    primary_color: waterui::core::Color,
-    background_color: waterui::core::Color,
+    primary_color: waterui::Color,
+    background_color: waterui::Color,
 }
 
 pub fn entry() -> impl View {
@@ -47,6 +47,8 @@ pub fn home() -> impl View{
 Views can access environment values in their `body` method:
 
 ```rust,ignore
+use waterui::{prelude::*, Environment};
+
 struct ApiStatusView;
 
 impl View for ApiStatusView {
@@ -59,8 +61,10 @@ impl View for ApiStatusView {
             .expect("Theme should be provided");
         
         vstack((
-            waterui_text::Text::new(config.api_url.clone()).foreground(theme.primary_color.clone()),
-            waterui_text::Text::new(format!("Timeout: {}s", config.timeout_seconds)).size(14.0),
+            text!("{}", config.api_url)
+                .foreground(theme.primary_color.clone()),
+            text!("Timeout: {}s", config.timeout_seconds)
+                .size(14.0),
         ))
         .background(waterui::background::Background::color(theme.background_color.clone()))
     }
@@ -74,6 +78,7 @@ Function views don't directly receive the `env` parameter. Instead, you can comp
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::reactive::binding;
+use waterui_core::extract::Use;
 
 #[derive(Debug, Clone)]
 pub struct Message(&'static str);
@@ -81,11 +86,49 @@ pub struct Message(&'static str);
 pub fn click_me() -> impl View {
     let value = binding(String::new());
     vstack((
-        button("Show environment value").action_with(&value, |value, msg: waterui::core::extract::Use<Message>| {
-            value.set(msg.0 .0.to_string());
+        button("Show environment value").action_with(&value, |value, Use(message): Use<Message>| {
+            value.set(message.0.to_string());
         }),
         text!("{}", value),
     ))
     .with(Message("I'm Lexo"))
 }
 ```
+
+### Ergonomic extraction with `Use<T>`
+
+Any argument wrapped in `Use<T>` triggers WaterUI’s extractor machinery. When the closure runs, the
+runtime looks up `T` inside the environment, clones it, and unwraps the tuple-style struct for you.
+Missing values cause an immediate panic, surfacing configuration bugs during development instead of
+silently ignoring them.
+
+> **Note:** `Use<T>` currently lives in `waterui_core::extract`. Re-export it from your application
+> crate (e.g. `pub use waterui_core::extract::Use;`) so the rest of your code can stay on the
+> top-level `waterui` surface without depending on the lower-level crates directly.
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui_core::extract::Use;
+
+#[derive(Clone)]
+struct Analytics;
+
+impl Analytics {
+    fn track(&self, message: &str) {
+        println!("{message}");
+    }
+}
+
+fn save_button() -> impl View {
+    button("Save").action(|Use(analytics): Use<Analytics>| {
+        analytics.track("Saved from extractor");
+    })
+}
+
+fn view() -> impl View {
+    save_button().with(Analytics)
+}
+```
+
+Combine `Use<T>` with other extractor types—like `Environment`, `Binding`, or `Option<Use<T>>`—to build
+handlers that receive exactly the dependencies they need.

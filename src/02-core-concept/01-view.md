@@ -36,7 +36,7 @@ WaterUI provides many built-in Views for common UI elements:
 text!("Hello, {name}!")
 
 // Styled text
-waterui_text::Text::new("Important!")
+waterui::text::Text::new("Important!")
     .size(24.0)
 ```
 
@@ -92,8 +92,8 @@ The real power of WaterUI comes from creating your own custom Views. Let's explo
 // Simpler and cleaner - no View trait needed!
 fn welcome_message(name: &str) -> impl View {
     vstack((
-        waterui_text::Text::new("Welcome!").size(24.0),
-        waterui_text::Text::new(format!("Hello, {}!", name)),
+        waterui::text::Text::new("Welcome!").size(24.0),
+        waterui::text::Text::new(format!("Hello, {}!", name)),
     ))
 }
 
