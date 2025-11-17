@@ -3,7 +3,7 @@
 Reactive state management is the core of any interactive WaterUI application. When your data changes, the UI should automatically update to reflect it. This chapter teaches you how to master WaterUI's reactive system, powered by the **nami** crate.
 
 > All examples assume the following imports:
-> ```rust,ignore
+> ```rust
 > use waterui::prelude::*;
 > use waterui::reactive::binding;
 > ```
@@ -12,13 +12,17 @@ Reactive state management is the core of any interactive WaterUI application. Wh
 
 Everything in nami's reactive system implements the `Signal` trait. It represents **any value that can be observed for changes**.
 
-```rust,ignore
+```rust
+# use core::marker::PhantomData;
+pub struct Context<T>(PhantomData<T>);
+
 pub trait Signal: Clone + 'static {
     type Output;
-    
+    type Guard;
+
     // Get the current value of the signal
     fn get(&self) -> Self::Output;
-    
+
     // Watch for changes (used internally by the UI)
     fn watch(&self, watcher: impl Fn(Context<Self::Output>) + 'static) -> Self::Guard;
 }
@@ -34,12 +38,13 @@ A `Signal` is a reactive value that knows how to:
 
 A `Binding<T>` is the most common way to manage **mutable** reactive state. It holds a value that can be changed, and it will notify any part of the UI that depends on it.
 
-```rust,ignore
-use waterui::prelude::*;
-
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
 // Create mutable reactive state with automatic type conversion
-let counter = binding(0);
-let name = binding("Alice");
+let counter: Binding<i32> = binding(0);
+let name: Binding<String> = binding("Alice".to_string());
 
 // Set new values, which triggers UI updates
 counter.set(42);
@@ -50,11 +55,13 @@ name.set("Bob".to_string());
 
 A `Computed<T>` is a signal that is **derived** from one or more other signals. It automatically updates its value when its dependencies change. You create computed signals using the methods from the `SignalExt` trait.
 
-```rust,ignore
-use nami::SignalExt;
-
-let first_name = binding("Alice");
-let last_name = binding("Smith");
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::SignalExt;
+# use waterui::Binding;
+let first_name: Binding<String> = binding("Alice".to_string());
+let last_name: Binding<String> = binding("Smith".to_string());
 
 // Create a computed signal that updates automatically
 let full_name = first_name.zip(last_name).map(|(first, last)| {
@@ -75,7 +82,11 @@ Sometimes the compiler can't deduce the target type—especially when starting f
 `Default::default()`, or other type-agnostic values. In those cases, add an explicit type
 with the turbofish syntax:
 
-```rust,ignore
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# #[derive(Clone)]
+# struct User;
 // Starts as None, so we spell out the final type.
 let selected_user = binding::<Option<User>>(None);
 
@@ -89,9 +100,8 @@ The rest of the ergonomics (methods like `.set`, `.toggle`, `.push`) remain exac
 
 Even simple, non-changing values can be treated as signals. This allows you to use them seamlessly in a reactive context.
 
-```rust,ignore
-use nami::constant;
-
+```rust
+# use waterui::reactive::constant;
 let fixed_name = constant("WaterUI"); // Never changes
 let literal_string = "Hello World";   // Also a signal!
 ```
@@ -100,8 +110,11 @@ let literal_string = "Hello World";   // Also a signal!
 
 Calling `.get()` on a signal extracts a **static, one-time snapshot** of its value. When you do this, you break the reactive chain. The UI will be built with that snapshot and will **never update** when the original signal changes.
 
-```rust,ignore
-let name = binding("Alice");
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+let name: Binding<String> = binding("Alice");
 
 // ❌ WRONG: Using .get() breaks reactivity
 let broken_message = format!("Hello, {}", name.get());
@@ -125,7 +138,9 @@ text(reactive_message); // This updates automatically when `name` changes.
 
 The simplest way to update a binding is with `.set()`.
 
-```rust,ignore
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
 let counter = binding(0);
 counter.set(10); // The counter is now 10
 ```
@@ -134,11 +149,15 @@ counter.set(10); // The counter is now 10
 
 For complex types, `.update()` allows you to modify the value in-place without creating a new one. It takes a closure that receives a mutable reference to the value.
 
-```rust,ignore
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# #[derive(Clone)]
+# struct User { name: String, tags: Vec<&'static str> }
 let user = binding(User { name: "Alice".to_string(), tags: vec![] });
 
 // Modify the user in-place
-user.update(|user| {
+user.with_mut(|user: &mut User| {
     user.name = "Alicia".to_string();
     user.tags.push("admin");
 });
@@ -150,8 +169,11 @@ This is more efficient than cloning the value, modifying it, and then calling `.
 
 For boolean bindings, `.toggle()` is a convenient shortcut.
 
-```rust,ignore
-let is_visible = binding(false);
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+let is_visible: Binding<bool> = binding(false);
 is_visible.toggle(); // is_visible is now true
 ```
 
@@ -159,7 +181,9 @@ is_visible.toggle(); // is_visible is now true
 
 For scoped, complex mutations, `.get_mut()` provides a guard. The binding is marked as changed only when the guard is dropped.
 
-```rust,ignore
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
 let data = binding::<Vec<i32>>(vec![1, 2, 3]);
 
 // Get a mutable guard. The update is sent when `guard` goes out of scope.
@@ -172,26 +196,69 @@ guard.sort();
 
 The `s!` macro is a powerful tool for creating reactive strings. It automatically captures signals from the local scope and creates a computed string that updates whenever any of the captured signals change.
 
-| Without `s!` (Manual & Verbose) | With `s!` (Concise & Reactive) |
-| ------------------------------- | ------------------------------ |
-| ```rust,ignore
-let name = binding("John");
-let age = binding(30);
+Without `s!` (manual & verbose):
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::SignalExt;
+# use waterui::Binding;
+let name: Binding<String> = binding("John");
+let age: Binding<i32> = binding(30);
 
 let message = name.zip(age).map(|(n, a)| {
     format!("{} is {} years old.", n, a)
 });
-``` | ```rust,ignore
-let name = binding("John");
-let age = binding(30);
+```
+
+With `s!` (concise & reactive):
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+let name: Binding<String> = binding("John");
+let age: Binding<i32> = binding(30);
 
 let message = s!("{} is {} years old.", name, age);
-``` |
+```
 
 The `s!` macro also supports named arguments for even greater clarity:
-```rust,ignore
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+let name: Binding<String> = binding("John");
+let age: Binding<i32> = binding(30);
 let message = s!("{name} is {age} years old.");
 ```
+
+## Feeding Signals Into Views
+
+Signals become visible through views. WaterUI ships a few bridges:
+
+- **Formatting macros** (`text!`, `s!`, `format_signal!`) capture bindings automatically.
+- **Dynamic views** (`Dynamic::watch` or `waterui::views::watch`) subscribe to any `Signal` and rebuild their child when it changes.
+- **Resolver-aware components** consume `impl Resolvable`, which often wrap signals resolved against the `Environment`.
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Signal;
+# use waterui::Binding;
+# use waterui_core::dynamic::watch;
+
+pub fn temperature(reading: impl Signal<Output = i32>) -> impl View {
+    watch(reading, |value| text!("Current: {value}°C"))
+}
+
+pub fn profile(name: &str) -> impl View {
+    let name: Binding<String> = binding(name.to_string());
+    text!("Hello, {name}!")
+}
+```
+
+Whenever possible, pass signals directly into these helpers instead of calling `.get()`. That keeps the UI diffing fast and narrowly scoped to the widgets that truly care.
 
 ## Transforming Signals with `SignalExt`
 
@@ -203,17 +270,18 @@ The `SignalExt` trait provides a rich set of combinators for creating new comput
 - **`.debounce()`**: Wait for a quiet period before propagating an update.
 - **`.throttle()`**: Limit updates to a specific time interval.
 
-```rust,ignore
-use std::time::Duration;
-use nami::SignalExt;
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui::SignalExt;
+let query: Binding<String> = binding(String::new());
 
-let query = binding(String::new());
+// Trim whitespace reactively so searches only fire when meaningful.
+let trimmed_query = query.clone().map(|q| q.trim().to_string());
 
-// A debounced signal that only updates 200ms after the user stops typing.
-let debounced_query = query.debounce(Duration::from_millis(200));
-
-// A derived signal that performs a search when the debounced query is not empty.
-let search_results = debounced_query.map(|q| {
+// A derived signal that performs a search when the query is not empty.
+let search_results = trimmed_query.map(|q| {
     if q.is_empty() {
         vec![]
     } else {
@@ -222,5 +290,23 @@ let search_results = debounced_query.map(|q| {
     }
 });
 ```
+
+## Watching Signals Manually
+
+Occasionally you need to run imperative logic whenever a value changes—logging, analytics, or triggering a network request. Every signal exposes `watch` for that purpose:
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::reactive::watcher::Context;
+# use waterui::Binding;
+let name: Binding<String> = binding("Alice");
+let _guard = name.watch(|ctx: Context<String>| {
+    println!("Name changed to {}", ctx.value());
+    println!("Metadata: {:?}", ctx.metadata());
+});
+```
+
+Keep the returned guard alive as long as you need the subscription. Dropping it unsubscribes automatically. Inside view code, WaterUI keeps these guards alive for you (e.g., `Dynamic::watch` stores the guard alongside the rendered view via `With` metadata), but it is useful to know how the primitive operates when you build custom integrations.
 
 By mastering these fundamental concepts, you can build complex, efficient, and maintainable reactive UIs with WaterUI.

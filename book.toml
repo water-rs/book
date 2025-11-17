@@ -8,6 +8,7 @@ src = "src"
 
 [rust]
 edition = "2021"
+rustdoc = "scripts/mdbook-rustdoc.sh"
 
 [build]
 build-dir = "book"

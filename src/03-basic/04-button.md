@@ -1,7 +1,14 @@
-# Buttons
+# Controls Overview
+
+Buttons, toggles, sliders, text fields, and steppers live inside `waterui::components::controls`.
+They share the same handler ergonomics and reactive bindings you saw in earlier chapters. This
+chapter walks through each control, explaining how to wire it to `Binding` values, style labels, and
+compose them into larger workflows.
+
+## Buttons
 
 Buttons turn user intent into actions. WaterUI’s `button` helper mirrors the ergonomics of SwiftUI
-while keeping the full power of Rust’s closures. This chapter explains how to build buttons, capture
+while keeping the full power of Rust’s closures. This section explains how to build buttons, capture
 state, coordinate with the environment, and structure handlers for complex flows.
 
 ## Anatomy of a Button
@@ -9,8 +16,8 @@ state, coordinate with the environment, and structure handlers for complex flows
 `button(label)` returns a `Button` view. The `label` can be any view—string literal, `Text`, or a
 fully custom composition. Attach behaviour with `.action` or `.action_with`.
 
-```rust,ignore
-use waterui::prelude::*;
+```rust
+# use waterui::prelude::*;
 
 fn simple_button() -> impl View {
     button("Click Me").action(|| {
@@ -27,42 +34,52 @@ Behind the scenes, WaterUI converts the closure into a `HandlerFn`. Handlers can
 Buttons often mutate reactive state. Use `action_with` to borrow a binding without cloning it
 manually.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::reactive::binding;
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::widget::condition::when;
+# use waterui::Binding;
 
 fn counter_button() -> impl View {
-    let count = binding(0);
+    let count: Binding<i32> = binding(0);
 
     vstack((
         text!("Count: {count}"),
-        button("Increment").action_with(&count, |binding| binding.increment(1)),
+        button("Increment").action_with(&count, |binding: Binding<i32>| {
+            binding.set(binding.get() + 1);
+        }),
     ))
 }
 ```
 
 `.action_with(&binding, handler)` clones the binding for you (bindings are cheap handles). Inside
-the handler you can call any of the convenience methods exposed by nami (`.increment`, `.toggle`,
-`.push`, `.update`, …).
+the handler you can call any of the binding helpers—`set`, `set_from`, `with_mut`, etc.—to keep the
+state reactive.
 
 ## Passing Data into Handlers
 
 Handlers can receive additional state or values from the environment in any order. Compose them with
 other extractors using tuples:
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::core::extract::{Use, UseEnv};
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui_core::extract::Use;
 
 #[derive(Clone)]
 struct Analytics;
 
+impl Analytics {
+    fn track_delete(&self, _id: u64) {}
+}
+
 fn delete_button(item_id: Binding<Option<u64>>) -> impl View {
     button("Delete")
-        .action_with(&item_id, |id, (Use(analytics), UseEnv(env)): (Use<Analytics>, UseEnv<Environment>)| {
+        .action_with(&item_id, |id: Binding<Option<u64>>, Use(analytics): Use<Analytics>| {
             if let Some(id) = id.get() {
                 analytics.track_delete(id);
-                env.log("Item deleted");
+                println!("Deleted item {id}");
             }
         })
 }
@@ -76,9 +93,9 @@ fn delete_button(item_id: Binding<Option<u64>>) -> impl View {
 Because labels are just views, you can craft rich buttons with icons, nested stacks, or dynamic
 content.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::{padding::EdgeInsets, stack::hstack};
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::{padding::EdgeInsets, stack::hstack};
 
 fn hero_button() -> impl View {
     button(
@@ -102,9 +119,10 @@ like any other view.
 WaterUI does not currently ship a built-in `.disabled` modifier. Instead, guard inside the handler or
 wrap the button in a conditional.
 
-```rust,ignore
-use waterui::widget::condition::when;
-
+```rust
+# use waterui::prelude::*;
+# use waterui::widget::condition::when;
+# use waterui::Computed;
 fn guarded_submit(can_submit: Computed<bool>) -> impl View {
     when(can_submit.clone(), || {
         button("Submit").action(|| println!("Submitted"))
@@ -115,36 +133,39 @@ fn guarded_submit(can_submit: Computed<bool>) -> impl View {
 
 For idempotent operations, simply return early:
 
-```rust,ignore
-button("Pay")
-    .action_with(&payment_state, |state| {
-        if state.is_processing() {
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn pay_button() -> impl View {
+    let payment_state: Binding<bool> = binding(false);
+    button("Pay").action_with(&payment_state, |state: Binding<bool>| {
+        if state.get() {
             return;
         }
-        state.begin_processing();
-    });
+        state.set(true);
+    })
+}
 ```
 
 ## Asynchronous Workflows
 
 Handlers run on the UI thread. When you need async work, hand it off to a task:
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::task::task;
-
-fn refresh_button() -> impl View {
+```rust
+# use waterui::prelude::*;
+# use waterui::task::spawn;
+pub fn refresh_button() -> impl View {
     button("Refresh").action(|| {
-        task(async {
-            let data = fetch_from_api().await;
-            update_store(data);
+        spawn(async move {
+            println!("Refreshing data…");
         });
     })
 }
 ```
 
-`task` spawns onto the executor configured for your app (see the `task` chapter). Keep the handler
-lightweight—schedule work and return.
+`spawn` hands the async work to the configured executor so the handler stays lightweight—schedule
+work and return immediately.
 
 ## Best Practices
 
@@ -156,3 +177,106 @@ lightweight—schedule work and return.
 
 Buttons may look small, but they orchestrate the majority of user journeys. Combine them with the
 layout and state tools covered elsewhere in this book to build polished, responsive workflows.
+
+## Toggles
+
+Toggles expose boolean bindings with a platform-native appearance.
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::widget::condition::when;
+# use waterui::Binding;
+pub fn settings_toggle() -> impl View {
+    let wifi_enabled: Binding<bool> = binding(true);
+
+    vstack((
+        toggle("Wi-Fi", &wifi_enabled),
+        when(wifi_enabled.map(|on| on), || text("Connected to Home"))
+            .or(|| text("Wi-Fi disabled")),
+    ))
+}
+```
+
+- Pass the label as any view (string, `Text`, etc.) along with a `Binding<bool>`.
+- Bind directly to a `Binding<bool>`; if you need side effects, react in a separate handler using `when` or `task`.
+- Combine with `when` to surface context (“Wi-Fi connected to Home” vs “Wi-Fi off”).
+
+## Sliders
+
+Sliders map a numeric range onto a drag gesture. Provide the inclusive range and the bound value.
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn volume_control() -> impl View {
+    let volume: Binding<f64> = binding(0.4_f64);
+
+    Slider::new(0.0..=1.0, &volume)
+        .label(text("Volume"))
+}
+```
+Tips:
+- `.step(value)` snaps to increments.
+- `.label(view)` attaches an inline view (e.g., `text("Volume")`).
+- For discrete ranges (0-10), wrap the slider alongside a `Text::display(volume.map(...))`.
+
+## Steppers
+
+Steppers are ideal for precise numeric entry without a keyboard.
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn quantity_selector() -> impl View {
+    let quantity: Binding<i32> = binding(1);
+
+    stepper(&quantity)
+        .step(1)
+        .range(1..=10)
+        .label(text("Quantity"))
+}
+```
+
+- `.range(min..=max)` clamps the value.
+- `.step(size)` controls increments/decrements.
+- Because steppers operate on `Binding<i32>`/`Binding<i64>`, convert floats to integers before using.
+
+## Text Fields
+
+`TextField` binds to `Binding<String>` and exposes placeholder text plus secure-entry modes.
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui::Str;
+
+pub fn login_fields() -> impl View {
+    let username: Binding<String> = binding(String::new());
+    let password: Binding<String> = binding(String::new());
+    let username_str = Binding::mapping(&username, |data| Str::from(data), |binding, value: Str| {
+        binding.set(value.to_string());
+    });
+    let password_str = Binding::mapping(&password, |data| Str::from(data), |binding, value: Str| {
+        binding.set(value.to_string());
+    });
+
+    vstack((
+        vstack((
+            text("Username"),
+            TextField::new(&username_str).prompt(text("you@example.com")),
+        )),
+        vstack((
+            text("Password"),
+            TextField::new(&password_str).prompt(text("••••••")),
+        )),
+    ))
+}
+```
+
+WaterUI automatically syncs user edits back into the binding. Combine `.on_submit(handler)` with the
+button patterns above to run validation or send credentials. When you need structured forms, these
+controls are exactly what the `FormBuilder` macro wires up behind the scenes.

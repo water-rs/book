@@ -7,7 +7,7 @@ usage through advanced configuration.
 
 ## Photos: Static Images with Placeholders
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::components::media::Photo;
 
@@ -30,7 +30,7 @@ Key features:
 `Video` represents a source, while `VideoPlayer` renders controls. Create one `Video` per asset and
 reuse it if multiple players should point at the same file.
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::components::media::{Video, VideoPlayer};
 use waterui::reactive::binding;
@@ -62,7 +62,7 @@ layering overlays or gestures on top.
 Apple’s Live Photos combine a still image and a short video clip. WaterUI packages the pair inside
 `LivePhotoSource`:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::components::media::{LivePhoto, LivePhotoSource};
 
@@ -83,7 +83,7 @@ Backends that don’t support Live Photos fall back to the still image.
 When the media type is decided at runtime, wrap it in `Media`. Rendering becomes a single view
 binding instead of a large `match` statement.
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::components::media::Media;
 use waterui::reactive::binding;
@@ -110,7 +110,7 @@ features = ["media-picker"]
 
 Then present the picker:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::components::media::picker::{MediaFilter, MediaPicker, Selected};
 use waterui::reactive::binding;
@@ -127,7 +127,7 @@ pub fn choose_photo() -> impl View {
 The `Selected` binding stores an identifier. Use `Selected::load()` asynchronously (via `task`) to
 receive the actual `Media` item and pipe it into your view tree.
 
-```rust,ignore
+```rust
 use waterui::components::media::Media;
 use waterui::reactive::binding;
 use waterui::task::task;

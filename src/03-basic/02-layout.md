@@ -26,14 +26,15 @@ and are zero-cost abstractions once the layout pass completes.
 
 ### Vertical Stacks (`vstack` / `VStack`)
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::stack::vstack;
-use waterui::reactive::binding;
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::stack::{vstack, HorizontalAlignment};
+# use waterui::reactive::binding;
+# use waterui::Binding;
 
 pub fn profile_card() -> impl View {
-    let name = binding("Ada Lovelace");
-    let followers = binding(128_000);
+    let name: Binding<String> = binding("Ada Lovelace".to_string());
+    let followers: Binding<i32> = binding(128_000);
 
     vstack((
         text!("{name}"),
@@ -54,9 +55,10 @@ Key points:
 
 ### Horizontal Stacks (`hstack` / `HStack`)
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::{spacer, stack::hstack};
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::{spacer, stack::hstack};
+# use waterui::layout::stack::VerticalAlignment;
 
 pub fn toolbar() -> impl View {
     hstack((
@@ -79,18 +81,18 @@ behaviour, spacing applies horizontally, and spacers expand along the x-axis.
 `zstack` draws every child in the same rectangle. It is perfect for badges, overlays, and
 background effects.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::padding::EdgeInsets;
-use waterui::component::layout::stack::zstack;
-use waterui::components::media::Photo;
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::padding::EdgeInsets;
+# use waterui::layout::stack::{zstack, Alignment};
+# use waterui::media::Photo;
 
 pub fn photo_with_badge() -> impl View {
     zstack((
         Photo::new("https://example.com/cover.jpg"),
         text("LIVE")
             .padding_with(EdgeInsets::symmetric(4.0, 8.0))
-            .background(waterui::background::Background::color((0.9, 0.1, 0.1).into()))
+            .background(waterui::background::Background::color(Color::srgb_f32(0.9, 0.1, 0.1)))
             .alignment(Alignment::TopLeading)
             .padding_with(EdgeInsets::new(8.0, 0.0, 0.0, 0.0)),
     ))
@@ -106,9 +108,9 @@ Combined with padding you can fine-tune overlay offsets without writing custom l
 `spacer()` expands to consume all remaining room along the stack’s main axis. It behaves like
 SwiftUI’s spacer or Flutter’s `Expanded` with a default flex of 1.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::{spacer, stack::hstack};
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::{spacer, stack::hstack};
 
 pub fn pagination_controls() -> impl View {
     hstack((
@@ -128,14 +130,17 @@ minimum gap.
 
 Any view gains padding via `ViewExt::padding()` or `padding_with(EdgeInsets)`.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::padding::EdgeInsets;
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::padding::EdgeInsets;
+# use waterui::layout::stack::Alignment;
+# use waterui::Str;
 
-fn message_bubble(text: impl Into<Str>) -> impl View {
-    text(text)
+fn message_bubble(content: impl Into<Str>) -> impl View {
+    let content: Str = content.into();
+    text(content)
         .padding_with(EdgeInsets::symmetric(8.0, 12.0))
-        .background(waterui::background::Background::color((0.18, 0.2, 0.25).into()))
+        .background(waterui::background::Background::color(Color::srgb_f32(0.18, 0.2, 0.25)))
         .alignment(Alignment::Leading)
 }
 ```
@@ -150,9 +155,9 @@ EdgeInsets helpers:
 WaterUI exposes scroll containers that delegate behaviour to the active renderer. Use them when
 content might overflow the viewport:
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::scroll::{scroll, scroll_horizontal, scroll_both};
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::scroll::{scroll, scroll_horizontal, scroll_both};
 
 pub fn article(body: impl View) -> impl View {
     scroll(body.padding())
@@ -172,9 +177,10 @@ widget surfaces them.
 The `grid` API arranges rows and columns with consistent spacing. Every row is a `GridRow`, and the
 container needs the number of columns up front.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::grid::{grid, row};
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::grid::{grid, row};
+# use waterui::layout::stack::Alignment;
 
 pub fn emoji_palette() -> impl View {
     grid(4, [
@@ -201,10 +207,10 @@ WaterUI’s `Frame` view pins a child to explicit size preferences. `view.frame(
 common SwiftUI pattern; in WaterUI you construct an explicit frame via `ViewExt::alignment` and the
 methods on `Frame`:
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::frame::Frame;
-use waterui::component::layout::stack::vstack;
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::frame::Frame;
+# use waterui::layout::stack::Alignment;
 
 fn gallery_thumbnail(content: impl View) -> impl View {
     Frame::new(content)

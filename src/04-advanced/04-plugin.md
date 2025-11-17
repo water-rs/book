@@ -27,10 +27,73 @@ pub trait Plugin: Sized + 'static {
 }
 ```
 
-By intersting environment, plugin can achieve something interesting purpose.
+Plugins are just values stored inside the environment. Because they are regular Rust structs, you
+can bundle services (network clients, analytics, feature flags) and install them once near your
+entry point.
 
-## Implement an i18n Plugin
+## Example: i18n
+
+`waterui_i18n::I18n` ships as a plugin that rewrites `Text` views based on the active locale.
 
 ```rust
-[WIP]
+use waterui_i18n::I18n;
+use waterui_text::locale::Locale;
+
+fn install_i18n(env: &mut Environment) {
+    let mut i18n = I18n::new();
+    i18n.insert("en", "greeting", "Hello");
+    i18n.insert("fr", "greeting", "Bonjour");
+
+    i18n.install(env);            // stores translations + hook
+    env.insert(Locale("fr".into())); // pick initial locale
+}
 ```
+
+Every `text!("greeting")` now passes through the hook registered during `install`, swapping the
+content with the localized string.
+
+## Building Your Own Plugin
+
+1. Create a struct that owns the resources you need.
+2. Implement `Plugin` (the default methods may be enough) and optionally install environment hooks.
+3. Insert helper extractors so views/handlers can access the plugin at runtime.
+
+```rust
+use waterui::core::extract::Extractor;
+
+#[derive(Clone)]
+pub struct Telemetry { /* ... */ }
+
+impl Plugin for Telemetry {
+    fn install(self, env: &mut Environment) {
+        env.insert(self);
+    }
+}
+
+impl Extractor for Telemetry {
+    fn extract(env: &Environment) -> Option<Self> {
+        env.get::<Self>().cloned()
+    }
+}
+```
+
+Now handlers can request `Use<Telemetry>` exactly like bindings or environment values.
+
+## Lifecycle Hooks
+
+Override `uninstall` when the plugin must clean up:
+
+```rust
+impl Plugin for SessionManager {
+    fn uninstall(self, env: &mut Environment) {
+        self.shutdown();
+        env.remove::<Self>();
+    }
+}
+```
+
+Although most plugins live for the entire lifetime of the app, uninstall hooks are handy in tests or
+when swapping environments dynamically (multi-window macOS apps, for example).
+
+Plugins keep cross-cutting concerns modular. Keep their public surface small, expose access through
+extractors, and leverage environment hooks to integrate with the rest of the view tree.

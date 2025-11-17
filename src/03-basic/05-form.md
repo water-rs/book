@@ -19,13 +19,12 @@ This eliminates a huge amount of boilerplate code. You don't need to write manua
 
 ## Quick Start with FormBuilder
 
-The easiest way to create forms in WaterUI is using the `#[derive(FormBuilder)]` macro:
+The easiest way to create forms in WaterUI is combining the `Project` and `FormBuilder` derives: `#[derive(waterui_derive::Project, waterui_derive::FormBuilder)]`. `Project` gives you field-level bindings, while `FormBuilder` renders the UI automatically:
 
 ```rust
-use waterui_form::{FormBuilder, form};
-use waterui::reactive::Binding;
-
-#[derive(Default, Clone, Debug, FormBuilder)]
+# use waterui::prelude::*;
+# use waterui_form::{form, FormBuilder};
+#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
 pub struct LoginForm {
     /// The user's username
     pub username: String,
@@ -37,7 +36,7 @@ pub struct LoginForm {
     pub age: i32,
 }
 
-fn login_view() -> impl View {
+pub fn login_view() -> impl View {
     let login_form = LoginForm::binding();
     form(&login_form)
 }
@@ -68,13 +67,13 @@ The `FormBuilder` macro automatically maps Rust types to appropriate form compon
 Let's build a more comprehensive form:
 
 ```rust
-use waterui_form::{FormBuilder, form};
-use waterui::reactive::Binding;
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::SignalExt;
+# use waterui_form::{form, FormBuilder};
 use waterui::Color;
-use waterui::component::layout::stack::vstack;
-use waterui_text::text;
 
-#[derive(Default, Clone, Debug, FormBuilder)]
+#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
 struct RegistrationForm {
     /// Full name (2-50 characters)
     full_name: String,
@@ -87,32 +86,30 @@ struct RegistrationForm {
     /// Account type
     is_premium: bool,
     /// Profile completion (0.0 to 1.0)
-    profile_completion: f32,
+    profile_completion: f64,
     /// Theme color preference
     theme_color: Color,
 }
 
-fn registration_view() -> impl View {
+pub fn registration_view() -> impl View {
     let form_binding = RegistrationForm::binding();
 
-    // Create a computed signal for the validation message
-    let validation_message = form_binding.map(|data| {
+    let validation_message = form_binding.clone().map(|data| -> String {
         if data.full_name.len() < 2 {
-            "Name too short"
+            "Name too short".into()
         } else if data.age < 18 {
-            "Must be 18 or older"
+            "Must be 18 or older".into()
         } else if !data.email.contains('@') {
-            "Invalid email"
+            "Invalid email".into()
         } else {
-            "Form is valid ✓"
+            "Form is valid ✓".into()
         }
     });
-    
+
     vstack((
         "User Registration",
         form(&form_binding),
-        // Real-time validation feedback
-        text(validation_message),
+        text!("{validation_message}"),
     ))
 }
 ```
@@ -124,23 +121,30 @@ You can also use form controls individually:
 ### Text Fields
 
 ```rust
-use waterui_form::{TextField, field};
-use waterui::reactive::binding;
-
-fn text_field_example() -> impl View {
-    let name = binding("".to_string());
-    field("Name:", &name)
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui::Str;
+pub fn text_field_example() -> impl View {
+    let name: Binding<String> = binding(String::new());
+    let name_str = Binding::mapping(&name, |value| Str::from(value), |binding, value: Str| {
+        binding.set(value.to_string());
+    });
+    vstack((
+        text("Name:"),
+        TextField::new(&name_str).prompt(text("you@example.com")),
+    ))
 }
 ```
 
 ### Toggle Switches
 
 ```rust
-use waterui_form::{Toggle, toggle};
-use waterui::reactive::binding;
-
-fn toggle_example() -> impl View {
-    let enabled = binding(false);
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn toggle_example() -> impl View {
+    let enabled: Binding<bool> = binding(false);
     toggle("Enable notifications", &enabled)
 }
 ```
@@ -148,11 +152,11 @@ fn toggle_example() -> impl View {
 ### Number Steppers
 
 ```rust
-use waterui_form::{Stepper, stepper};
-use waterui::reactive::binding;
-
-fn stepper_example() -> impl View {
-    let count = binding(0);
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn stepper_example() -> impl View {
+    let count: Binding<i32> = binding(0);
     stepper(&count)
 }
 ```
@@ -160,12 +164,29 @@ fn stepper_example() -> impl View {
 ### Sliders
 
 ```rust
-use waterui_form::Slider;
-use waterui::reactive::binding;
-
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
 fn slider_example() -> impl View {
-    let volume = binding(0.5);
-    Slider::new(0.0..=1.0, &volume)
+    let volume: Binding<f64> = binding(0.5_f64);
+    Slider::new(0.0..=1.0, &volume).label(text("Volume"))
+}
+```
+
+### Color Picker
+
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui::Color;
+# use waterui::form::picker::ColorPicker;
+
+fn theme_selector() -> impl View {
+    let color: Binding<Color> = binding(Color::srgb_f32(0.25, 0.6, 0.95));
+
+    ColorPicker::new(&color)
+        .label(text("Theme color"))
 }
 ```
 
@@ -174,51 +195,48 @@ fn slider_example() -> impl View {
 ### Multi-Step Forms
 
 ```rust
-use waterui::reactive::binding;
-use waterui::widget::condition::when;
-
-#[derive(Default, Clone, FormBuilder)]
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::SignalExt;
+# use waterui::widget::condition::when;
+# use waterui::layout::stack::hstack;
+# use waterui::layout::spacer;
+# use waterui::Binding;
+# use waterui_form::{form, FormBuilder};
+#[derive(Default, Clone, waterui_derive::Project, waterui_derive::FormBuilder)]
 struct PersonalInfo {
     first_name: String,
     last_name: String,
     birth_year: i32,
 }
 
-#[derive(Default, Clone, FormBuilder)]
+#[derive(Default, Clone, waterui_derive::Project, waterui_derive::FormBuilder)]
 struct ContactInfo {
     email: String,
     phone: String,
     preferred_contact: bool, // true = email, false = phone
 }
 
-#[derive(Default, Clone)]
-struct RegistrationWizard {
-    personal: PersonalInfo,
-    contact: ContactInfo,
-    current_step: usize,
-}
-
-fn registration_wizard() -> impl View {
-    let wizard = binding(RegistrationWizard::default());
-    
-    let step_display = Dynamic::new(wizard.current_step.map(|step| {
-        match step {
-            0 => vstack((
-                "Personal Information",
-                form(wizard.map_project(|w| &w.personal)),
-            )).any(),
-            1 => vstack((
-                "Contact Information", 
-                form(wizard.map_project(|w| &w.contact)),
-            )).any(),
-            _ => text("Registration Complete!").any(),
-        }
-    }));
+pub fn registration_wizard() -> impl View {
+    let personal = PersonalInfo::binding();
+    let contact = ContactInfo::binding();
+    let current_step = binding(0_usize);
+    let step_display = waterui::SignalExt::map(current_step.clone(), |value| value + 1);
+    let show_personal = waterui::SignalExt::map(current_step.clone(), |step| step == 0);
 
     vstack((
-        text(s!("Step {} of 2", wizard.current_step.map(|s| s + 1))),
-        step_display,
-        navigation_buttons(wizard),
+        text!("Step {} of 2", step_display),
+        when(show_personal, move || form(&personal))
+        .or(move || form(&contact)),
+        hstack((
+            button("Back").action_with(&current_step, |state: Binding<usize>| {
+                state.set(state.get().saturating_sub(1));
+            }),
+            spacer(),
+            button("Next").action_with(&current_step, |state: Binding<usize>| {
+                state.set((state.get() + 1).min(1));
+            }),
+        )),
     ))
 }
 ```
@@ -228,32 +246,31 @@ fn registration_wizard() -> impl View {
 For complete control over form layout, implement `FormBuilder` manually:
 
 ```rust
-use waterui_form::{FormBuilder, TextField, Toggle};
-use waterui::{
-    core::Binding,
-    component::layout::stack::{vstack, hstack},
-};
-use waterui::reactive::binding;
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::{AnyView, Binding, Str};
 
+#[derive(Default, Clone)]
 struct CustomForm {
     title: String,
     active: bool,
 }
 
 impl FormBuilder for CustomForm {
-    type View = VStack;
+    type View = AnyView;
 
-    fn view(binding: &Binding<Self>) -> Self::View {
-        vstack((
-            hstack((
-                "Title:",
-                TextField::new(&binding.title),
-            )),
-            hstack((
-                "Active:",
-                Toggle::new(&binding.active),
-            )),
-        ))
+    fn view(binding: &Binding<Self>, _label: AnyView, _placeholder: Str) -> Self::View {
+        let title_binding = Binding::mapping(binding, |data| Str::from(data.title.clone()), |form, value: Str| {
+            form.with_mut(|state| state.title = value.to_string());
+        });
+        let active_binding = Binding::mapping(binding, |data| data.active, |form, value| {
+            form.with_mut(|state| state.active = value);
+        });
+
+        AnyView::new(vstack((
+            TextField::new(&title_binding).label(text("Title")),
+            Toggle::new(&active_binding).label(text("Active")),
+        )))
     }
 }
 ```
@@ -263,13 +280,16 @@ impl FormBuilder for CustomForm {
 For sensitive data like passwords:
 
 ```rust
-use waterui_form::{SecureField, secure};
-use waterui::reactive::binding;
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui::form::{secure, SecureField};
+# use waterui::form::secure::Secure;
 
-fn password_form() -> impl View {
-    let password = binding(String::new());
-    let confirm_password = binding(String::new());
-    
+pub fn password_form() -> impl View {
+    let password: Binding<Secure> = binding(Secure::default());
+    let confirm_password: Binding<Secure> = binding(Secure::default());
+
     vstack((
         secure("Password:", &password),
         secure("Confirm Password:", &confirm_password),
@@ -277,14 +297,16 @@ fn password_form() -> impl View {
     ))
 }
 
-fn password_validation(pwd: &Binding<String>, confirm: &Binding<String>) -> impl View {
-    text(s!("{}", pwd.zip(confirm).map(|(p, c)| {
-        if p == c && !p.is_empty() {
-            "Passwords match ✓"
+fn password_validation(pwd: &Binding<Secure>, confirm: &Binding<Secure>) -> impl View {
+    let feedback = pwd.clone().zip(confirm.clone()).map(|(p, c)| {
+        if p.expose() == c.expose() && !p.expose().is_empty() {
+            "Passwords match ✓".to_string()
         } else {
-            "Passwords do not match"
+            "Passwords do not match".to_string()
         }
-    })))
+    });
+
+    text(feedback)
 }
 ```
 
@@ -297,54 +319,64 @@ For more complex forms, it's a good practice to encapsulate your validation logi
 Let's create a `Validation` struct that holds computed signals for each validation rule.
 
 ```rust
-use waterui::reactive::binding;
-
-#[derive(Default, Clone, FormBuilder)]
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui::SignalExt;
+# use waterui::widget::condition::when;
+# use waterui_form::{form, FormBuilder};
+#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
 struct ValidatedForm {
     email: String,
     password: String,
     age: i32,
 }
 
-struct Validation {
-    is_valid_email: Computed<bool>,
-    is_valid_password: Computed<bool>,
-    is_valid_age: Computed<bool>,
-    is_form_valid: Computed<bool>,
-}
+pub fn validated_form_view() -> impl View {
+    let form_state = ValidatedForm::binding();
+    let is_valid_email = form_state.clone().map(|f| f.email.contains('@') && f.email.contains('.'));
+    let is_valid_password = form_state.clone().map(|f| f.password.len() >= 8);
+    let is_valid_age = form_state.clone().map(|f| f.age >= 18);
 
-impl Validation {
-    fn new(form: &Binding<ValidatedForm>) -> Self {
-        let is_valid_email = form.map(|f| f.email.contains('@') && f.email.contains('.'));
-        let is_valid_password = form.map(|f| f.password.len() >= 8);
-        let is_valid_age = form.map(|f| f.age >= 18);
-        let is_form_valid = is_valid_email.zip(is_valid_password).zip(is_valid_age).map(|((email, pass), age)| email && pass && age);
+    let can_submit = is_valid_email
+        .clone()
+        .zip(is_valid_password.clone())
+        .zip(is_valid_age.clone())
+        .map(|((email, password), age)| email && password && age);
 
-        Self {
-            is_valid_email,
-            is_valid_password,
-            is_valid_age,
-            is_form_valid,
+    let email_feedback = is_valid_email.clone().map(|valid| {
+        if valid {
+            "✓ Valid email".to_string()
+        } else {
+            "✗ Please enter a valid email".to_string()
         }
-    }
-}
+    });
+    let password_feedback = is_valid_password.clone().map(|valid| {
+        if valid {
+            "✓ Password is strong enough".to_string()
+        } else {
+            "✗ Password must be at least 8 characters".to_string()
+        }
+    });
+    let age_feedback = is_valid_age.clone().map(|valid| {
+        if valid {
+            "✓ Age requirement met".to_string()
+        } else {
+            "✗ Must be 18 or older".to_string()
+        }
+    });
 
-fn validated_form_view() -> impl View {
-    let form = binding(ValidatedForm::default());
-    let validation = Validation::new(&form);
-    
+    let submit_binding = form_state.clone();
+    let form_binding = form_state.clone();
+
     vstack((
-        form(form),
-        
-        // Validation messages
-        text(validation.is_valid_email.map(|is_valid| if is_valid { "✓ Valid email" } else { "✗ Please enter a valid email" })),
-        text(validation.is_valid_password.map(|is_valid| if is_valid { "✓ Password is strong enough" } else { "✗ Password must be at least 8 characters" })),
-        text(validation.is_valid_age.map(|is_valid| if is_valid { "✓ Age requirement met" } else { "✗ Must be 18 or older" })),
-        
-        // Submit button - only enabled when form is valid
-        when(validation.is_form_valid.clone(), || {
-            button("Submit").action(|| {
-                println!("Form submitted!");
+        form(&form_binding),
+        text(email_feedback),
+        text(password_feedback),
+        text(age_feedback),
+        when(can_submit.clone(), move || {
+            button("Submit").action_with(&submit_binding, |state: Binding<ValidatedForm>| {
+                println!("Form submitted: {:?}", state.get());
             })
         })
         .or(|| text("Fill every requirement to enable submission.")),
@@ -357,45 +389,47 @@ fn validated_form_view() -> impl View {
 Forms integrate seamlessly with WaterUI's reactive state system:
 
 ```rust
-use nami::s;
-use waterui::widget::condition::when;
-
-#[derive(Default, Clone, FormBuilder)]
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::SignalExt;
+# use waterui::widget::condition::when;
+# use waterui::Binding;
+# use waterui_form::{form, FormBuilder};
+#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
 struct UserSettings {
     name: String,
     theme: String,
     notifications: bool,
 }
 
-fn settings_panel() -> impl View {
+pub fn settings_panel() -> impl View {
     let settings = UserSettings::binding();
-    
-    // Computed values based on form state
-    let has_changes = settings.map(|s| {
-        s.name != "Default Name" ||
-        s.theme != "Light" ||
-        s.notifications
+    let has_changes = settings.clone().map(|s| {
+        s.name != "Default Name" || s.theme != "Light" || s.notifications
     });
-    
-    let settings_summary = s!("User: {} | Theme: {} | Notifications: {}", 
-        settings.map_project(|s| &s.name),
-        settings.map_project(|s| &s.theme),
-        settings.map_project(|s| &s.notifications).map(|n| if n { "On" } else { "Off" })
-    );
-    
+
+    let settings_summary = settings.clone().map(|s| {
+        format!(
+            "User: {} | Theme: {} | Notifications: {}",
+            s.name,
+            s.theme,
+            if s.notifications { "On" } else { "Off" }
+        )
+    });
+    let form_binding = settings.clone();
+
     vstack((
         "Settings",
-        form(&settings),
-        
-        // Live preview
+        form(&form_binding),
         "Preview:",
         text(settings_summary),
-        
-        // Save button
-        when(has_changes.clone(), || {
-            button("Save Changes").action_with(&settings, |s| {
-                save_settings(s);
-            })
+        when(has_changes.clone(), {
+            let save_binding = settings.clone();
+            move || {
+                button("Save Changes").action_with(&save_binding, |state: Binding<UserSettings>| {
+                    save_settings(&state.get());
+                })
+            }
         })
         .or(|| text("No changes to save.")),
     ))
@@ -403,6 +437,5 @@ fn settings_panel() -> impl View {
 
 fn save_settings(settings: &UserSettings) {
     println!("Saving settings: {settings:?}");
-    // Save to database, file, etc.
 }
 ```

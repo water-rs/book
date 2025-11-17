@@ -17,9 +17,9 @@ SwiftUI, or Flutter differentiates `Text` from const literals.
 
 ## Labels: Zero-Cost Strings
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::layout::stack::vstack;
+```rust
+# use waterui::prelude::*;
+# use waterui::layout::stack::vstack;
 
 pub fn hero_copy() -> impl View {
     vstack((
@@ -40,13 +40,15 @@ inline copy, or when you wrap them in other views (`button("OK")`).
 
 ### Reactive Text with `text!`
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::reactive::binding;
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui::SignalExt;
 
 pub fn welcome_banner() -> impl View {
-    let name = binding("Alice");
-    let unread = binding(5);
+    let name: Binding<String> = binding("Alice".to_string());
+    let unread: Binding<i32> = binding(5);
 
     vstack((
         text!("Welcome back, {name}!"),
@@ -62,10 +64,11 @@ Avoid `format!(…)` + `text(...)`; the one-off string will not update when data
 
 `Text` exposes chainable modifiers that mirror SwiftUI:
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::reactive::binding;
-use waterui_text::font::FontWeight;
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+# use waterui_text::font::FontWeight;
 
 pub fn ticker(price: Binding<f32>) -> impl View {
     text!("${price:.2}")
@@ -88,17 +91,18 @@ Combine with `ViewExt` helpers for layout and colouring, e.g. `.padding()`, `.ba
 
 ### Displaying Arbitrary Values
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::reactive::binding;
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
 
 pub fn stats() -> impl View {
-    let active_users = binding(42_857);
-    let uptime = binding(99.982);
+    let active_users: Binding<i32> = binding(42_857);
+    let uptime: Binding<f32> = binding(99.982);
 
     vstack((
         Text::display(active_users),
-        Text::format(uptime, waterui_text::locale::Percent::default()),
+        Text::display(uptime.map(|value| format!("{value:.2}% uptime"))),
     ))
 }
 ```
@@ -111,9 +115,10 @@ localised formatting (currency, dates), `Text::format` interoperates with the fo
 
 When the text source may be absent, leverage nami’s mapping helpers:
 
-```rust,ignore
-use nami::SignalExt;
-
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::SignalExt;
 let maybe_location = binding::<Option<String>>(None);
 let fallback = maybe_location.unwrap_or_else(|| "Unknown location".to_string());
 text(fallback);

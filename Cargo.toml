@@ -6,8 +6,9 @@ edition = "2024"
 # Tutorial book for testing code examples with real WaterUI
 
 [dependencies]
-# Real WaterUI dependencies from the workspace
-waterui = { path = ".." }
+waterui = { path = "waterui" }
+waterui_form = { package = "waterui-form", path = "waterui/components/form" }
+waterui_derive = { package = "waterui-derive", path = "waterui/derive" }
 
 
 # Common dependencies

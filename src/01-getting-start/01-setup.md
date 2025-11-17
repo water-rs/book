@@ -8,7 +8,7 @@ WaterUI requires Rust 1.87 or later with the 2024 edition. The easiest way to in
 
 ### On macOS, Linux, or WSL
 
-```bash,ignore
+```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 ```
@@ -24,7 +24,7 @@ source ~/.cargo/env
 
 After installation, verify that everything works:
 
-```bash,ignore
+```bash
 rustc --version
 cargo --version
 ```
@@ -69,78 +69,94 @@ While you can use any text editor, we recommend VS Code for the best WaterUI dev
 - Use `rust-mode` for syntax highlighting
 - Use `lsp-mode` with rust-analyzer
 
+## Installing the WaterUI CLI
+
+All examples in this book assume you have the `water` CLI available. From the repository root run:
+
+```bash
+cargo install --path waterui/cli --locked
+water --version
+```
+
+The first command installs the current checkout; the second verifies that the binary is on your `PATH`.
+
+### Verify Your Toolchain
+
+Run the built-in doctor before continuing:
+
+```bash
+water doctor --fix
+```
+
+This checks your Rust toolchain plus any configured Apple, Android, and web dependencies. Repeat it whenever you change machines or SDK versions. To discover connected simulators/emulators (useful for later chapters), run:
+
+```bash
+water devices --json
+```
+
 ## Creating Your First Project
 
-Let's create a new WaterUI project from scratch:
+We will let the CLI scaffold a runnable playground that already references the in-repo workspace:
 
-```bash,ignore
-cargo new hello-waterui
+```bash
+water create --name "Hello WaterUI" \
+  --directory hello-waterui \
+  --bundle-identifier com.example.hellowaterui \
+  --backend swiftui --backend web \
+  --yes --dev
 cd hello-waterui
 ```
 
-This creates a new Rust project with the following structure:
+Flags explained:
+
+- `--directory` lets you pick the folder name (matching the rest of this book).
+- `--backend` can be repeated; choose whatever targets you want to explore first.
+- `--dev` points dependencies at the checked-out workspace so each chapter’s code compiles against your local sources.
+- `--yes` accepts the defaults and keeps scripts non-interactive.
+
+The generated project includes:
 
 ```text
 hello-waterui/
-├── Cargo.toml
-├── src/
-│   └── main.rs
-└── .gitignore
-```
-
-### Adding WaterUI Dependencies
-
-Edit your `Cargo.toml` file to include WaterUI:
-
-**Filename**: `Cargo.toml`
-```toml
-[package]
-name = "hello-waterui"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-waterui = { path = ".." }
-# Backend will be chosen in the future
+├── Cargo.toml          # crate manifest
+├── Water.toml          # WaterUI-specific metadata + enabled backends
+├── src/lib.rs          # starting point for your app views
+├── apple/, android/, web/ (depending on --backend)
+└── .water/             # CLI metadata and cached assets
 ```
 
 ### Web Development (WebAssembly)
 
-For web development, install additional tools:
+When targeting the browser, install the wasm tooling once per machine:
 
-```bash,ignore
-# Install wasm-pack for building WebAssembly packages
+```bash
 curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-# Add WebAssembly target
 rustup target add wasm32-unknown-unknown
 ```
 
-## Hello,world!
+## Hello, World!
 
-Let's create a simple "Hello, World!" application to verify everything works.
+Open `src/lib.rs` inside the newly created project and replace the body with a tiny view:
 
-**Filename**: `src/main.rs`
-```rust,ignore
+```rust
 use waterui::prelude::*;
 
-fn home() -> impl View { "Hello, WaterUI! 🌊" }
-
-fn main() {
-    // Backend-specific initialization will be added here
-    // For now, we just define the view
+pub fn home() -> impl View {
+    "Hello, WaterUI! 🌊"
 }
 ```
 
 ### Building and Running
 
-Build and run your application:
+Instead of calling `cargo run` directly, use the CLI so it can manage backends for you:
 
-```bash,ignore
-cargo run
+```bash
+water run --platform web --project hello-waterui
 ```
 
-If everything is set up correctly, you should see a window with "Hello, WaterUI! 🌊" displayed.
+The same command auto-detects desktop/mobile simulators when you omit `--platform` and run it from macOS. Once the dev server starts, every change you save in `src/lib.rs` hot-reloads into the selected target.
+
+If you prefer to run the Rust crate alone (useful for unit tests or CLI tools), you can still execute `cargo test` or `cargo run` in parallel with the `water` commands; both workflows share the same sources.
 
 ## Troubleshooting Common Issues
 
@@ -149,7 +165,7 @@ If everything is set up correctly, you should see a window with "Hello, WaterUI!
 **Error**: `error: package requires Rust version 1.87`
 
 **Solution**: Update Rust:
-```bash,ignore
+```bash
 rustup update
 ```
 

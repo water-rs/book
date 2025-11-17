@@ -1,0 +1,76 @@
+#!/bin/bash
+set -euo pipefail
+shopt -s nullglob
+echo "[custom rustdoc] invoked" >&2
+repo_dir=$(cd "$(dirname "$0")/.." && pwd)
+actual_rustdoc=$(rustup which rustdoc)
+search_dirs=("$repo_dir/target/debug/deps" "$repo_dir/waterui/target/debug/deps")
+for dir in "${search_dirs[@]}"; do
+  mkdir -p "$dir"
+done
+
+find_artifact() {
+  local crate="$1"
+  local base="lib${crate//-/_}-*"
+  local file=""
+  for dir in "${search_dirs[@]}"; do
+    for candidate in "$dir"/${base}.rlib \
+                     "$dir"/${base}.so \
+                     "$dir"/${base}.dll \
+                     "$dir"/${base}.dylib; do
+      file="$candidate"
+      break 2
+    done
+  done
+  echo "$file"
+}
+
+need_edition=1
+skip_next=0
+for arg in "$@"; do
+  if [ "$skip_next" -eq 1 ]; then
+    need_edition=0
+    break
+  fi
+  case "$arg" in
+    --edition)
+      need_edition=0
+      skip_next=1
+      ;;
+    --edition=*)
+      need_edition=0
+      break
+      ;;
+  esac
+done
+
+built_waterui=false
+build_waterui_artifacts() {
+  if [ "$built_waterui" = false ]; then
+    (cd "$repo_dir/waterui" && cargo build >/dev/null)
+    built_waterui=true
+  fi
+}
+
+extra_flags=()
+if [ "$need_edition" -eq 1 ]; then
+  extra_flags+=("--edition=2021")
+fi
+for dir in "${search_dirs[@]}"; do
+  extra_flags+=("-L" "dependency=$dir")
+done
+crates=(waterui waterui-core waterui-navigation waterui-form waterui-media waterui-text waterui-layout waterui-derive)
+for crate in "${crates[@]}"; do
+  file=$(find_artifact "$crate")
+  if [ -z "$file" ]; then
+    build_waterui_artifacts
+    file=$(find_artifact "$crate")
+  fi
+  if [ -z "$file" ]; then
+    echo "missing artifact for $crate" >&2
+    exit 1
+  fi
+  extra_flags+=("--extern" "${crate//-/_}=$file")
+done
+
+exec "$actual_rustdoc" "$@" "${extra_flags[@]}"

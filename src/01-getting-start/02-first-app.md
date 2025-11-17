@@ -18,25 +18,18 @@ By the end of this chapter, you'll understand:
 
 ## Setting Up the Project
 
-Create a new project for our counter app:
+If you completed the setup chapter you already have a CLI-generated workspace. Otherwise scaffold one now:
 
 ```bash
-cargo new counter-app
+water create --name "Counter App" \
+  --directory counter-app \
+  --bundle-identifier com.example.counterapp \
+  --backend web \
+  --yes --dev
 cd counter-app
 ```
 
-Update your `Cargo.toml`:
-
-**Filename**: `Cargo.toml`
-```toml
-[package]
-name = "counter-app"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-waterui = { path = "../" }
-```
+We will edit `src/lib.rs` so the shared code can run on any backend the CLI installed.
 
 ## Building the Counter Step by Step
 
@@ -46,23 +39,18 @@ Let's build our counter app incrementally, learning WaterUI concepts along the w
 
 Start with a simple view structure. Since our initial view doesn't need state, we can use a function:
 
-**Filename**: `src/main.rs`
-```rust,ignore
+**Filename**: `src/lib.rs`
+```rust
 use waterui::prelude::*;
 
-fn counter() -> impl View {
+pub fn counter() -> impl View {
     "Counter App"
-}
-
-fn main() {
-    // Backend-specific initialization will be added here
-    // For now, we just define the view
 }
 ```
 
 Run this to make sure everything works:
 ```bash
-cargo run
+water run --platform web --project counter-app
 ```
 
 You should see a window with "Counter App" displayed.
@@ -71,10 +59,10 @@ You should see a window with "Counter App" displayed.
 
 Now let's add some layout structure using stacks:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 
-fn counter() -> impl View {
+pub fn counter() -> impl View {
     vstack((
         "Counter App",
         "Count: 0",
@@ -88,25 +76,29 @@ fn counter() -> impl View {
 
 Now comes the exciting part - let's add reactive state! We'll use the re-exported `binding` helper together with `Binding`'s convenience methods and the `text!` macro for reactive text:
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::reactive::binding;
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
 
-fn counter() -> impl View {
-    let count = binding(0);
+pub fn counter() -> impl View {
+    let count: Binding<i32> = binding(0);
     vstack((
         "Counter App",
-        // Use text! macro for reactive text
         text!("Count: {count}"),
         hstack((
-            button("- Decrement").action_with(&count, |count| count.decrement(1)),
-            button("+ Increment").action_with(&count, |count| count.increment(1)),
+            button("- Decrement").action_with(&count, |state: Binding<i32>| {
+                state.set(state.get() - 1);
+            }),
+            button("+ Increment").action_with(&count, |state: Binding<i32>| {
+                state.set(state.get() + 1);
+            }),
         )),
     ))
 }
 ```
 
-Run this and try clicking the buttons! The counter should update in real-time.
+`water run --platform web --project counter-app` will hot reload changes—save the file and keep the terminal open to see updates instantly.
 
 ## Understanding the Code
 
@@ -114,17 +106,26 @@ Let's break down the key concepts introduced:
 
 ### Reactive State with `binding`
 
-```rust,ignore
-let count = binding(0);
+```rust
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn make_counter() -> Binding<i32> {
+    binding(0)
+}
 ```
 
 This creates a reactive binding with an initial value of 0. When this value changes, any UI elements that depend on it will automatically update.
 
 ### Reactive Text Display
 
-```rust,ignore
-// ✅ Use the text! macro for reactive display
-text!("Count: {count}")
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn reactive_label() -> impl View {
+    let count: Binding<i32> = binding(0);
+    text!("Count: {count}")
+}
 ```
 
 - The `text!` macro automatically handles reactivity
@@ -132,8 +133,16 @@ text!("Count: {count}")
 
 ### Event Handling
 
-```rust,ignore
-button("- Decrement").action_with(&count, |count| count.decrement(1))
+```rust
+# use waterui::prelude::*;
+# use waterui::reactive::binding;
+# use waterui::Binding;
+pub fn decrement_button() -> impl View {
+    let count: Binding<i32> = binding(0);
+    button("- Decrement").action_with(&count, |count: Binding<i32>| {
+        count.set(count.get() - 1);
+    })
+}
 ```
 
 - `.action_with()` attaches an event handler with captured state
@@ -141,9 +150,14 @@ button("- Decrement").action_with(&count, |count| count.decrement(1))
 
 ### Layout with Stacks
 
-```rust,ignore
-vstack((...))  // Vertical stack
-hstack((...))  // Horizontal stack
+```rust
+# use waterui::prelude::*;
+pub fn stack_examples() -> impl View {
+    vstack((
+        text("First"),
+        hstack((text("Left"), text("Right"))),
+    ))
+}
 ```
 
 Stacks are the primary layout tools in WaterUI, allowing you to arrange views vertically or horizontally.
