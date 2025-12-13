@@ -26,7 +26,7 @@ Gesture handlers support extractors just like buttons. For example, extract the 
 read the tap location:
 
 ```rust
-use waterui::core::extract::Use;
+use waterui_core::extract::Use;
 use waterui::gesture::TapEvent;
 
 GestureObserver::new(TapGesture::new(), |Use(event): Use<TapEvent>| {
@@ -54,7 +54,7 @@ Drag-related gestures surface `DragEvent` payloads. Magnification (`pinch-to-zoo
 behave similarly with `MagnificationEvent` / `RotationGesture`.
 
 ```rust
-use waterui::core::extract::Use;
+use waterui_core::extract::Use;
 use waterui::gesture::{DragEvent, DragGesture, GesturePhase};
 
 GestureObserver::new(DragGesture::new(5.0), |Use(event): Use<DragEvent>| {
@@ -76,7 +76,7 @@ a `Haptics` service through the environment and trigger it inside gesture handle
 
 ```rust
 use waterui::env::Environment;
-use waterui::core::extract::Use;
+use waterui_core::extract::Use;
 
 pub trait Haptics: Clone + 'static {
     fn impact(&self, style: ImpactStyle);

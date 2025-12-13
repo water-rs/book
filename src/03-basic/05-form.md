@@ -19,12 +19,12 @@ This eliminates a huge amount of boilerplate code. You don't need to write manua
 
 ## Quick Start with FormBuilder
 
-The easiest way to create forms in WaterUI is combining the `Project` and `FormBuilder` derives: `#[derive(waterui_derive::Project, waterui_derive::FormBuilder)]`. `Project` gives you field-level bindings, while `FormBuilder` renders the UI automatically:
+The easiest way to create forms in WaterUI is using the `#[form]` macro. It combines reactivity with automatic UI generation:
 
 ```rust
 # use waterui::prelude::*;
-# use waterui_form::{form, FormBuilder};
-#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
+# use waterui::form::{form, FormBuilder};
+#[form]
 pub struct LoginForm {
     /// The user's username
     pub username: String,
@@ -52,7 +52,7 @@ That's it! WaterUI automatically creates appropriate form controls for each fiel
 
 ## Type-to-Component Mapping
 
-The `FormBuilder` macro automatically maps Rust types to appropriate form components:
+The `#[form]` macro automatically maps Rust types to appropriate form components:
 
 | Rust Type | Form Component | Description |
 |-----------|----------------|-------------|
@@ -70,10 +70,10 @@ Let's build a more comprehensive form:
 # use waterui::prelude::*;
 # use waterui::reactive::binding;
 # use waterui::SignalExt;
-# use waterui_form::{form, FormBuilder};
+# use waterui::form::{form, FormBuilder};
 use waterui::Color;
 
-#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
+#[form]
 struct RegistrationForm {
     /// Full name (2-50 characters)
     full_name: String,
@@ -127,12 +127,10 @@ You can also use form controls individually:
 # use waterui::Str;
 pub fn text_field_example() -> impl View {
     let name: Binding<String> = binding(String::new());
-    let name_str = Binding::mapping(&name, |value| Str::from(value), |binding, value: Str| {
-        binding.set(value.to_string());
-    });
+
     vstack((
         text("Name:"),
-        TextField::new(&name_str).prompt(text("you@example.com")),
+        TextField::new(&name).prompt(text("you@example.com")),
     ))
 }
 ```
@@ -202,15 +200,15 @@ fn theme_selector() -> impl View {
 # use waterui::layout::stack::hstack;
 # use waterui::layout::spacer;
 # use waterui::Binding;
-# use waterui_form::{form, FormBuilder};
-#[derive(Default, Clone, waterui_derive::Project, waterui_derive::FormBuilder)]
+# use waterui::form::{form, FormBuilder};
+#[form]
 struct PersonalInfo {
     first_name: String,
     last_name: String,
     birth_year: i32,
 }
 
-#[derive(Default, Clone, waterui_derive::Project, waterui_derive::FormBuilder)]
+#[form]
 struct ContactInfo {
     email: String,
     phone: String,
@@ -249,6 +247,7 @@ For complete control over form layout, implement `FormBuilder` manually:
 # use waterui::prelude::*;
 # use waterui::reactive::binding;
 # use waterui::{AnyView, Binding, Str};
+# use waterui::form::FormBuilder;
 
 #[derive(Default, Clone)]
 struct CustomForm {
@@ -324,8 +323,8 @@ Let's create a `Validation` struct that holds computed signals for each validati
 # use waterui::Binding;
 # use waterui::SignalExt;
 # use waterui::widget::condition::when;
-# use waterui_form::{form, FormBuilder};
-#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
+# use waterui::form::{form, FormBuilder};
+#[form]
 struct ValidatedForm {
     email: String,
     password: String,
@@ -394,8 +393,8 @@ Forms integrate seamlessly with WaterUI's reactive state system:
 # use waterui::SignalExt;
 # use waterui::widget::condition::when;
 # use waterui::Binding;
-# use waterui_form::{form, FormBuilder};
-#[derive(Default, Clone, Debug, waterui_derive::Project, waterui_derive::FormBuilder)]
+# use waterui::form::{form, FormBuilder};
+#[form]
 struct UserSettings {
     name: String,
     theme: String,

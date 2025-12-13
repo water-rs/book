@@ -13,8 +13,7 @@ Reactive state management is the core of any interactive WaterUI application. Wh
 Everything in nami's reactive system implements the `Signal` trait. It represents **any value that can be observed for changes**.
 
 ```rust
-# use core::marker::PhantomData;
-pub struct Context<T>(PhantomData<T>);
+use nami::watcher::Context;
 
 pub trait Signal: Clone + 'static {
     type Output;
@@ -73,8 +72,7 @@ let full_name = first_name.zip(last_name).map(|(first, last)| {
 
 The `binding(value)` helper is re-exported from WaterUI, giving you a concise way to
 initialize bindings with automatic `Into` conversions (e.g. `binding("hello")` -> `Binding<String>`).
-Once you have a binding, reach for `Binding`'s convenience methods like `.increment()`,
-`.toggle()`, or `.push()` to keep your state updates expressive and ergonomic.
+Once you have a binding, reach for its convenience methods like `.toggle()`, or use `.update()` / `.with_mut()` for more complex in-place modifications. Some convenience methods like `.increment()` or `.push()` might be available as extension traits on `Binding` for specific types (e.g., numeric types or collections) within the broader `waterui` crate.
 
 #### When Type Inference Needs Help
 
@@ -238,7 +236,7 @@ let message = s!("{name} is {age} years old.");
 Signals become visible through views. WaterUI ships a few bridges:
 
 - **Formatting macros** (`text!`, `s!`, `format_signal!`) capture bindings automatically.
-- **Dynamic views** (`Dynamic::watch` or `waterui::views::watch`) subscribe to any `Signal` and rebuild their child when it changes.
+- **Dynamic views** (`Dynamic::watch` or `watch`) subscribe to any `Signal` and rebuild their child when it changes.
 - **Resolver-aware components** consume `impl Resolvable`, which often wrap signals resolved against the `Environment`.
 
 ```rust

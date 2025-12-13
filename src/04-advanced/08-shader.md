@@ -1,50 +1,84 @@
 # Shaders
 
-Custom shaders are still experimental in WaterUI, but the architecture already exposes two hooks
-you can use today:
+WaterUI supports custom GPU shaders via `waterui::graphics::ShaderSurface`. You can write WGSL
+fragment shaders that render directly to the view's surface.
 
-1. **Native views** – Wrap a platform-specific shader view just like the canvas chapter described.
-2. **Metadata** – Pass shader parameters through the environment so renderers can pipe them into the
-   GPU pipeline.
+## Using ShaderSurface
 
-## Embedding a Metal/WebGL View
-
-On Apple platforms, create a SwiftUI `Representable` that hosts a Metal view. Expose it to Rust as a
-`Native<MyShader>` view (see `component::native`). Provide a lightweight Rust struct with the shader
-configuration (uniforms, textures) and let the backend translate it to GPU calls.
-
-## Declarative Uniforms
-
-Even without an official shader DSL, you can keep uniforms reactive by storing them in bindings:
+The easiest way to use shaders is with the `shader!` macro, which loads a WGSL file at compile time:
 
 ```rust
 use waterui::prelude::*;
-use waterui::reactive::binding;
-use waterui::Binding;
-use waterui::core::{Native, View};
+use waterui::graphics::shader;
 
-pub struct PlasmaUniforms {
-    pub time: f32,
-    pub intensity: f32,
-}
-
-pub fn plasma() -> impl View {
-    let time: Binding<f32> = binding(0.0).animated();
-    Native(PlasmaUniforms {
-        time: time.get(),
-        intensity: 0.8,
-    })
+fn flame_effect() -> impl View {
+    shader!("flame.wgsl")
+        .width(400.0).height(500.0)
 }
 ```
 
-The backend reads `PlasmaUniforms` each frame and updates the shader. Once the official shader API
-lands, those bindings will plug directly into the declarative shader graph.
+Or define the shader inline:
 
-## Roadmap
+```rust
+use waterui::graphics::ShaderSurface;
 
-- Shared WGSL shading language compiled to Metal, WebGPU, and Vulkan targets.
-- Editor tooling for hot-reloading shader parameters.
-- Integration with the layout system so shaders participate in hit-testing and accessibility.
+fn gradient() -> impl View {
+    ShaderSurface::new(r#"
+        @fragment
+        fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+            return vec4<f32>(uv.x, uv.y, 0.5, 1.0);
+        }
+    "#)
+}
+```
 
-For now, treat shaders like any other native integration: define a Rust struct for configuration,
-render it with a backend-specific view, and keep the data reactive.
+## Built-in Uniforms
+
+`ShaderSurface` automatically provides a uniform buffer at `@group(0) @binding(0)` containing:
+
+```wgsl
+struct Uniforms {
+    time: f32,           // Elapsed time in seconds
+    resolution: vec2<f32>, // Surface size in pixels
+    _padding: f32,
+}
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+```
+
+Your shader entry point should look like this:
+
+```wgsl
+@fragment
+fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    // ...
+}
+```
+
+`uv` coordinates are normalized (0.0 to 1.0).
+
+## Advanced GPU Rendering
+
+For full control over the rendering pipeline (custom vertex buffers, compute shaders, multiple passes),
+implement the `GpuRenderer` trait and use `GpuSurface`.
+
+```rust
+use waterui::graphics::{GpuRenderer, GpuSurface, GpuContext, GpuFrame};
+
+struct MyRenderer;
+
+impl GpuRenderer for MyRenderer {
+    fn setup(&mut self, ctx: &GpuContext) {
+        // Create pipelines, buffers...
+    }
+
+    fn render(&mut self, frame: &GpuFrame) {
+        // Encode render commands...
+    }
+}
+
+fn custom_render() -> impl View {
+    GpuSurface::new(MyRenderer)
+}
+```
+
+This allows for high-performance, custom GPU effects integrated seamlessly into the UI.

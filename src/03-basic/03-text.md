@@ -35,7 +35,7 @@ inline copy, or when you wrap them in other views (`button("OK")`).
 
 ## The `Text` View
 
-`Text` is a configurable view exported by `waterui::component::text`. Create instances via the
+`Text` is a configurable view exported by `waterui::text`. Create instances via the
 `text` function, the `text!` macro, or constructors such as `Text::display`.
 
 ### Reactive Text with `text!`
@@ -68,7 +68,7 @@ Avoid `format!(…)` + `text(...)`; the one-off string will not update when data
 # use waterui::prelude::*;
 # use waterui::reactive::binding;
 # use waterui::Binding;
-# use waterui_text::font::FontWeight;
+# use waterui::text::font::FontWeight;
 
 pub fn ticker(price: Binding<f32>) -> impl View {
     text!("${price:.2}")
@@ -109,7 +109,7 @@ pub fn stats() -> impl View {
 
 `Text::display` converts any `Signal<Output = impl Display>` into a reactive string. For complex
 localised formatting (currency, dates), `Text::format` interoperates with the formatters in
-`waterui_text::locale`.
+`waterui::text::locale`.
 
 ### Working with `Binding<Option<T>>`
 
@@ -139,12 +139,12 @@ reactive.
 
 ## Troubleshooting
 
-- **Text truncates unexpectedly** – Wrap it in `Frame::new(text!(…)).alignment(Alignment::Leading)`
-  or place inside an `hstack` with `spacer()` to control overflow.
+- **Text truncates unexpectedly** – Use `.alignment(Alignment::Leading)` or place inside an `hstack`
+  with `spacer()` to control overflow.
 - **Styling missing on one platform** – Confirm the backend exposes the property; some early-stage
   renderers intentionally ignore unsupported font metrics.
 - **Emoji or wide glyph clipping** – Ensure the containing layout provides enough height; padding or
-  a frame often resolves baseline differences between fonts.
+  a fixed height often resolves baseline differences between fonts.
 
 With these building blocks you can express everything from static headings to live, localised
 metrics without imperatively updating the UI. Let your data bindings drive the text, and WaterUI

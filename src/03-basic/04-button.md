@@ -1,6 +1,6 @@
 # Controls Overview
 
-Buttons, toggles, sliders, text fields, and steppers live inside `waterui::components::controls`.
+Buttons, toggles, sliders, text fields, and steppers live inside `waterui::component`.
 They share the same handler ergonomics and reactive bindings you saw in earlier chapters. This
 chapter walks through each control, explaining how to wire it to `Binding` values, style labels, and
 compose them into larger workflows.
@@ -55,38 +55,6 @@ fn counter_button() -> impl View {
 `.action_with(&binding, handler)` clones the binding for you (bindings are cheap handles). Inside
 the handler you can call any of the binding helpers—`set`, `set_from`, `with_mut`, etc.—to keep the
 state reactive.
-
-## Passing Data into Handlers
-
-Handlers can receive additional state or values from the environment in any order. Compose them with
-other extractors using tuples:
-
-```rust
-# use waterui::prelude::*;
-# use waterui::reactive::binding;
-# use waterui::Binding;
-# use waterui_core::extract::Use;
-
-#[derive(Clone)]
-struct Analytics;
-
-impl Analytics {
-    fn track_delete(&self, _id: u64) {}
-}
-
-fn delete_button(item_id: Binding<Option<u64>>) -> impl View {
-    button("Delete")
-        .action_with(&item_id, |id: Binding<Option<u64>>, Use(analytics): Use<Analytics>| {
-            if let Some(id) = id.get() {
-                analytics.track_delete(id);
-                println!("Deleted item {id}");
-            }
-        })
-}
-```
-
-> **Tip**: Extractors live in `waterui::core::extract`. They let you pull services (analytics,
-> database pools, etc.) from the environment at the moment the handler runs.
 
 ## Custom Labels and Composition
 
@@ -252,26 +220,19 @@ pub fn quantity_selector() -> impl View {
 # use waterui::prelude::*;
 # use waterui::reactive::binding;
 # use waterui::Binding;
-# use waterui::Str;
 
 pub fn login_fields() -> impl View {
     let username: Binding<String> = binding(String::new());
     let password: Binding<String> = binding(String::new());
-    let username_str = Binding::mapping(&username, |data| Str::from(data), |binding, value: Str| {
-        binding.set(value.to_string());
-    });
-    let password_str = Binding::mapping(&password, |data| Str::from(data), |binding, value: Str| {
-        binding.set(value.to_string());
-    });
 
     vstack((
         vstack((
             text("Username"),
-            TextField::new(&username_str).prompt(text("you@example.com")),
+            TextField::new(&username).prompt(text("you@example.com")),
         )),
         vstack((
             text("Password"),
-            TextField::new(&password_str).prompt(text("••••••")),
+            TextField::new(&password).prompt(text("••••••")),
         )),
     ))
 }
@@ -279,4 +240,4 @@ pub fn login_fields() -> impl View {
 
 WaterUI automatically syncs user edits back into the binding. Combine `.on_submit(handler)` with the
 button patterns above to run validation or send credentials. When you need structured forms, these
-controls are exactly what the `FormBuilder` macro wires up behind the scenes.
+controls are exactly what the `#[form]` macro wires up behind the scenes.

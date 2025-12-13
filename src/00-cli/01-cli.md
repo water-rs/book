@@ -6,45 +6,59 @@ WaterUI ships a first-party CLI named `water`. Install it from the workspace che
 cargo install --path cli --locked
 ```
 
-## Scaffold a Project
+## Quick Start with Playground
 
-Create a new playground app with the runtime backends you need:
+For quick experimentation and prototyping, use **Playground Mode**. This creates a minimal project where platform backends are automatically managed and hidden in `.water/`.
 
 ```bash
-water create --name "Water Demo" \
-  --bundle-identifier com.example.waterdemo \
-  --backend swiftui --backend android --backend web \
-  --yes --dev
+water create "My Experiment" --playground
+cd my-experiment
+water run --platform ios
+```
+
+This is the fastest way to get started. You focus on the Rust code, and the CLI handles the native integration details automatically.
+
+## Scaffold a Full Project
+
+For production applications where you need full control over the native projects (e.g. to add entitlements, modify `Info.plist`, or add custom native code), create a standard project:
+
+```bash
+water create "Water Demo" \
+  --bundle-id com.example.waterdemo \
+  --platform ios,android \
+  --dev
 ```
 
 - `--dev` keeps the generated project pinned to the local WaterUI sources while new releases are cooking.
-- `--yes` skips prompts so commands can run inside scripts.
-- Repeat `--backend` for each platform you plan to target. You can always run `water add-backend <name>` later.
+- `--json` disables interactive prompts so commands can run inside scripts.
+- Supply `--platform` to specify target platforms (`ios`, `android`, `macos`).
 
-The command produces a Rust crate, `Water.toml`, and backend-specific folders under `apple/`, `android/`, and `web/`.
+The command produces a Rust crate, `Water.toml`, and visible backend-specific folders under `apple/` and `android/` that you can open in Xcode or Android Studio.
 
 ## Run with Hot Reload
 
-`water run` detects connected simulators and browsers, recompiles your crate, and streams code changes to the selected backend:
+`water run` detects connected simulators and devices, builds your crate, and launches the app. **Hot Reload is enabled by default**, allowing you to see code changes instantly without restarting the app.
 
 ```bash
-water run --platform web --project water-demo
+water run --platform ios --path water-demo
 ```
 
+The CLI watches your source files, recompiles changes into a dynamic library, and injects it into the running application via a WebSocket connection.
+
 - Use `--device <name>` to target a specific simulator/emulator from `water devices`.
-- Add `--release` once you need optimized builds for profiling.
-- Disable the file watcher with `--no-watch` if your CI only needs a single build.
+- Add `--release` (to `water build` or `water package`, though `run` defaults to debug) if needed.
+- Disable hot reload with `--no-hot-reload` if you want a standard build cycle.
 
 ## Package Native Artifacts
 
 Produce distributable builds when you are ready to ship:
 
 ```bash
-water package --platform android --project water-demo --release
-water package --platform ios --project water-demo
+water package --platform android --path water-demo --release --arch arm64
+water package --platform ios --path water-demo
 ```
 
-Android packaging accepts `--skip-native` when custom Rust artifacts are supplied. Apple builds honour the standard Xcode environment variables (`CONFIGURATION`, `BUILT_PRODUCTS_DIR`, etc.) when invoked from scheme actions.
+Android packaging requires specifying the target architecture with `--arch` (e.g., `arm64`, `x86_64`). Apple builds honour the standard Xcode environment variables when invoked from scheme actions.
 
 ## Inspect and Repair Toolchains
 
@@ -52,14 +66,14 @@ Run doctor and devices early in each chapter to ensure your environment is healt
 
 ```bash
 water doctor --fix
-water devices --json
+water devices
 ```
 
-- `doctor` validates Rust, Swift, Android, and web prerequisites. With `--fix` it attempts to repair missing components, otherwise it prints actionable instructions.
-- `devices` emits a machine-readable list when `--json` is present, which is perfect for CI pipelines or automation scripts.
+- `doctor` validates Rust, Xcode, Android SDK/NDK prerequisites. With `--fix` it attempts to repair missing components, otherwise it prints actionable instructions.
+- `devices` lists available simulators and connected devices.
 
 ## Automation Tips
 
-All commands accept `--format json` (or `--json`). JSON output disables interactive prompts. Supply `--yes`, `--platform`, and `--device` up front to avoid stalling non-interactive shells.
+All commands accept `--json`. JSON output disables interactive prompts. Supply required arguments (like `--platform` and `--device`) up front to avoid stalling non-interactive shells.
 
 Because every walkthrough in this book starts from a real CLI project, keep this reference handy: it is the quickest path to recreating any example locally.

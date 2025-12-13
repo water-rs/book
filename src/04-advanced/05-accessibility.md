@@ -23,6 +23,7 @@ The emoji-only button now announces “Delete draft” to VoiceOver/TalkBack use
 When building custom widgets, mark their semantic role:
 
 ```rust
+use waterui::prelude::*;
 use waterui::accessibility::AccessibilityRole;
 
 pub fn nav_drawer() -> impl View {
@@ -36,17 +37,9 @@ that matches the behaviour of your component.
 
 ## States
 
-`AccessibilityState` communicates dynamic information (selected, expanded, busy, etc.).
-
-```rust
-use waterui::accessibility::AccessibilityState;
-
-let state = AccessibilityState::new()
-    .selected(true)
-    .expanded(Some(false));
-
-accordion_header(name, state)
-```
+`AccessibilityState` communicates dynamic information (selected, expanded, busy, etc.). Currently,
+WaterUI exposes these through specific view modifiers or metadata properties, and they are
+often handled automatically by built-in controls.
 
 ## Patterns
 

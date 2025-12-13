@@ -1,46 +1,45 @@
-# Decode hot reload in WaterUI
+# Hot Reload Internals
 
-Hot reload is a popular feature for web programmers. WaterUI piggybacks on the CLI to stream new
-dynamic libraries into a running app so you can iterate quickly without restarting the process.
+Hot reload allows you to modify your Rust code and see changes instantly in the running application without restarting the app or losing state. WaterUI achieves this by compiling your code into a dynamic library (`.dylib`, `.so`, or `.dll`) and injecting it into the running process.
 
-Rust is ahead-of-time compiled, so the trick is to rebuild just your view crate, send the resulting
-`*.dylib`/`*.dll`/`*.so` over a WebSocket, and `dlopen` it inside the running process. That is
-precisely what `waterui::hot_reload::Hotreload` does.
+## Architecture
 
-## How It Works
+The system consists of three parts:
 
-1. `Hotreload::new(view)` renders the initial view via `Dynamic`.
-2. A background thread connects to the CLI (`water run --hot-reload`) using the
-   `WATERUI_HOT_RELOAD_PORT` environment variable.
-3. Whenever the CLI finishes compiling, it streams the new library bytes.
-4. The loader writes them to `./hot_reload/waterui_hot_<uuid>.{dylib,so,dll}` and uses `libloading`
-   to fetch the exported `waterui_main` symbol.
-5. The new view is handed to the original `Dynamic`, which rebuilds the UI in place.
+1.  **The CLI (`waterui-cli`)**: Watches your source files, rebuilds the project as a dynamic library when changes are detected, and hosts a WebSocket server.
+2.  **The Runtime (`HotReload` View)**: A special view component in your app that connects to the CLI, downloads the new library, and swaps the view pointer.
+3.  **The Macro (`#[hot_reload]`)**: An attribute macro that instruments functions to be individually reloadable.
 
-## Usage
+## Per-Function Hot Reload
+
+You can mark specific view functions with `#[hot_reload]`. This wraps the function body in a `HotReloadView`.
 
 ```rust
-use waterui::hot_reload::Hotreload;
-
-fn main_view() -> impl View {
-    Hotreload::new(app())
+#[hot_reload]
+fn my_feature() -> impl View {
+    vstack((
+        text("Edit me!"),
+        button("Click me", || println!("Clicked")),
+    ))
 }
 ```
 
-Start the CLI in hot-reload mode:
+The macro generates a unique C-exported symbol for this function (e.g., `waterui_hot_reload_my_feature`).
 
-```bash
-water run --platform mac --hot-reload
-```
+## The Reload Process
 
-Each save triggers Cargo to rebuild the crate, the CLI streams the binary, and the view updates
-without restarting simulators or the browser.
+1.  **Change Detection**: The CLI detects a file save.
+2.  **Rebuild**: It runs `cargo build` with the `waterui_hot_reload_lib` configuration.
+3.  **Broadcast**: The new binary is broadcast over WebSocket to the running app.
+4.  **Load**: The app writes the binary to a temporary file and loads it using `libloading`.
+5.  **Swap**: The `HotReloadView` looks up its specific symbol in the new library. If found, it calls the function to get the new view structure and replaces its current content.
+
+## State Preservation
+
+Because only the view construction logic is reloaded, the underlying state (held in `Binding`s or the `Environment`) is preserved. The new view structure simply re-binds to the existing state.
 
 ## Limitations
 
-- Only the main view crate is reloaded. Changes to dependencies still require a full restart.
-- Keep ABI-compatible signatures; `Hotreload` expects an exported `extern "C" fn -> *mut AnyView`.
-- Clean up temporary libraries in `./hot_reload/` occasionally—they accumulate as you iterate.
-
-Despite the constraints, hot reload dramatically shortens the feedback loop for UI tweaks, copy
-updates, and layout experiments.
+*   **Symbol Stability**: The function signature must return `impl View`.
+*   **Global State**: Changes to global state initialization or `main` entry points usually require a full restart.
+*   **Struct Layout**: Changing the fields of a struct that is shared between the main app and the hot-reloaded library can cause undefined behavior due to ABI mismatches. It is safest to tweak view logic and local variables.

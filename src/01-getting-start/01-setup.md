@@ -74,7 +74,7 @@ While you can use any text editor, we recommend VS Code for the best WaterUI dev
 All examples in this book assume you have the `water` CLI available. From the repository root run:
 
 ```bash
-cargo install --path waterui/cli --locked
+cargo install --path cli --locked
 water --version
 ```
 
@@ -88,10 +88,10 @@ Run the built-in doctor before continuing:
 water doctor --fix
 ```
 
-This checks your Rust toolchain plus any configured Apple, Android, and web dependencies. Repeat it whenever you change machines or SDK versions. To discover connected simulators/emulators (useful for later chapters), run:
+This checks your Rust toolchain plus any configured Apple and Android dependencies. Repeat it whenever you change machines or SDK versions. To discover connected simulators/emulators (useful for later chapters), run:
 
 ```bash
-water devices --json
+water devices
 ```
 
 ## Creating Your First Project
@@ -99,20 +99,18 @@ water devices --json
 We will let the CLI scaffold a runnable playground that already references the in-repo workspace:
 
 ```bash
-water create --name "Hello WaterUI" \
-  --directory hello-waterui \
-  --bundle-identifier com.example.hellowaterui \
-  --backend swiftui --backend web \
-  --yes --dev
+water create "Hello WaterUI" \
+  --bundle-id com.example.hellowaterui \
+  --platform ios,android \
+  --dev
 cd hello-waterui
 ```
 
 Flags explained:
 
-- `--directory` lets you pick the folder name (matching the rest of this book).
-- `--backend` can be repeated; choose whatever targets you want to explore first.
+- `"Hello WaterUI"` is the project name. The folder name will be derived from it (e.g., `hello-waterui`).
+- `--platform` specifies the target platforms (iOS, Android, macOS).
 - `--dev` points dependencies at the checked-out workspace so each chapter’s code compiles against your local sources.
-- `--yes` accepts the defaults and keeps scripts non-interactive.
 
 The generated project includes:
 
@@ -121,17 +119,8 @@ hello-waterui/
 ├── Cargo.toml          # crate manifest
 ├── Water.toml          # WaterUI-specific metadata + enabled backends
 ├── src/lib.rs          # starting point for your app views
-├── apple/, android/, web/ (depending on --backend)
+├── apple/, android/    # platform-specific backends (depending on --platform)
 └── .water/             # CLI metadata and cached assets
-```
-
-### Web Development (WebAssembly)
-
-When targeting the browser, install the wasm tooling once per machine:
-
-```bash
-curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-rustup target add wasm32-unknown-unknown
 ```
 
 ## Hello, World!
@@ -142,7 +131,7 @@ Open `src/lib.rs` inside the newly created project and replace the body with a t
 use waterui::prelude::*;
 
 pub fn home() -> impl View {
-    "Hello, WaterUI! 🌊"
+    text("Hello, WaterUI! 🌊")
 }
 ```
 
@@ -151,10 +140,10 @@ pub fn home() -> impl View {
 Instead of calling `cargo run` directly, use the CLI so it can manage backends for you:
 
 ```bash
-water run --platform web --project hello-waterui
+water run --platform ios
 ```
 
-The same command auto-detects desktop/mobile simulators when you omit `--platform` and run it from macOS. Once the dev server starts, every change you save in `src/lib.rs` hot-reloads into the selected target.
+The same command auto-detects desktop/mobile simulators when you provide the platform. Once the dev server starts, every change you save in `src/lib.rs` hot-reloads into the selected target.
 
 If you prefer to run the Rust crate alone (useful for unit tests or CLI tools), you can still execute `cargo test` or `cargo run` in parallel with the `water` commands; both workflows share the same sources.
 
@@ -177,3 +166,5 @@ rustup update
 1. Ensure you have the Microsoft C++ Build Tools installed
 2. Use the `x86_64-pc-windows-msvc` toolchain
 3. Consider using WSL2 for a Linux-like environment
+
+```

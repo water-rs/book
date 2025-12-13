@@ -15,7 +15,7 @@ mutations (push, remove, sort) that notify the UI automatically.
 # use waterui::prelude::*;
 # use waterui::component::list::{List, ListItem};
 # use waterui::reactive::collection::List as ReactiveList;
-# use waterui_core::id::Identifable;
+# use waterui::id::Identifable;
 # use waterui::AnyView;
 
 #[derive(Clone)]
@@ -64,7 +64,7 @@ on Apple platforms, context menus on desktop backends).
 # use waterui::AnyView;
 # use waterui::component::list::ListItem;
 # use waterui::reactive::collection::List as ReactiveList;
-# use waterui_core::id::Identifable;
+# use waterui::id::Identifable;
 # #[derive(Clone)]
 # struct Thread {
 #     id: i32,
@@ -103,7 +103,7 @@ to render dynamic tuples without the rest of the list machinery. Wrap primitive 
 # use waterui::prelude::*;
 # use waterui::reactive::collection::List as ReactiveList;
 # use waterui::views::ForEach;
-# use waterui_core::id;
+# use waterui::id;
 # use waterui::layout::stack::VStack;
 
 fn chip_row(tags: ReactiveList<id::SelfId<String>>) -> impl View {

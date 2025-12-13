@@ -1,49 +1,74 @@
 # Best Practices for Library Authors
 
-Building reusable components for WaterUI means working with the same primitives as the core
-framework. Follow these guidelines to keep contributions consistent and ergonomic.
+When building reusable component libraries for WaterUI, follow these patterns to ensure your components are idiomatic, performant, and easy to use.
 
-## Favor Function Views
+## 1. Use the `configurable!` Macro
 
-Expose public APIs as `pub fn foo(...) -> impl View`. Reserve dedicated structs for cases where you
-need to capture configuration for later (e.g., view modifiers, list containers). Function views keep
-call sites concise and let the compiler optimize away intermediate structs.
-
-## Embrace `ConfigurableView`
-
-When a component needs hooks (theming, localization), implement `ConfigurableView` and expose a
-`FooConfig`. This allows plugins to intercept configuration via `env.insert_hook` and keeps the
-rendering path flexible.
+For views that have properties (like `Text`, `Button`, `Slider`), use the `configurable!` macro. This generates the boilerplate for `ConfigurableView`, `ViewConfiguration`, and the builder pattern methods.
 
 ```rust
-pub struct BadgeConfig { /* … */ }
+use waterui_core::configurable;
 
-impl ConfigurableView for Badge {
-    type Config = BadgeConfig;
-    fn config(self) -> Self::Config { /* … */ }
+pub struct BadgeConfig {
+    pub label: AnyView,
+    pub color: Computed<Color>,
+}
+
+configurable!(Badge, BadgeConfig);
+
+impl Badge {
+    pub fn new(label: impl View) -> Self {
+        Self(BadgeConfig {
+            label: AnyView::new(label),
+            color: Color::RED.into_computed(),
+        })
+    }
+
+    // Builder method
+    pub fn color(mut self, color: impl IntoComputed<Color>) -> Self {
+        self.0.color = color.into_computed();
+        self
+    }
 }
 ```
 
-## Use `Binding` and Signals
+## 2. Accept `IntoComputed` / `IntoSignal`
 
-All stateful components should accept `Binding<T>` or `impl Signal<Output = T>`. Do not expose raw
-`Arc<Mutex<T>>` or other patterns. This keeps your component compatible with the reactive system and
-lets advanced users feed derived signals into it.
+Allow users to pass either static values or reactive bindings by accepting `impl IntoComputed<T>` or `impl IntoSignal<T>`.
 
-## Prefer Environment Extractors
+```rust
+pub fn color(mut self, color: impl IntoComputed<Color>) -> Self {
+    self.0.color = color.into_computed();
+    self
+}
+```
 
-Need shared services? Define an extractor (`impl Extractor for FooService`) so handlers and views
-can pull the service from the environment without tight coupling.
+This lets users write `.color(Color::RED)` (static) or `.color(my_binding)` (reactive) interchangeably.
 
-## Document Crates Locally
+## 3. Use `Environment` for Context
 
-Every component crate (controls, navigation, form) includes a README. Update it alongside code
-changes so the tutorial book and API docs stay in sync.
+Avoid passing global configuration (like themes) through arguments. Use the `Environment` instead. Define a struct for your config and implement `Extractor`.
 
-## Test with `mdbook test`
+```rust
+#[derive(Clone)]
+struct MyTheme {
+    border_radius: f32,
+}
 
-If a chapter introduces a component, back it with a doctest or shared example in `src/lib.rs`. This
-keeps snippets compiling as the API evolves.
+// In your view
+use_env(|Use(theme): Use<MyTheme>| {
+    // use theme.border_radius
+})
+```
 
-Consistent APIs make WaterUI approachable. Build on the same primitives (View, Environment,
-Bindings), offer hooks for customization, and document behaviors clearly.
+## 4. Leverage `ViewExt`
+
+The `ViewExt` trait provides common modifiers like `.padding()`, `.background()`, and `.gesture()`. Implement your component as a `View` so users can chain these modifiers.
+
+## 5. Favor Composition
+
+Build complex components by composing existing primitives (`VStack`, `Text`, `Shape`) rather than trying to implement custom rendering logic, unless absolutely necessary. Composition ensures your component benefits from the native backend's optimizations and accessibility features.
+
+## 6. Testing
+
+Use the `waterui-derive` crate to create testable forms and view structures. Ensure your component works with the reactive system by testing it with `Binding` updates.

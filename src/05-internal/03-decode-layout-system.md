@@ -1,67 +1,73 @@
 # Layout Internals
 
-The high-level layout chapter introduced stacks, padding, and grids. This appendix dives deeper into
-`waterui_layout` so you can reason about performance and implement custom layouts when the built-in
-ones do not suffice.
+WaterUI implements a custom layout protocol that runs in Rust but coordinates with the native backend. This ensures consistent layout logic across all platforms while using native widgets.
 
-## Proposal → Size → Placement
+## The Protocol
 
-Every layout implements:
+The layout system is based on a two-phase "Propose and Response" model, defined by the `Layout` trait in `waterui-core`.
 
 ```rust
-pub trait Layout {
-    fn propose(&mut self, parent: ProposalSize, children: &[ChildMetadata]) -> Vec<ProposalSize>;
-    fn size(&mut self, parent: ProposalSize, children: &[ChildMetadata]) -> Size;
-    fn place(
-        &mut self,
-        bounds: Rect,
-        proposal: ProposalSize,
-        children: &[ChildMetadata],
-    ) -> Vec<Rect>;
+pub trait Layout: Debug {
+    fn size_that_fits(&self, proposal: ProposalSize, children: &[&dyn SubView]) -> Size;
+    fn place(&self, bounds: Rect, children: &[&dyn SubView]) -> Vec<Rect>;
 }
 ```
 
-- `ProposalSize` contains optional width/height hints (`None` = unconstrained).
-- `ChildMetadata` includes stretch flags, intrinsic baselines, and previous measurements.
-- `Size` / `Rect` use logical pixels (`f32`).
+### 1. Sizing Phase (`size_that_fits`)
+The parent container proposes a size to the layout. The layout then negotiates with its children to determine its own ideal size.
+*   `ProposalSize` can have `Option<f32>` dimensions. `None` means "unconstrained" (ask for ideal size), while `Some(val)` means "constrained" (fit within this size).
 
-Stacks, grids, and scroll views you use every day are thin wrappers around these methods.
+### 2. Placement Phase (`place`)
+Once the size is determined, the parent tells the layout its final `bounds`. The layout then calculates the `Rect` (position and size) for each child.
 
-## Container and FixedContainer
+## SubView Proxy
 
-Declarative layout constructors (`vstack((…))`) ultimately call into `FixedContainer::new(layout,
-tuple_of_children)`; dynamic lists (`ForEach`, diffing) use `Container` with `AnyViews` so children
-can be replaced incrementally.
-
-When building custom layouts, decide which wrapper you need:
-
-- Use `FixedContainer` for small, static tuples (tabs with three children, for example).
-- Use `Container` when the layout should host arbitrary `AnyView` collections.
-
-## Stretch Semantics
-
-Stretch is controlled by `ChildMetadata::stretch`. Stacks mark `Spacer` and any view wrapped with
-`.frame().max_width(...)` accordingly. Layout implementors should:
-
-- Distribute leftover space proportionally across stretch children.
-- Leave non-stretch children at their measured size.
-
-This is how `spacer()` works without special-casing: it simply sets `stretch = true`.
-
-## Writing Your Own Layout
-
-1. Define a struct to hold per-render state (spacing, alignment, caches).
-2. Implement `Layout` using the rules above.
-3. Expose an ergonomic constructor returning `impl View` by wrapping the layout in a container.
+Layouts do not interact with `View`s directly. They interact with `SubView` proxies. This abstracts the differences between Rust views and native widgets.
 
 ```rust
-pub fn badge_stack(children: (impl View, impl View)) -> impl View {
-    FixedContainer::new(BadgeLayout::default(), children)
+pub trait SubView {
+    fn size_that_fits(&self, proposal: ProposalSize) -> Size;
+    fn stretch_axis(&self) -> StretchAxis;
+    fn priority(&self) -> i32;
 }
 ```
 
-Refer to `waterui/components/layout/stack/*.rs` for concrete examples—the stack layouts are heavily
-commented and cover alignment math, stretch, and baseline propagation.
+The native backend implements `SubView` via FFI. When Rust calls `size_that_fits` on a `SubView`, it triggers a call to the native platform to measure the actual text or widget.
 
-Armed with these internals you can debug spacing issues, reason about measurement order, and extend
-the layout system confidently.
+## Stretch Axis
+
+Views declare how they want to behave when there is extra space using `StretchAxis`:
+
+*   `None`: Content-sized (e.g., Text, Button).
+*   `Horizontal`: Expands width (e.g., TextField, Slider).
+*   `Vertical`: Expands height.
+*   `Both`: Fills all space (e.g., Color, ScrollView).
+*   `MainAxis` / `CrossAxis`: Context-dependent (e.g., Spacer, Divider).
+
+Containers like `VStack` and `HStack` use this information to distribute space proportionally among flexible children.
+
+## Logical Pixels
+
+All layout calculations in Rust use **Logical Pixels** (points).
+*   1 logical pixel = 1 point in iOS/macOS.
+*   1 logical pixel = 1 dp in Android.
+
+The native backend handles the conversion to physical pixels for rendering. This ensures that a `width(100.0)` looks the same physical size on all devices.
+
+## Writing Custom Layouts
+
+To create a custom layout:
+1.  Implement the `Layout` trait.
+2.  Wrap it in a `FixedContainer` (for static children) or `LazyContainer` (for dynamic `ForEach` children).
+
+```rust
+struct MyLayout;
+
+impl Layout for MyLayout {
+    // ... implement size_that_fits and place
+}
+
+pub fn my_layout(content: impl View) -> impl View {
+    FixedContainer::new(MyLayout, content)
+}
+```

@@ -42,7 +42,6 @@ WaterUI provides many built-in Views for common UI elements:
 # use waterui::prelude::*;
 # use waterui::layout::stack::vstack;
 # use waterui::reactive::binding;
-# use waterui::Binding;
 pub fn text_examples() -> impl View {
     let name: Binding<String> = binding("Alice".to_string());
     vstack((
@@ -51,7 +50,7 @@ pub fn text_examples() -> impl View {
         // Reactive text
         text!("Hello, {name}!"),
         // Styled text
-        waterui_text::Text::new("Important!").size(24.0),
+        text("Important!").size(24.0),
     ))
 }
 ```
@@ -94,8 +93,8 @@ use waterui::prelude::*;
 
 pub fn welcome_message(name: &str) -> impl View {
     vstack((
-        waterui_text::Text::new("Welcome!").size(24.0),
-        waterui_text::Text::new(format!("Hello, {}!", name)),
+        text("Welcome!").size(24.0),
+        text(format!("Hello, {}!", name)),
     ))
 }
 
@@ -111,7 +110,6 @@ Only reach for a custom struct when the component needs to carry configuration w
 ```rust
 # use waterui::prelude::*;
 # use waterui::reactive::binding;
-# use waterui::Binding;
 
 pub struct CounterWidget {
     pub initial_value: i32,
@@ -157,12 +155,12 @@ Many built-in controls implement `ConfigurableView`, exposing a configuration st
 # use waterui::AnyView;
 # use waterui::component::button::ButtonConfig;
 # use waterui::layout::stack::hstack;
-# use waterui_text::Text;
+# use waterui::text::Text;
 # use waterui::view::ViewConfiguration;
 pub fn install_button_theme(env: &mut Environment) {
     env.insert_hook(|_, mut config: ButtonConfig| {
         config.label = AnyView::new(hstack((
-            Text::new("🌊"),
+            text("🌊"),
             config.label,
         )));
         config.render()

@@ -1,55 +1,68 @@
 # Canvas
 
-WaterUI does not yet ship a first-party immediate-mode canvas, but you can integrate custom
-renderers today using the same primitives the framework uses internally (`Native`, `Metadata`, and
-platform hooks). This chapter outlines the approach so you can render charts, maps, or drawing
-surfaces until the dedicated `waterui_canvas` crate lands.
+WaterUI ships with a first-party immediate-mode canvas API via `waterui::graphics::Canvas`. It
+uses Vello for high-performance GPU rendering of 2D vector graphics.
 
-## Wrap a Native View
+## Basic Usage
 
-Backends expose a `Native<T>` view that hands control to the renderer. Create a minimal wrapper that
-stores your model and drive it with reactive bindings:
+The canvas API provides a drawing context that lets you stroke and fill shapes:
 
 ```rust
 use waterui::prelude::*;
-use waterui::reactive::binding;
-use waterui::widget::suspense::Suspense;
-use waterui_core::{Environment, Native, View};
-use waterui::Binding;
+use waterui::graphics::Canvas;
+use waterui::graphics::kurbo::{Circle, Rect, Point};
+use waterui::graphics::peniko::Color;
 
-pub struct Chart {
-    pub points: Vec<(f32, f32)>,
-}
+fn custom_drawing() -> impl View {
+    Canvas::new(|ctx| {
+        let center = ctx.center();
+        
+        // Fill a circle
+        ctx.fill(
+            Circle::new(center, 50.0),
+            Color::RED,
+        );
 
-impl View for Chart {
-    fn body(self, _env: &Environment) -> impl View {
-        Native(self)
-    }
-}
-
-async fn stream_points(points: Binding<Vec<(f32, f32)>>) -> impl View {
-    // Replace with actual async updates (WebSocket, sensor data, etc.)
-    Chart { points: points.get() }
-}
-
-pub fn realtime_chart() -> impl View {
-    let points = binding(vec![(0.0, 0.0)]);
-    Suspense::new(stream_points(points.clone()));
-    Chart { points: points.get() }
+        // Stroke a rectangle
+        ctx.stroke(
+            Rect::from_origin_size(Point::new(10.0, 10.0), (100.0, 50.0)),
+            Color::BLUE,
+            2.0,
+        );
+    })
+    .height(200.0) // Constrain height if needed
 }
 ```
 
-Each backend implements the trait that turns `Native<Chart>` into the appropriate drawing surface
-(SwiftUI `Canvas`, HTML `<canvas>`, GTK4 `DrawingArea`, etc.). The binding keeps the view reactive,
-and `Suspense` handles asynchronous updates.
+The drawing closure runs every frame (or when the view needs redrawing). `waterui::graphics`
+re-exports types from `kurbo` (geometry) and `peniko` (colors/brushes).
 
-## Pointer Input
+## Reactive Drawing
 
-Combine `GestureObserver` with your native view to capture pointer coordinates, then forward them to
-the backing renderer via bindings or environment services.
+To make the canvas reactive, capture bindings in the closure or use `Dynamic::watch` to
+rebuild the canvas when state changes.
 
-## Looking Ahead
+```rust
+use waterui::prelude::*;
+use waterui::graphics::Canvas;
+use waterui::graphics::kurbo::Circle;
+use waterui::graphics::peniko::Color;
 
-The upcoming `waterui_canvas` crate will package these patterns with a cross-platform immediate-mode
-API (paths, fills, gradients) plus hit-testing utilities. Until then, native wrappers provide a
-bridge for teams that need advanced drawing today.
+fn reactive_circle(radius: Binding<f64>) -> impl View {
+    // Rebuild the canvas when radius changes
+    Dynamic::watch(radius, |r| {
+        Canvas::new(move |ctx| {
+            ctx.fill(
+                Circle::new(ctx.center(), r),
+                Color::GREEN,
+            );
+        })
+    })
+}
+```
+
+## Advanced Rendering
+
+For more complex needs, `waterui::graphics::GpuSurface` allows direct access to `wgpu`
+for custom render pipelines, while `ShaderSurface` simplifies using WGSL fragment shaders.
+See the Shaders chapter for details.

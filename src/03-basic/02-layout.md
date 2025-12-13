@@ -196,26 +196,23 @@ pub fn emoji_palette() -> impl View {
 
 Notes:
 - Grids require a concrete width proposal. On desktop, wrap them in a parent that constrains width
-  (e.g. `.frame().max_width(...)`) when needed.
+  (e.g. `.max_width(...)`) when needed.
 - Each row may contain fewer elements than the declared column count; the layout simply leaves the
   trailing cells empty.
 - Use `Alignment::Leading` / `Trailing` / `Top` / `Bottom` to align items inside each grid cell.
 
 ## Frames and Explicit Sizing
 
-WaterUI’s `Frame` view pins a child to explicit size preferences. `view.frame(width, height)` is a
-common SwiftUI pattern; in WaterUI you construct an explicit frame via `ViewExt::alignment` and the
-methods on `Frame`:
+WaterUI provides direct modifiers for pinning views to explicit sizes, similar to SwiftUI.
+Use `.width()`, `.height()`, or `.size()` to constrain dimensions:
 
 ```rust
 # use waterui::prelude::*;
-# use waterui::layout::frame::Frame;
 # use waterui::layout::stack::Alignment;
 
 fn gallery_thumbnail(content: impl View) -> impl View {
-    Frame::new(content)
-        .width(160.0)
-        .height(120.0)
+    content
+        .size(160.0, 120.0)
         .alignment(Alignment::Center)
 }
 ```

@@ -1,6 +1,6 @@
 # Navigation
 
-`waterui_navigation` provides lightweight primitives for stacks, bars, and links that map to native
+`waterui::navigation` provides lightweight primitives for stacks, bars, and links that map to native
 navigation controllers on each backend. This chapter covers the building blocks so you can push and
 pop screens declaratively.
 
@@ -11,7 +11,7 @@ title, actions, and colour configuration.
 
 ```rust
 use waterui::prelude::*;
-use waterui_navigation::{Bar, NavigationView};
+use waterui::navigation::{Bar, NavigationView};
 use waterui::reactive::binding;
 
 pub fn inbox() -> impl View {
@@ -35,7 +35,7 @@ pub fn inbox() -> impl View {
 Shorter alternative:
 
 ```rust
-use waterui_navigation::navigation;
+use waterui::navigation::navigation;
 
 pub fn settings() -> impl View {
     navigation("Settings", settings_list())
@@ -49,7 +49,7 @@ destination.
 
 ```rust
 use waterui::prelude::*;
-use waterui_navigation::NavigationLink;
+use waterui::navigation::NavigationLink;
 
 fn thread_row(thread: Thread) -> impl View {
     NavigationLink::new(
@@ -69,7 +69,7 @@ For complex flows use a binding that tracks the active route:
 
 ```rust
 use waterui::reactive::binding;
-use waterui_navigation::{navigation, NavigationPath, NavigationStack};
+use waterui::navigation::{navigation, NavigationPath, NavigationStack};
 
 #[derive(Clone)]
 enum Step {
@@ -95,10 +95,10 @@ Updating the vector (push/pop) automatically syncs with the rendered stack.
 
 ## Tabs (Experimental)
 
-The `waterui_navigation::tab` module exposes a minimal tab bar API:
+The `waterui::navigation::tab` module exposes a minimal tab bar API:
 
 ```rust
-use waterui_navigation::tab::{Tab, Tabs};
+use waterui::navigation::tab::{Tab, Tabs};
 
 pub fn home_tabs() -> impl View {
     Tabs::new(vec![

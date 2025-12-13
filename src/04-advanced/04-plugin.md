@@ -37,7 +37,8 @@ entry point.
 
 ```rust
 use waterui_i18n::I18n;
-use waterui_text::locale::Locale;
+use waterui::prelude::*;
+use waterui::text::locale::Locale;
 
 fn install_i18n(env: &mut Environment) {
     let mut i18n = I18n::new();
@@ -59,7 +60,9 @@ content with the localized string.
 3. Insert helper extractors so views/handlers can access the plugin at runtime.
 
 ```rust
-use waterui::core::extract::Extractor;
+use waterui::prelude::*;
+use waterui::plugin::Plugin;
+use waterui::impl_extractor;
 
 #[derive(Clone)]
 pub struct Telemetry { /* ... */ }
@@ -70,11 +73,7 @@ impl Plugin for Telemetry {
     }
 }
 
-impl Extractor for Telemetry {
-    fn extract(env: &Environment) -> Option<Self> {
-        env.get::<Self>().cloned()
-    }
-}
+impl_extractor!(Telemetry);
 ```
 
 Now handlers can request `Use<Telemetry>` exactly like bindings or environment values.
@@ -84,6 +83,15 @@ Now handlers can request `Use<Telemetry>` exactly like bindings or environment v
 Override `uninstall` when the plugin must clean up:
 
 ```rust
+use waterui::prelude::*;
+use waterui::plugin::Plugin;
+
+struct SessionManager;
+
+impl SessionManager {
+    fn shutdown(&self) {}
+}
+
 impl Plugin for SessionManager {
     fn uninstall(self, env: &mut Environment) {
         self.shutdown();

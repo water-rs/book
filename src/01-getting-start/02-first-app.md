@@ -7,7 +7,6 @@ Now that your development environment is set up, let's build your first interact
 Our counter app will feature:
 - A display showing the current count
 - Buttons to increment and decrement the counter
-- A reset button
 - Dynamic styling based on the counter value
 
 By the end of this chapter, you'll understand:
@@ -21,11 +20,10 @@ By the end of this chapter, you'll understand:
 If you completed the setup chapter you already have a CLI-generated workspace. Otherwise scaffold one now:
 
 ```bash
-water create --name "Counter App" \
-  --directory counter-app \
-  --bundle-identifier com.example.counterapp \
-  --backend web \
-  --yes --dev
+water create "Counter App" \
+  --bundle-id com.example.counterapp \
+  --platform ios,android \
+  --dev
 cd counter-app
 ```
 
@@ -44,13 +42,13 @@ Start with a simple view structure. Since our initial view doesn't need state, w
 use waterui::prelude::*;
 
 pub fn counter() -> impl View {
-    "Counter App"
+    text("Counter App")
 }
 ```
 
 Run this to make sure everything works:
 ```bash
-water run --platform web --project counter-app
+water run --platform ios
 ```
 
 You should see a window with "Counter App" displayed.
@@ -64,8 +62,8 @@ use waterui::prelude::*;
 
 pub fn counter() -> impl View {
     vstack((
-        "Counter App",
-        "Count: 0",
+        text("Counter App"),
+        text("Count: 0"),
     ))
 }
 ```
@@ -74,17 +72,16 @@ pub fn counter() -> impl View {
 
 ### Step 3: Adding Reactive State
 
-Now comes the exciting part - let's add reactive state! We'll use the re-exported `binding` helper together with `Binding`'s convenience methods and the `text!` macro for reactive text:
+Now comes the exciting part - let's add reactive state! We'll use the `binding` helper from `waterui::prelude` and the `text!` macro for reactive text:
 
 ```rust
-# use waterui::prelude::*;
-# use waterui::reactive::binding;
-# use waterui::Binding;
+use waterui::prelude::*;
 
 pub fn counter() -> impl View {
     let count: Binding<i32> = binding(0);
+    
     vstack((
-        "Counter App",
+        text("Counter App"),
         text!("Count: {count}"),
         hstack((
             button("- Decrement").action_with(&count, |state: Binding<i32>| {
@@ -98,7 +95,7 @@ pub fn counter() -> impl View {
 }
 ```
 
-`water run --platform web --project counter-app` will hot reload changes—save the file and keep the terminal open to see updates instantly.
+`water run --platform ios` will hot reload changes—save the file and keep the terminal open to see updates instantly.
 
 ## Understanding the Code
 
@@ -107,8 +104,8 @@ Let's break down the key concepts introduced:
 ### Reactive State with `binding`
 
 ```rust
-# use waterui::reactive::binding;
-# use waterui::Binding;
+use waterui::prelude::*;
+
 pub fn make_counter() -> Binding<i32> {
     binding(0)
 }
@@ -119,9 +116,8 @@ This creates a reactive binding with an initial value of 0. When this value chan
 ### Reactive Text Display
 
 ```rust
-# use waterui::prelude::*;
-# use waterui::reactive::binding;
-# use waterui::Binding;
+use waterui::prelude::*;
+
 pub fn reactive_label() -> impl View {
     let count: Binding<i32> = binding(0);
     text!("Count: {count}")
@@ -134,9 +130,8 @@ pub fn reactive_label() -> impl View {
 ### Event Handling
 
 ```rust
-# use waterui::prelude::*;
-# use waterui::reactive::binding;
-# use waterui::Binding;
+use waterui::prelude::*;
+
 pub fn decrement_button() -> impl View {
     let count: Binding<i32> = binding(0);
     button("- Decrement").action_with(&count, |count: Binding<i32>| {
@@ -145,13 +140,14 @@ pub fn decrement_button() -> impl View {
 }
 ```
 
-- `.action_with()` attaches an event handler with captured state
-- `Binding<i32>::decrement` and `Binding<i32>::increment` provide ergonomic arithmetic updates without manual closures
+- `.action_with()` attaches an event handler with captured state.
+- `Binding<T>` implements `Clone` efficiently (it's a reference-counted handle), so you can pass it around.
 
 ### Layout with Stacks
 
 ```rust
-# use waterui::prelude::*;
+use waterui::prelude::*;
+
 pub fn stack_examples() -> impl View {
     vstack((
         text("First"),

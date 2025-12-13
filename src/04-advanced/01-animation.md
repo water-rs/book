@@ -1,6 +1,6 @@
 # Animation
 
-The animation system lives in `waterui_core::animation` and is wired into every `Signal` via the
+The animation system lives in `waterui::animation` and is wired into every `Signal` via the
 `AnimationExt` trait. Instead of imperatively driving tweens, you attach animation metadata to the
 binding that powers your view, and the renderer interpolates between old and new values.
 
@@ -8,8 +8,7 @@ binding that powers your view, and the renderer interpolates between old and new
 
 ```rust
 use waterui::prelude::*;
-use waterui::reactive::binding;
-use waterui_core::{animation::Animation, AnimationExt};
+use waterui::animation::Animation;
 use core::time::Duration;
 
 pub fn fading_badge() -> impl View {
@@ -34,6 +33,9 @@ combinator.
 Attach animation metadata to multiple bindings and update them together:
 
 ```rust
+use waterui::prelude::*;
+use waterui::animation::Animation;
+
 let offset = binding((0.0_f32, 0.0_f32));
 let font_size = binding(14.0_f32);
 
@@ -44,22 +46,6 @@ vstack((text!("offset: {offset:?}, size: {font_size}"),))
 ```
 
 Calling `offset.set((0.0, 50.0))` and `opacity.set(1.0)` triggers both animations concurrently.
-
-## Animation Hooks
-
-Renderers look for an `Animation` in the view metadata. If your app needs global animation policy
-(reduced motion, slower transitions), install a hook:
-
-```rust
-use waterui_core::env::Environment;
-use waterui_core::{animation::Animation, view::Hook};
-
-pub fn install_reduced_motion(env: &mut Environment) {
-    env.insert_hook(|_, config: Animation| Animation::EaseOut(Duration::from_millis(100)));
-}
-```
-
-Any binding that calls `.animated()` now receives the shorter ease-out curve.
 
 ## Testing and Debugging
 

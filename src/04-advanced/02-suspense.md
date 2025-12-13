@@ -1,6 +1,6 @@
 # Suspense and Async Rendering
 
-`waterui::widget::suspense::Suspense` bridges async work and declarative views. Wrap any async
+`waterui::widget::Suspense` bridges async work and declarative views. Wrap any async
 builder and Suspense takes care of launching the future, showing a placeholder, cancelling the task
 when the view disappears, and re-rendering once data arrives.
 
@@ -8,7 +8,7 @@ when the view disappears, and re-rendering once data arrives.
 
 ```rust
 use waterui::prelude::*;
-use waterui::widget::suspense::Suspense;
+use waterui::widget::Suspense;
 
 async fn load_profile() -> impl View {
     text("Ada Lovelace")
@@ -31,6 +31,7 @@ pub fn profile() -> impl View {
 Install a global placeholder so every Suspense shares the same skeleton:
 
 ```rust
+use waterui::prelude::*;
 use waterui::widget::suspense::DefaultLoadingView;
 
 let env = Environment::new().with(DefaultLoadingView::new(|| text("Please wait…")));
@@ -60,12 +61,13 @@ the placeholder disappears.
 Wrap async results in `Result` and convert errors into `ErrorView`:
 
 ```rust
-use waterui::error::ErrorView;
+use waterui::prelude::*;
+use waterui::widget::error::Error;
 
 Suspense::new(async {
     match fetch_feed().await {
         Ok(posts) => feed(posts).anyview(),
-        Err(err) => ErrorView::from(err).anyview(),
+        Err(err) => Error::new(err).anyview(),
     }
 })
 ```

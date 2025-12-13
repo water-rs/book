@@ -37,5 +37,12 @@
   - [Canvas](04-advanced/07-canvas.md)
   - [Shader](04-advanced/08-shader.md)
 
+- [Internal Architecture]()
+  - [How WaterUI Renders](05-internal/01-how-waterui-rendered.md)
+  - [Hot Reload Internals](05-internal/02-decode-hot-reload.md)
+  - [Layout System](05-internal/03-decode-layout-system.md)
+  - [Library Authoring](05-internal/04-best-practice-for-library-author.md)
+  - [Philosophy](05-internal/05-philosophy.md)
+
 - [Appendices]()
   - [Automation and Troubleshooting](appendix/automation.md)

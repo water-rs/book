@@ -15,7 +15,7 @@ The pattern looks like this:
 ```rust
 use waterui::prelude::*;
 use waterui::reactive::{binding, Binding};
-use waterui::task::task;
+use waterui::task::spawn;
 
 #[derive(Clone, Debug)]
 enum FetchState<T> {
@@ -47,7 +47,7 @@ fn content(state: Binding<FetchState<Weather>>) -> impl View {
 fn fetch_weather(state: Binding<FetchState<Weather>>) {
     state.set(FetchState::Loading);
 
-    task(async move {
+    spawn(async move {
         match reqwest::get("https://api.example.com/weather").await {
             Ok(response) => match response.json::<Weather>().await {
                 Ok(weather) => state.set(FetchState::Loaded(weather)),
@@ -59,7 +59,7 @@ fn fetch_weather(state: Binding<FetchState<Weather>>) {
 }
 ```
 
-`task` uses the executor configured for your backend (Tokio by default). Because bindings are
+`spawn` uses the executor configured for your backend (Tokio by default). Because bindings are
 clonable handles, you can move them into the async block safely.
 
 ## Caching and Suspense

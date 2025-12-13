@@ -62,9 +62,9 @@ impl View for ApiStatusView {
         let theme = env.get::<Theme>().expect("Theme provided");
 
         vstack((
-            waterui_text::Text::new(config.api_url.clone())
+            text(config.api_url.clone())
                 .foreground(theme.primary_color.clone()),
-            waterui_text::Text::new(format!("Timeout: {}s", config.timeout_seconds))
+            text(format!("Timeout: {}s", config.timeout_seconds))
                 .size(14.0),
         ))
         .background(waterui::background::Background::color(
@@ -163,7 +163,7 @@ impl Plugin for ThemePlugin {
     fn install(self, env: &mut Environment) {
         env.insert_hook(|_, mut config: ButtonConfig| {
             config.label = AnyView::new(hstack((
-                Text::new("🌊"),
+                text("🌊"),
                 config.label,
             )));
             config.render()

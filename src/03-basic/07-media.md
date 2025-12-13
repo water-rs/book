@@ -1,6 +1,6 @@
 # Media Components
 
-Media surfaces are first-class citizens in WaterUI. The `waterui_media` crate provides declarative
+Media surfaces are first-class citizens in WaterUI. The `waterui::media` crate provides declarative
 views for images (`Photo`), video playback (`Video` + `VideoPlayer`), Live Photos, and a unified
 `Media` enum that dynamically chooses the right renderer. This chapter explores the API from basic
 usage through advanced configuration.
@@ -9,7 +9,7 @@ usage through advanced configuration.
 
 ```rust
 use waterui::prelude::*;
-use waterui::components::media::Photo;
+use waterui::media::Photo;
 
 pub fn cover_image() -> impl View {
     Photo::new("https://assets.waterui.dev/cover.png")
@@ -19,7 +19,7 @@ pub fn cover_image() -> impl View {
 
 Key features:
 
-- `Photo::new` accepts anything convertible into `waterui_media::Url` (web URLs, `file://`, etc.).
+- `Photo::new` accepts anything convertible into `waterui::media::Url` (web URLs, `file://`, etc.).
 - `.placeholder(view)` renders while the backend fetches the asset.
 - `.on_failure(view)` handles network errors gracefully.
 - You can compose standard modifiers (`.padding()`, `.frame(...)`, `.background(...)`) around the
@@ -32,7 +32,7 @@ reuse it if multiple players should point at the same file.
 
 ```rust
 use waterui::prelude::*;
-use waterui::components::media::{Video, VideoPlayer};
+use waterui::media::{Video, VideoPlayer};
 use waterui::reactive::binding;
 
 pub fn trailer_player() -> impl View {
@@ -64,7 +64,7 @@ Apple’s Live Photos combine a still image and a short video clip. WaterUI pack
 
 ```rust
 use waterui::prelude::*;
-use waterui::components::media::{LivePhoto, LivePhotoSource};
+use waterui::media::{LivePhoto, LivePhotoSource};
 
 pub fn vacation_memory() -> impl View {
     let source = LivePhotoSource::new(
@@ -85,7 +85,7 @@ binding instead of a large `match` statement.
 
 ```rust
 use waterui::prelude::*;
-use waterui::components::media::Media;
+use waterui::media::Media;
 use waterui::reactive::binding;
 
 pub fn dynamic_media() -> impl View {
@@ -99,28 +99,20 @@ pub fn dynamic_media() -> impl View {
 `Media` implements `View`, so you can drop it directly into stacks, grids, or navigation views. To
 switch the content, update the binding—WaterUI rebuilds the appropriate concrete view.
 
-## Media Picker (Feature Flag: `media-picker`)
-
-Enable the crate feature in `Cargo.toml`:
-
-```toml
-[dependencies.waterui]
-features = ["media-picker"]
-```
+## Media Picker
 
 Then present the picker:
 
 ```rust
 use waterui::prelude::*;
-use waterui::components::media::picker::{MediaFilter, MediaPicker, Selected};
+use waterui::media::media_picker::{MediaFilter, MediaPicker, Selected};
 use waterui::reactive::binding;
 
 pub fn choose_photo() -> impl View {
-    let selection = binding::<Selected>(Selected(0));
+    let selection = binding::<Option<Selected>>(None);
 
-    MediaPicker::new()
+    MediaPicker::new(&selection)
         .filter(MediaFilter::Image)
-        .selection(selection.clone())
 }
 ```
 
@@ -128,18 +120,20 @@ The `Selected` binding stores an identifier. Use `Selected::load()` asynchronous
 receive the actual `Media` item and pipe it into your view tree.
 
 ```rust
-use waterui::components::media::Media;
+use waterui::media::Media;
 use waterui::reactive::binding;
-use waterui::task::task;
+use waterui::task::spawn;
 
 let gallery = binding(Vec::<Media>::new());
 
-button("Import").action_with(&selection, move |selected| {
+button("Import").action_with(&selection, move |selected_binding| {
     let gallery = gallery.clone();
-    task(async move {
-        let media = selected.get().load().await;
-        gallery.push(media);
-    });
+    if let Some(selected) = selected_binding.get() {
+        spawn(async move {
+            let media = selected.load().await;
+            gallery.push(media);
+        });
+    }
 });
 ```
 
