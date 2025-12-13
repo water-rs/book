@@ -6,8 +6,7 @@ language = "en"
 src = "src"
 
 [rust]
-edition = "2021"
-rustdoc = "scripts/mdbook-rustdoc.sh"
+edition = "2024"
 
 [build]
 build-dir = "book"
