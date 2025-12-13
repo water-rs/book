@@ -27,20 +27,18 @@ Key features:
 
 ## Video Playback
 
-`Video` represents a source, while `VideoPlayer` renders controls. Create one `Video` per asset and
-reuse it if multiple players should point at the same file.
+`Video` represents a raw view, while `VideoPlayer` renders controls. 
 
 ```rust
 use waterui::prelude::*;
-use waterui::media::{Video, VideoPlayer};
+use waterui::media::VideoPlayer;
 use waterui::reactive::binding;
 
 pub fn trailer_player() -> impl View {
-    let video = Video::new("https://media.waterui.dev/trailer.mp4");
     let muted = binding(false);
 
     vstack((
-        VideoPlayer::new(video.clone()).muted(&muted),
+        VideoPlayer::new("https://media.waterui.dev/trailer.mp4").muted(&muted),
         button("Toggle Mute").action_with(&muted, |state| state.toggle()),
     ))
 }

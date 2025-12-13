@@ -15,7 +15,7 @@ mutations (push, remove, sort) that notify the UI automatically.
 # use waterui::prelude::*;
 # use waterui::component::list::{List, ListItem};
 # use waterui::reactive::collection::List as ReactiveList;
-# use waterui::id::Identifable;
+# use waterui::Identifable;
 # use waterui::AnyView;
 
 #[derive(Clone)]
@@ -64,7 +64,7 @@ on Apple platforms, context menus on desktop backends).
 # use waterui::AnyView;
 # use waterui::component::list::ListItem;
 # use waterui::reactive::collection::List as ReactiveList;
-# use waterui::id::Identifable;
+# use waterui::Identifable;
 # #[derive(Clone)]
 # struct Thread {
 #     id: i32,
