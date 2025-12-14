@@ -17,17 +17,14 @@ By the end of this chapter, you'll understand:
 
 ## Setting Up the Project
 
-If you completed the setup chapter you already have a CLI-generated workspace. Otherwise scaffold one now:
+If you completed the setup chapter you already have a CLI-generated workspace. Otherwise scaffold one now using playground mode:
 
 ```bash
-water create "Counter App" \
-  --bundle-id com.example.counterapp \
-  --platform ios,android \
-  --dev
+water create "Counter App" --playground
 cd counter-app
 ```
 
-We will edit `src/lib.rs` so the shared code can run on any backend the CLI installed.
+We will edit `src/lib.rs` to build our application. The playground mode handles all the native configuration for us.
 
 ## Building the Counter Step by Step
 
@@ -48,7 +45,7 @@ pub fn counter() -> impl View {
 
 Run this to make sure everything works:
 ```bash
-water run --platform ios
+water run
 ```
 
 You should see a window with "Counter App" displayed.
@@ -95,7 +92,7 @@ pub fn counter() -> impl View {
 }
 ```
 
-`water run --platform ios` will hot reload changes—save the file and keep the terminal open to see updates instantly.
+`water run` will hot reload changes—save the file and keep the terminal open to see updates instantly.
 
 ## Understanding the Code
 

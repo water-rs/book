@@ -8,7 +8,7 @@ WaterUI is a modern, declarative UI framework for Rust that enables you to build
 
 ### Key Features
 
-- **🚀 Cross-Platform**: Write once, deploy everywhere - desktop, web, mobile, embedded
+- **🚀 Cross-Platform**: Learn once, apply anywhere - iOS, Android, macOS.
 - **🦀 Type-Safe**: Leverage Rust's powerful type system for compile-time correctness
 - **⚡ Reactive**: Automatic UI updates when data changes
 - **📝 Declarative**: Describe what your UI should look like, not how to build it

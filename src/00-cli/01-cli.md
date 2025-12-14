@@ -1,79 +1,94 @@
-# WaterUI CLI Workflow
+# WaterUI CLI Reference
 
-WaterUI ships a first-party CLI named `water`. Install it from the workspace checkout so that every example in this book can be scaffolded, run, and packaged without leaving your terminal.
+The `water` CLI is your primary tool for managing WaterUI projects. It handles scaffolding, running, and packaging your applications across different platforms.
+
+## Installation
+
+Ensure you have the CLI installed (see [Setup](../01-getting-start/01-setup.md)):
 
 ```bash
 cargo install --path cli --locked
 ```
 
-## Quick Start with Playground
+## Project Modes
 
-For quick experimentation and prototyping, use **Playground Mode**. This creates a minimal project where platform backends are automatically managed and hidden in `.water/`.
+WaterUI supports two project modes:
+
+### 1. Playground Mode (Recommended for Learning)
 
 ```bash
 water create "My Experiment" --playground
-cd my-experiment
+```
+
+- **Best for**: Prototyping, learning, and simple apps.
+- **Structure**: Hides native projects in `.water/`.
+- **Experience**: Zero-config. Just run `water run` and go.
+
+### 2. Full Project
+
+```bash
+water create "My App" --bundle-id com.example.app --platform ios,android
+```
+
+- **Best for**: Production apps needing custom native code (Info.plist, AndroidManifest.xml).
+- **Structure**: Generates explicit `apple/` and `android/` folders.
+- **Experience**: Full control over the native build process.
+
+## Commands
+
+### `create`
+
+Scaffolds a new project.
+
+```bash
+# Playground
+water create "Demo" --playground
+
+# Production
+water create "Production App" --bundle-id com.org.app --platform ios
+```
+
+### `run`
+
+Builds and runs the application on a connected device or simulator.
+
+```bash
+# Auto-detect device
+water run
+
+# Target specific platform
 water run --platform ios
+water run --platform android
+
+# Target specific device
+water run --device "iPhone 15"
 ```
 
-This is the fastest way to get started. You focus on the Rust code, and the CLI handles the native integration details automatically.
+**Hot Reload** is enabled by default. Save your `.rs` files to see changes instantly.
 
-## Scaffold a Full Project
+### `package`
 
-For production applications where you need full control over the native projects (e.g. to add entitlements, modify `Info.plist`, or add custom native code), create a standard project:
+Produces distributable artifacts (IPA, APK/AAB).
 
 ```bash
-water create "Water Demo" \
-  --bundle-id com.example.waterdemo \
-  --platform ios,android \
-  --dev
+water package --platform ios --release
+water package --platform android --release --arch arm64
 ```
 
-- `--dev` keeps the generated project pinned to the local WaterUI sources while new releases are cooking.
-- `--json` disables interactive prompts so commands can run inside scripts.
-- Supply `--platform` to specify target platforms (`ios`, `android`, `macos`).
+### `doctor`
 
-The command produces a Rust crate, `Water.toml`, and visible backend-specific folders under `apple/` and `android/` that you can open in Xcode or Android Studio.
-
-## Run with Hot Reload
-
-`water run` detects connected simulators and devices, builds your crate, and launches the app. **Hot Reload is enabled by default**, allowing you to see code changes instantly without restarting the app.
+Checks your development environment for missing dependencies.
 
 ```bash
-water run --platform ios --path water-demo
-```
-
-The CLI watches your source files, recompiles changes into a dynamic library, and injects it into the running application via a WebSocket connection.
-
-- Use `--device <name>` to target a specific simulator/emulator from `water devices`.
-- Add `--release` (to `water build` or `water package`, though `run` defaults to debug) if needed.
-- Disable hot reload with `--no-hot-reload` if you want a standard build cycle.
-
-## Package Native Artifacts
-
-Produce distributable builds when you are ready to ship:
-
-```bash
-water package --platform android --path water-demo --release --arch arm64
-water package --platform ios --path water-demo
-```
-
-Android packaging requires specifying the target architecture with `--arch` (e.g., `arm64`, `x86_64`). Apple builds honour the standard Xcode environment variables when invoked from scheme actions.
-
-## Inspect and Repair Toolchains
-
-Run doctor and devices early in each chapter to ensure your environment is healthy:
-
-```bash
+water doctor
+# Attempt to fix issues automatically
 water doctor --fix
+```
+
+### `devices`
+
+Lists all detected simulators and physical devices.
+
+```bash
 water devices
 ```
-
-- `doctor` validates Rust, Xcode, Android SDK/NDK prerequisites. With `--fix` it attempts to repair missing components, otherwise it prints actionable instructions.
-- `devices` lists available simulators and connected devices.
-
-## Automation Tips
-
-All commands accept `--json`. JSON output disables interactive prompts. Supply required arguments (like `--platform` and `--device`) up front to avoid stalling non-interactive shells.
-
-Because every walkthrough in this book starts from a real CLI project, keep this reference handy: it is the quickest path to recreating any example locally.

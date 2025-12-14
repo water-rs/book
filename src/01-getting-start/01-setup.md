@@ -96,31 +96,21 @@ water devices
 
 ## Creating Your First Project
 
-We will let the CLI scaffold a runnable playground that already references the in-repo workspace:
+We will let the CLI scaffold a **Playground** project. This is the fastest way to get started, as it manages platform-specific native code for you automatically.
 
 ```bash
-water create "Hello WaterUI" \
-  --bundle-id com.example.hellowaterui \
-  --platform ios,android \
-  --dev
+water create "Hello WaterUI" --playground
 cd hello-waterui
 ```
 
-Flags explained:
-
-- `"Hello WaterUI"` is the project name. The folder name will be derived from it (e.g., `hello-waterui`).
-- `--platform` specifies the target platforms (iOS, Android, macOS).
-- `--dev` points dependencies at the checked-out workspace so each chapter’s code compiles against your local sources.
-
-The generated project includes:
+The generated project is minimal:
 
 ```text
 hello-waterui/
 ├── Cargo.toml          # crate manifest
-├── Water.toml          # WaterUI-specific metadata + enabled backends
+├── Water.toml          # WaterUI-specific metadata
 ├── src/lib.rs          # starting point for your app views
-├── apple/, android/    # platform-specific backends (depending on --platform)
-└── .water/             # CLI metadata and cached assets
+└── .water/             # Managed native projects (hidden)
 ```
 
 ## Hello, World!
@@ -137,15 +127,15 @@ pub fn home() -> impl View {
 
 ### Building and Running
 
-Instead of calling `cargo run` directly, use the CLI so it can manage backends for you:
+Use the CLI to run your app. It will detect available simulators or devices:
 
 ```bash
-water run --platform ios
+water run
 ```
 
-The same command auto-detects desktop/mobile simulators when you provide the platform. Once the dev server starts, every change you save in `src/lib.rs` hot-reloads into the selected target.
+Once the dev server starts, every change you save in `src/lib.rs` hot-reloads instantly.
 
-If you prefer to run the Rust crate alone (useful for unit tests or CLI tools), you can still execute `cargo test` or `cargo run` in parallel with the `water` commands; both workflows share the same sources.
+If you prefer to run the Rust crate alone (useful for unit tests), you can still execute `cargo test` in parallel.
 
 ## Troubleshooting Common Issues
 

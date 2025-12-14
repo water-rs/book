@@ -34,9 +34,10 @@ fn gradient() -> impl View {
 
 ## Built-in Uniforms
 
-`ShaderSurface` automatically provides a uniform buffer at `@group(0) @binding(0)` containing:
+`ShaderSurface` **automatically prepends** the following uniform definition (and a full-screen vertex shader) to your code. **Do not** redefine this struct or variable in your WGSL file.
 
 ```wgsl
+// Auto-generated prelude (available to your shader):
 struct Uniforms {
     time: f32,           // Elapsed time in seconds
     resolution: vec2<f32>, // Surface size in pixels
@@ -45,11 +46,12 @@ struct Uniforms {
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 ```
 
-Your shader entry point should look like this:
+Your shader code should strictly define the fragment entry point:
 
 ```wgsl
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
+    let t = uniforms.time;
     // ...
 }
 ```
@@ -58,8 +60,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 ## Advanced GPU Rendering
 
-For full control over the rendering pipeline (custom vertex buffers, compute shaders, multiple passes),
-implement the `GpuRenderer` trait and use `GpuSurface`.
+`ShaderSurface` is limited to single-pass fragment shaders. For full control over the rendering pipeline (custom vertex shaders, multiple passes, compute shaders), implement the `GpuRenderer` trait and use `GpuSurface`.
 
 ```rust
 use waterui::graphics::{GpuRenderer, GpuSurface, GpuContext, GpuFrame};
@@ -68,11 +69,11 @@ struct MyRenderer;
 
 impl GpuRenderer for MyRenderer {
     fn setup(&mut self, ctx: &GpuContext) {
-        // Create pipelines, buffers...
+        // Create pipelines, buffers, bind groups...
     }
 
     fn render(&mut self, frame: &GpuFrame) {
-        // Encode render commands...
+        // Create encoder, render passes, submit to queue...
     }
 }
 
@@ -81,4 +82,4 @@ fn custom_render() -> impl View {
 }
 ```
 
-This allows for high-performance, custom GPU effects integrated seamlessly into the UI.
+See the `flame` example for a complete implementation of a multi-pass HDR renderer using `GpuSurface` and `wgpu`.
