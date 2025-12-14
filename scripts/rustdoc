@@ -59,7 +59,7 @@ fi
 for dir in "${search_dirs[@]}"; do
   extra_flags+=("-L" "dependency=$dir")
 done
-crates=(waterui waterui-core waterui-navigation waterui-form waterui-media waterui-text waterui-layout waterui-derive)
+crates=(waterui waterui-core waterui-navigation waterui-form waterui-media waterui-text waterui-layout waterui-macros)
 for crate in "${crates[@]}"; do
   file=$(find_artifact "$crate")
   if [ -z "$file" ]; then

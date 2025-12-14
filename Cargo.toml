@@ -8,7 +8,7 @@ edition = "2024"
 [dependencies]
 waterui = { path = "waterui" }
 waterui_form = { package = "waterui-form", path = "waterui/components/form" }
-waterui_derive = { package = "waterui-derive", path = "waterui/derive" }
+waterui_derive = { package = "waterui-macros", path = "waterui/derive" }
 
 
 # Common dependencies

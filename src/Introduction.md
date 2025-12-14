@@ -47,24 +47,24 @@ This book mirrors that structure—learn the core abstractions first, then layer
 
 ### Workspace Crates (excluding backends)
 
-| Crate | Path | Highlights |
-| ----- | ---- | ---------- |
-| `waterui` | `waterui/` | Facade crate that re-exports the rest of the stack plus hot reload, tasks, and metadata helpers. |
-| `waterui-core` | `waterui/core` | `View`, `Environment`, resolver system, plugins, hooks, and low-level layout traits. |
-| `waterui-controls` | `waterui/components/controls` | Buttons, toggles, sliders, steppers, text fields, and shared input handlers. |
-| `waterui-layout` | `waterui/components/layout` | Stacks, frames, grids, scroll containers, padding, and alignment primitives. |
-| `waterui-text` | `waterui/components/text` | The `Text` view, typography helpers, and localization-ready formatting APIs. |
-| `waterui-media` | `waterui/components/media` | Photo/video/Live Photo renderers plus media pickers. |
-| `waterui-navigation` | `waterui/components/navigation` | Navigation bars, stacks, programmatic paths, and tab containers. |
-| `waterui-form` | `waterui/components/form` | FormBuilder derive macro, color pickers, secure fields, and validation helpers. |
-| `waterui-graphics` | `waterui/components/graphics` | Experimental drawing primitives and utilities that feed the canvas/shader chapters. |
-| `waterui-render-utils` | `waterui/render_utils` | Shared GPU/device glue used by multiple backends and native wrappers. |
-| `waterui-derive` | `waterui/derive` | Proc-macros (`FormBuilder`, `View` helpers) consumed by the higher-level crates. |
-| `waterui-cli` | `waterui/cli` | The `water` binary you installed earlier for scaffolding, running, and packaging apps. |
-| `waterui-ffi` | `waterui/ffi` | FFI bridge used by native runners (Swift, Kotlin, C) plus hot reload integration. |
-| `waterui-color`, `waterui-str`, `waterui-url` | `waterui/utils/{color,str,url}` | Utility crates for colors, rope strings, and URL handling shared by every component. |
-| `window` | `waterui/window` | Cross-platform window/bootstrapper that spins up render loops for each backend. |
-| `demo` | `waterui/demo` | Showcase app exercising all components—great for cross-referencing when you read later chapters. |
+| Crate                                         | Path                            | Highlights                                                                                       |
+| --------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `waterui`                                     | `waterui/`                      | Facade crate that re-exports the rest of the stack plus hot reload, tasks, and metadata helpers. |
+| `waterui-core`                                | `waterui/core`                  | `View`, `Environment`, resolver system, plugins, hooks, and low-level layout traits.             |
+| `waterui-controls`                            | `waterui/components/controls`   | Buttons, toggles, sliders, steppers, text fields, and shared input handlers.                     |
+| `waterui-layout`                              | `waterui/components/layout`     | Stacks, frames, grids, scroll containers, padding, and alignment primitives.                     |
+| `waterui-text`                                | `waterui/components/text`       | The `Text` view, typography helpers, and localization-ready formatting APIs.                     |
+| `waterui-media`                               | `waterui/components/media`      | Photo/video/Live Photo renderers plus media pickers.                                             |
+| `waterui-navigation`                          | `waterui/components/navigation` | Navigation bars, stacks, programmatic paths, and tab containers.                                 |
+| `waterui-form`                                | `waterui/components/form`       | FormBuilder derive macro, color pickers, secure fields, and validation helpers.                  |
+| `waterui-graphics`                            | `waterui/components/graphics`   | Experimental drawing primitives and utilities that feed the canvas/shader chapters.              |
+| `waterui-render-utils`                        | `waterui/render_utils`          | Shared GPU/device glue used by multiple backends and native wrappers.                            |
+| `waterui-macros`                              | `waterui/derive`                | Proc-macros (`FormBuilder`, `View` helpers) consumed by the higher-level crates.                 |
+| `waterui-cli`                                 | `waterui/cli`                   | The `water` binary you installed earlier for scaffolding, running, and packaging apps.           |
+| `waterui-ffi`                                 | `waterui/ffi`                   | FFI bridge used by native runners (Swift, Kotlin, C) plus hot reload integration.                |
+| `waterui-color`, `waterui-str`, `waterui-url` | `waterui/utils/{color,str,url}` | Utility crates for colors, rope strings, and URL handling shared by every component.             |
+| `window`                                      | `waterui/window`                | Cross-platform window/bootstrapper that spins up render loops for each backend.                  |
+| `demo`                                        | `waterui/demo`                  | Showcase app exercising all components—great for cross-referencing when you read later chapters. |
 
 Outside `waterui/` you will also find the `nami/` workspace, which hosts the reactive runtime along with its derive macros and examples. Treat `nami` as part of the core mental model because every binding, watcher, and computed signal ultimately comes from there.
 

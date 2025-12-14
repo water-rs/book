@@ -71,4 +71,4 @@ Build complex components by composing existing primitives (`VStack`, `Text`, `Sh
 
 ## 6. Testing
 
-Use the `waterui-derive` crate to create testable forms and view structures. Ensure your component works with the reactive system by testing it with `Binding` updates.
+Use the `waterui-macros` crate to create testable forms and view structures. Ensure your component works with the reactive system by testing it with `Binding` updates.

@@ -2498,7 +2498,7 @@ dependencies = [
  "pulldown-cmark",
  "waterui-color",
  "waterui-core",
- "waterui-derive",
+ "waterui-macros",
  "waterui-form",
  "waterui-layout",
  "waterui-media",
@@ -2525,7 +2525,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "waterui-derive"
+name = "waterui-macros"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
@@ -2615,7 +2615,7 @@ dependencies = [
  "uuid",
  "wasm-bindgen",
  "waterui",
- "waterui-derive",
+ "waterui-macros",
  "waterui-form",
  "web-sys",
 ]
