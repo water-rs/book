@@ -36,12 +36,18 @@ New to Rust? Start with [The Rust Programming Language](https://doc.rust-lang.or
 
 ## 🛠️ Building the Book
 
-This book is built with [mdBook](https://rust-lang.github.io/mdBook/).
+This book is built with [mdBook](https://rust-lang.github.io/mdBook/) and pins
+the upstream WaterUI source as a git submodule. Always clone recursively so
+the pinned `waterui/` tree is available for the example crate to compile
+against.
 
 ```bash
-# Clone the repository
-git clone https://github.com/water-rs/book.git
+# Clone the repository (with submodules)
+git clone --recurse-submodules https://github.com/water-rs/book.git
 cd book
+
+# If you forgot --recurse-submodules
+git submodule update --init --recursive
 
 # Install dependencies
 cargo install mdbook

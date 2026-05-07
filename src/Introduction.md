@@ -1,97 +1,186 @@
-# WaterUI Tutorial Book
+# Introduction
 
-Welcome to the complete guide for building cross-platform applications with WaterUI! This book will take you from a complete beginner to an advanced WaterUI developer, capable of building sophisticated applications that run on desktop, web, mobile, and embedded platforms.
+> **In this chapter, you will:**
+> - Discover what WaterUI is and why it exists
+> - Understand how native rendering differs from web-view approaches
+> - See the full range of supported platforms and backends
+> - Get a taste of WaterUI with a working counter example
+
+Imagine writing your UI once in Rust and having it render as a truly native app
+on iOS, Android, macOS, and Linux -- no web views, no custom rendering, just
+real platform widgets. That is what WaterUI gives you. If you have ever wished
+for the safety of Rust's type system combined with the ergonomics of SwiftUI or
+Jetpack Compose, you are in the right place.
 
 ## What is WaterUI?
 
-WaterUI is a modern, declarative UI framework for Rust that enables you to build applications using a single codebase for multiple platforms. It combines the safety and performance of Rust with an intuitive, reactive programming model inspired by SwiftUI and React.
+WaterUI is a **cross-platform, reactive, declarative UI framework** for Rust.
+You describe *what* your interface should look like, and the framework takes care
+of *how* it renders -- on every platform.
+
+Unlike electron-style approaches that draw their own pixels inside a web view,
+WaterUI renders to **native platform widgets**. On Apple platforms (iOS and
+macOS) it bridges to SwiftUI/UIKit/AppKit through a Swift backend. On Android it
+bridges to Android Views via JNI/Kotlin. On Linux it delegates to GTK4.
+The result is an application that looks, feels, and performs like a first-class
+citizen on each operating system.
+
+```text
+Rust View Tree  --->  FFI (C ABI)  --->  Native Backend  --->  Platform UI
+                                          Swift / Kotlin / GTK4
+```
 
 ### Key Features
 
-- **🚀 Cross-Platform**: Learn once, apply anywhere - iOS, Android, macOS.
-- **🦀 Type-Safe**: Leverage Rust's powerful type system for compile-time correctness
-- **⚡ Reactive**: Automatic UI updates when data changes
-- **📝 Declarative**: Describe what your UI should look like, not how to build it
+- **Cross-platform**: iOS, Android, macOS, and Linux (GTK4) from one Rust
+  codebase. An experimental self-drawn backend (Hydrolysis, powered by Vello)
+  and a terminal UI backend are also under development.
+- **Type-safe**: Leverage Rust's type system, ownership, and lifetimes to
+  eliminate whole categories of runtime errors at compile time.
+- **Reactive**: Powered by the `nami` crate, every `Binding<T>`, `Computed<T>`,
+  and `Signal` automatically propagates changes through the view tree so the UI
+  stays in sync with your data.
+- **Declarative**: Describe your UI as a composition of `View` values. Layout,
+  styling, and interaction are expressed through method chaining and tuple
+  composition rather than imperative mutation.
+- **Native rendering**: Each backend maps Rust views to the platform's own
+  widgets, giving you native text rendering, accessibility, animations, and
+  input handling for free.
 
-## Meet the `water` CLI
+## Supported Backends
 
-Every chapter assumes you have the WaterUI CLI installed so you can scaffold, build, and package projects without leaving the terminal.
+| Backend | Platform(s) | Technology | Status |
+|---------|-------------|------------|--------|
+| Apple | iOS, macOS | SwiftUI / UIKit / AppKit via Swift | Stable |
+| Android | Android | Android Views via Kotlin / JNI | Stable |
+| GTK4 | Linux, macOS | GTK4 via gtk4-rs | Stable |
+| Hydrolysis | Any | Self-drawn (Vello / tiny-skia / wgpu) | Experimental |
+| TUI | Terminal | Terminal UI | Work in progress |
 
-```bash
-cargo install --path cli --locked
-```
+> **Note:** You only need one backend to get started. Most readers begin with
+> whichever platform they already have tooling for -- macOS if you have a Mac,
+> Linux with GTK4, or Android if you have Android Studio installed.
 
-From there you can bootstrap a playground app and run it on any configured backend:
+## Framework Architecture
 
-```bash
-water create --name "Water Demo" \
-  --bundle-identifier com.example.waterdemo \
-  --backend swiftui --backend android --backend web --yes
+WaterUI is organised as a Cargo workspace. The table below lists the most
+important crates. You do not need to depend on them individually -- the
+top-level `waterui` crate re-exports everything through `waterui::prelude::*`.
 
-water run --platform web --project water-demo
-water package --platform android --project water-demo
-```
+| Crate | Path | Role |
+|-------|------|------|
+| `waterui` | `/` | Facade crate, re-exports components, prelude, macros |
+| `waterui-core` | `core/` | `View` trait, `Environment`, `AnyView`, reactive primitives |
+| `waterui-layout` | `components/layout/` | `VStack`, `HStack`, `ZStack`, `ScrollView`, `Spacer`, grids |
+| `waterui-text` | `components/text/` | `Text` view, fonts, styled text, markdown |
+| `waterui-controls` | `components/controls/` | `Button`, `Toggle`, `Slider`, `Stepper`, `TextField` |
+| `waterui-navigation` | `components/navigation/` | Navigation containers, `TabView` |
+| `waterui-form` | `components/form/` | `#[form]` derive macro, form builder |
+| `waterui-media` | `components/media/` | Photos, video, audio playback |
+| `waterui-graphics` | `components/graphics/` | Canvas, GPU surface, drawing primitives |
+| `waterui-icon` | `components/icon/` | Cross-platform icon system |
+| `waterui-webview` | `components/webview/` | Embedded web views |
+| `waterui-macros` | `macros/` | Proc macros: `text!`, `#[form]`, `#[preview]` |
+| `waterui-ffi` | `ffi/` | C FFI bridge, `export!()` macro |
+| `waterui-cli` | `cli/` | The `water` CLI for scaffolding, building, running, packaging |
+| `waterui-str` | `utils/str/` | Shared string utilities |
+| `waterui-url` | `utils/url/` | URL handling utilities |
+| `waterui-locale` | `utils/locale/` | Localisation and formatting |
+| `waterui-assets` | `components/assets/` | Asset loading and management |
+| `nami` | `vendor/nami/` (vendored submodule) | Fine-grained reactive runtime: `Binding`, `Computed`, `Signal` |
 
-Use `water doctor --fix` whenever you need to validate the local toolchain, and `water devices --json` to pick a simulator/emulator when scripting. The CLI mirrors the repository layout you are about to explore, so the hands-on examples in each chapter directly match real projects.
+### Backend Crates
 
-## Framework Layout
+| Crate | Path | Role |
+|-------|------|------|
+| `waterui-backend-core` | `backends/core/` | Shared backend abstractions |
+| Apple backend | `backends/apple/` | Swift Package (git submodule) |
+| Android backend | `backends/android/` | Gradle project (git submodule) |
+| `waterui-gtk` | `backends/gtk/` | GTK4 backend implementation |
+| Hydrolysis | `backends/hydrolysis/` | Self-drawn renderer (experimental) |
 
-The WaterUI workspace is a set of focused crates:
+> **Tip:** You will rarely interact with individual crates directly. The
+> `waterui::prelude::*` import gives you everything you need in day-to-day
+> development.
 
-- `waterui-core`: the `View` trait, `Environment`, resolver system, and plugin hooks.
-- `waterui/components/*`: reusable primitives for layout, text, navigation, media, and form controls.
-- `nami`: the fine-grained reactive runtime that powers bindings, signals, and watchers.
-- `waterui-cli`: the developer workflow described above.
+## Prerequisites
 
-This book mirrors that structure—learn the core abstractions first, then layer components, and finally explore advanced topics such as plugins, animation, and async data pipelines.
+Before starting this book, you should be comfortable with:
 
-### Workspace Crates (excluding backends)
-
-| Crate                                         | Path                            | Highlights                                                                                       |
-| --------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `waterui`                                     | `waterui/`                      | Facade crate that re-exports the rest of the stack plus hot reload, tasks, and metadata helpers. |
-| `waterui-core`                                | `waterui/core`                  | `View`, `Environment`, resolver system, plugins, hooks, and low-level layout traits.             |
-| `waterui-controls`                            | `waterui/components/controls`   | Buttons, toggles, sliders, steppers, text fields, and shared input handlers.                     |
-| `waterui-layout`                              | `waterui/components/layout`     | Stacks, frames, grids, scroll containers, padding, and alignment primitives.                     |
-| `waterui-text`                                | `waterui/components/text`       | The `Text` view, typography helpers, and localization-ready formatting APIs.                     |
-| `waterui-media`                               | `waterui/components/media`      | Photo/video/Live Photo renderers plus media pickers.                                             |
-| `waterui-navigation`                          | `waterui/components/navigation` | Navigation bars, stacks, programmatic paths, and tab containers.                                 |
-| `waterui-form`                                | `waterui/components/form`       | FormBuilder derive macro, color pickers, secure fields, and validation helpers.                  |
-| `waterui-graphics`                            | `waterui/components/graphics`   | Experimental drawing primitives and utilities that feed the canvas/shader chapters.              |
-| `waterui-render-utils`                        | `waterui/render_utils`          | Shared GPU/device glue used by multiple backends and native wrappers.                            |
-| `waterui-macros`                              | `waterui/derive`                | Proc-macros (`FormBuilder`, `View` helpers) consumed by the higher-level crates.                 |
-| `waterui-cli`                                 | `waterui/cli`                   | The `water` binary you installed earlier for scaffolding, running, and packaging apps.           |
-| `waterui-ffi`                                 | `waterui/ffi`                   | FFI bridge used by native runners (Swift, Kotlin, C) plus hot reload integration.                |
-| `waterui-color`, `waterui-str`, `waterui-url` | `waterui/utils/{color,str,url}` | Utility crates for colors, rope strings, and URL handling shared by every component.             |
-| `window`                                      | `waterui/window`                | Cross-platform window/bootstrapper that spins up render loops for each backend.                  |
-| `demo`                                        | `waterui/demo`                  | Showcase app exercising all components—great for cross-referencing when you read later chapters. |
-
-Outside `waterui/` you will also find the `nami/` workspace, which hosts the reactive runtime along with its derive macros and examples. Treat `nami` as part of the core mental model because every binding, watcher, and computed signal ultimately comes from there.
-
-### Prerequisites
-
-Before starting this book, you should have:
-
-- **Basic Rust Knowledge**: Understanding of ownership, borrowing, traits, and generics
-- **Programming Experience**: Familiarity with basic programming concepts
-- **Command Line Comfort**: Ability to use terminal/command prompt
-
-If you're new to Rust, we recommend reading [The Rust Programming Language](https://doc.rust-lang.org/book/) first.
+- **Basic Rust** -- ownership, borrowing, traits, generics, and closures. If
+  you are new to Rust, we recommend working through
+  [The Rust Programming Language](https://doc.rust-lang.org/book/) first.
+- **The command line** -- you will use the `water` CLI and `cargo` extensively.
+- **One target platform** -- having Xcode (for Apple targets), Android Studio
+  (for Android), or GTK4 development libraries (for Linux) installed will let
+  you run examples on real hardware.
 
 ## How to Use This Book
 
-1. **Clone the repository** and run `mdbook serve` so you can edit and preview chapters locally.
-2. **Explore the source** under `waterui/` whenever you want to dig deeper into a crate.
-3. **Use the CLI** at the start of each part to scaffold a sandbox project for experimentation.
+The book is structured in eight parts that build on each other:
 
-## Roadmap
+1. **Getting Started** -- Install the toolchain, learn the CLI, create your
+   first app, and understand the project layout.
+2. **Core Concepts** -- The `View` trait, reactive state with `nami`,
+   environment-based dependency injection, and modifiers.
+3. **Building UIs** -- Text, layout, controls, forms, lists, conditional
+   rendering, and navigation.
+4. **Rich Content** -- Media, maps, web views, and barcodes.
+5. **Graphics and Effects** -- Canvas drawing, GPU rendering, shaders, filters,
+   particles, and gradients.
+6. **Advanced Patterns** -- Animation, gestures, async views, error handling,
+   accessibility, internationalisation, and plugins.
+7. **Developer Tools** -- The preview system and hot reload.
+8. **Under the Hood** -- How WaterUI renders, the FFI bridge, the layout
+   engine, and backend architecture.
 
-WaterUI is evolving quickly. Track milestones and open issues at [waterui.dev/roadmap](https://waterui.dev/roadmap).
+Each chapter contains runnable code examples. Clone the repository and use
+`water create --playground` to set up sandbox projects as you follow along.
+
+## A Taste of WaterUI
+
+Here is a minimal counter application to give you a feel for the framework:
+
+```rust
+use waterui::prelude::*;
+use waterui::app::App;
+
+pub fn main() -> impl View {
+    let counter = Binding::i32(0);
+
+    vstack((
+        text!("Count: {counter}"),
+        hstack((
+            button("Decrement")
+                .state(&counter)
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1)),
+            button("Increment")
+                .state(&counter)
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1)),
+        )),
+    ))
+}
+
+pub fn app(env: Environment) -> App {
+    App::new(main, env)
+}
+
+waterui_ffi::export!();
+```
+
+This single file compiles and runs on iOS, Android, macOS, and Linux without
+any platform-specific code. Notice how you declare *what* you want -- a text
+display and two buttons -- and WaterUI handles the rest. No platform `#[cfg]`
+blocks, no conditional compilation, no separate codebases.
 
 ## Contributing
 
-This book is open source! Found a typo, unclear explanation, or want to add content?
+This book is open source. Found a typo, an unclear explanation, or want to add
+a chapter?
 
-- **Source Code**: Available on [GitHub](https://github.com/water-rs/waterui/tree/main/tutorial-book)
-- **Issues**: Report problems or suggestions
-- **Pull Requests**: Submit improvements
+- **Book source**: [github.com/water-rs/book](https://github.com/water-rs/book)
+- **Framework source**: [github.com/water-rs/waterui](https://github.com/water-rs/waterui)
+- **Issues and pull requests**: contributions are welcome on either repository
+
+Head to [The Water CLI](01-getting-started/01-cli.md) to install your tools and
+create your first project.

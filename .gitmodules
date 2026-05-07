@@ -1,0 +1,4 @@
+[submodule "waterui"]
+	path = waterui
+	url = https://github.com/water-rs/waterui.git
+	branch = dev
