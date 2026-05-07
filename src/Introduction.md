@@ -6,6 +6,11 @@
 > - See the full range of supported platforms and backends
 > - Get a taste of WaterUI with a working counter example
 
+> **Pinned to upstream:** every example and API name in this book is
+> verified against [waterui {{waterui_branch}} `{{waterui_commit_short}}`](https://github.com/water-rs/waterui/commit/{{waterui_commit}})
+> ({{waterui_committed_at}}, "{{waterui_subject}}"). When the submodule
+> bumps, the chapters bump with it.
+
 Imagine writing your UI once in Rust and having it render as a truly native app
 on iOS, Android, macOS, and Linux -- no web views, no custom rendering, just
 real platform widgets. That is what WaterUI gives you. If you have ever wished

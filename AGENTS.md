@@ -39,6 +39,21 @@ waterui truthfully. When you bump the submodule, you take responsibility for
 re-auditing every chapter that touches APIs that changed between the old and
 new pin.
 
+The book renders the pinned SHA into chapter content automatically through the
+mdBook preprocessor at `scripts/mdbook-waterui-version`. The following
+placeholders may be used inside any markdown chapter and are resolved at
+build time from the live submodule:
+
+- `{{waterui_commit}}` — full submodule SHA (40 chars).
+- `{{waterui_commit_short}}` — abbreviated SHA (12 chars).
+- `{{waterui_branch}}` — tracked branch from `.gitmodules` (typically `dev`).
+- `{{waterui_subject}}` — first line of the pinned commit message.
+- `{{waterui_committed_at}}` — pinned commit author date (`YYYY-MM-DD`).
+
+The preprocessor needs the submodule on disk; CI must therefore continue to
+clone with `submodules: recursive`. Local previews (`mdbook serve`) work as
+long as `git submodule update --init --recursive` has been run.
+
 ### How to bump the submodule
 
 ```bash

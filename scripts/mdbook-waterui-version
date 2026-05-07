@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""mdbook preprocessor that injects information about the pinned waterui
+submodule into chapter content.
+
+Recognised placeholders:
+  {{waterui_commit}}        full submodule SHA
+  {{waterui_commit_short}}  12-character abbreviated SHA
+  {{waterui_branch}}        tracked branch from .gitmodules (typically `dev`)
+  {{waterui_subject}}       first line of the pinned commit message
+  {{waterui_committed_at}}  pinned commit author date (YYYY-MM-DD)
+
+Behaviour:
+- Called by mdbook with `supports <renderer>` to gate renderers; we accept
+  every renderer.
+- Otherwise reads `[context, book]` JSON from stdin and writes the rewritten
+  book JSON to stdout.
+- All git lookups run against the `waterui/` submodule under the repository
+  root (resolved from `context.root`). If a lookup fails we substitute
+  `unknown` rather than aborting the build, so a missing submodule produces
+  a visible-but-non-fatal stamp instead of breaking deploys.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+PLACEHOLDER_COMMANDS = {
+    "waterui_commit": ["git", "rev-parse", "HEAD"],
+    "waterui_commit_short": ["git", "rev-parse", "--short=12", "HEAD"],
+    "waterui_subject": ["git", "log", "-1", "--format=%s"],
+    "waterui_committed_at": ["git", "log", "-1", "--format=%cs"],
+}
+
+
+def run_in(submodule: Path, args: list[str]) -> str:
+    return subprocess.check_output(args, cwd=submodule, text=True).strip()
+
+
+def resolve_values(repo_root: Path) -> dict[str, str]:
+    submodule = repo_root / "waterui"
+    values: dict[str, str] = {}
+    for placeholder, command in PLACEHOLDER_COMMANDS.items():
+        try:
+            values[placeholder] = run_in(submodule, command)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            values[placeholder] = "unknown"
+    try:
+        values["waterui_branch"] = subprocess.check_output(
+            [
+                "git",
+                "config",
+                "--file",
+                str(repo_root / ".gitmodules"),
+                "submodule.waterui.branch",
+            ],
+            text=True,
+        ).strip()
+    except subprocess.CalledProcessError:
+        values["waterui_branch"] = "unknown"
+    return values
+
+
+def replace_in_item(item: dict, pattern: re.Pattern, values: dict[str, str]) -> None:
+    """Recursively rewrite placeholders inside a `BookItem` JSON node."""
+    chapter = item.get("Chapter")
+    if chapter is None:
+        return
+    chapter["content"] = pattern.sub(lambda m: values[m.group(1)], chapter["content"])
+    for sub in chapter.get("sub_items", []):
+        replace_in_item(sub, pattern, values)
+
+
+def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "supports":
+        sys.exit(0)
+
+    context, book = json.load(sys.stdin)
+    repo_root = Path(context["root"])
+    values = resolve_values(repo_root)
+
+    pattern = re.compile(
+        r"\{\{(" + "|".join(re.escape(k) for k in values) + r")\}\}"
+    )
+
+    for item in book.get("items", []):
+        replace_in_item(item, pattern, values)
+
+    json.dump(book, sys.stdout)
+
+
+if __name__ == "__main__":
+    main()
