@@ -17,23 +17,30 @@ reject_matches() {
 reject_matches "stale WaterUI API references" "water create --playground|waterui_(webview|map|barcode|graphics|icon|locale|controls)|nami::|WebView::new|Id::new\\(|\\.frame\\(|\\.padding\\([^\\)]|Font::(body|headline|caption)|Color::(white|surface|muted_foreground|foreground)|ios_simulators|crate-type = \\[\\\"staticlib\\\"|TextField::new\\(\\\"|Slider::new\\([^&]|waterui_core::reactive"
 reject_matches "placeholder URLs or fake credentials" "example\\.com|prod-key|abc123|MyApp/1\\.0|from_environment\\("
 
-expected_nami=$(git -C waterui ls-tree HEAD vendor/nami | awk '{print $3}')
-actual_nami=$(git -C waterui/vendor/nami rev-parse HEAD 2>/dev/null || true)
+nami_path=$(git -C waterui ls-tree -r HEAD | awk '$1 == "160000" && $4 ~ /(^|\/)nami$/ {print $4; exit}')
 
-if [ -z "$expected_nami" ]; then
-  echo "waterui/vendor/nami is not recorded in the pinned waterui commit" >&2
+if [ -z "$nami_path" ]; then
+  echo "nami is not recorded in the pinned waterui commit" >&2
   exit 1
 fi
 
-if [ ! -f waterui/vendor/nami/Cargo.toml ] || [ "$actual_nami" != "$expected_nami" ]; then
+expected_nami=$(git -C waterui ls-tree HEAD "$nami_path" | awk '{print $3}')
+actual_nami=$(git -C "waterui/$nami_path" rev-parse HEAD 2>/dev/null || true)
+
+if [ -z "$expected_nami" ]; then
+  echo "waterui/$nami_path is not recorded in the pinned waterui commit" >&2
+  exit 1
+fi
+
+if [ ! -f "waterui/$nami_path/Cargo.toml" ] || [ "$actual_nami" != "$expected_nami" ]; then
   cat >&2 <<EOF
-waterui/vendor/nami is not materialized at the pinned waterui gitlink.
+waterui/$nami_path is not materialized at the pinned waterui gitlink.
 
 expected: $expected_nami
 actual:   ${actual_nami:-missing}
 
 Run:
-  git -C waterui submodule update --init --recursive vendor/nami
+  git -C waterui submodule update --init --recursive $nami_path
 
 Then re-run:
   scripts/check-book-code

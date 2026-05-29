@@ -92,7 +92,7 @@ top-level `waterui` crate re-exports everything through `waterui::prelude::*`.
 | `waterui-url` | `utils/url/` | URL handling utilities |
 | `waterui-locale` | `utils/locale/` | Localisation and formatting |
 | `waterui-assets` | `components/assets/` | Asset loading and management |
-| `nami` | `vendor/nami/` (vendored submodule) | Fine-grained reactive implementation behind `waterui::reactive`; app code should use WaterUI re-exports |
+| `nami` | `utils/nami/` (vendored submodule) | Fine-grained reactive implementation behind `waterui::reactive`; app code should use WaterUI re-exports |
 
 ### Backend Crates
 

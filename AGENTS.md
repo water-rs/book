@@ -21,7 +21,7 @@ the upstream `dev` branch (`https://github.com/water-rs/waterui.git`).
   waterui commit.** Read the actual Rust source under `waterui/` instead of
   relying on memory or external docs.
 - `nami` is **not** a top-level submodule of this book. It lives inside waterui
-  at `waterui/vendor/nami` and is re-exported through `waterui::reactive` /
+  at `waterui/utils/nami` and is re-exported through `waterui::reactive` /
   `waterui::Signal` / `waterui::Binding`. Never re-add a top-level `nami`
   submodule and never reference a `nami_*` crate path that bypasses the
   re-export.
