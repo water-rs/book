@@ -8,6 +8,10 @@
 
 Imagine you are building a settings screen. You need toggles for on/off preferences, a slider for brightness, a text field for a username, and buttons to save or cancel. WaterUI provides a comprehensive set of interactive controls for exactly these scenarios. Each control follows a consistent pattern: you create it with a constructor or convenience function, configure it with builder methods, and wire it to reactive state through bindings.
 
+![WaterUI controls preview with buttons toggle slider stepper and progress](../assets/visuals/03-ui/controls-input-sample.png)
+
+*A Hydrolysis preview of WaterUI controls rendered from real bindings. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## Button
 
 Buttons are the most common interactive element. WaterUI buttons support multiple action patterns, custom labels, and visual styles.

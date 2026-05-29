@@ -40,7 +40,7 @@ fn rain() -> impl View {
 
 ![Deterministic confetti emitter preview with particle colors](../assets/visuals/05-graphics/particle-confetti.png)
 
-*A WaterUI preview image illustrating a confetti particle emitter.*
+*A WaterUI preview image illustrating a confetti particle emitter. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ## How It Works
 

@@ -3,13 +3,17 @@ set -euo pipefail
 
 repo_dir=$(cd "$(dirname "$0")/.." && pwd)
 manifest="$repo_dir/scripts/book-visuals/manifest.tsv"
-preview_dir="$repo_dir/scripts/book-visuals/preview"
+preview_dir="$repo_dir/examples/book-visuals"
+example_source_url="https://github.com/water-rs/book/tree/main/examples/book-visuals"
 
 usage() {
   cat <<'EOF'
 Usage: scripts/render-book-visuals [--check|--check-links|--list]
 
 Render committed book visuals from scripts/book-visuals/manifest.tsv.
+
+Visuals are rendered from examples/book-visuals so each image has a runnable
+example source linked from the book.
 
   --check        render to a temporary directory and compare with committed PNGs
   --check-links  verify manifest outputs exist, are PNG files, and are referenced
@@ -83,6 +87,47 @@ optimize_png() {
   oxipng -q -o 4 --strip safe "$path"
 }
 
+compare_png() {
+  local id="$1"
+  local output="$2"
+  local expected="$3"
+  local actual="$4"
+  if cmp -s "$expected" "$actual"; then
+    return
+  fi
+
+  if ! command -v ffmpeg >/dev/null 2>&1; then
+    echo "visual $id differs from committed output: $output" >&2
+    echo "install ffmpeg to allow PSNR-based comparison for Hydrolysis text rasterization noise" >&2
+    exit 1
+  fi
+
+  local psnr_output
+  if ! psnr_output=$(ffmpeg -v info -i "$expected" -i "$actual" -lavfi psnr -f null - 2>&1); then
+    echo "visual $id differs from committed output and PSNR comparison failed: $output" >&2
+    printf '%s\n' "$psnr_output" >&2
+    exit 1
+  fi
+
+  local psnr
+  psnr=$(printf '%s\n' "$psnr_output" | sed -n 's/.*average:\([^ ]*\).*/\1/p' | tail -n 1)
+  if [ "$psnr" = "inf" ]; then
+    return
+  fi
+  if [ -z "$psnr" ]; then
+    echo "visual $id differs from committed output and PSNR value was not reported: $output" >&2
+    printf '%s\n' "$psnr_output" >&2
+    exit 1
+  fi
+
+  local min_psnr="${BOOK_VISUAL_PSNR_MIN:-80}"
+  if ! awk -v value="$psnr" -v min="$min_psnr" 'BEGIN { exit(value >= min ? 0 : 1) }'; then
+    echo "visual $id differs from committed output: $output" >&2
+    echo "PSNR average $psnr is below required $min_psnr" >&2
+    exit 1
+  fi
+}
+
 render_visual() {
   local function_path="$1"
   local frame="$2"
@@ -135,6 +180,10 @@ check_manifest_row() {
     echo "visual $id caption is not present in $chapter" >&2
     exit 1
   fi
+  if ! rg -F "$example_source_url" "$absolute_chapter" >/dev/null; then
+    echo "visual $id chapter does not link to the book visual example: $chapter" >&2
+    exit 1
+  fi
 }
 
 tmp_dir=
@@ -159,10 +208,7 @@ tail -n +2 "$manifest" | while IFS=$'\t' read -r id chapter function_path frame 
       expected="$repo_dir/$output"
       actual="$tmp_dir/$output"
       render_visual "$function_path" "$frame" "$actual"
-      if ! cmp -s "$expected" "$actual"; then
-        echo "visual $id differs from committed output: $output" >&2
-        exit 1
-      fi
+      compare_png "$id" "$output" "$expected" "$actual"
       ;;
     render)
       render_visual "$function_path" "$frame" "$repo_dir/$output"

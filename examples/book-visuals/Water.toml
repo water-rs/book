@@ -1,4 +1,4 @@
-waterui_path = "../../../waterui"
+waterui_path = "../../waterui"
 
 [package]
 type = "playground"

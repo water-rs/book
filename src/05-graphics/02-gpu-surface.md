@@ -13,7 +13,7 @@ If `Canvas` is a paintbrush, `GpuSurface` is the bare canvas frame and a tube of
 
 ![GPU surface preview rendering a colored triangle](../assets/visuals/05-graphics/gpu-surface-triangle.png)
 
-*A custom GpuView rendered through water preview.*
+*A custom GpuView rendered through water preview. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ## Architecture
 

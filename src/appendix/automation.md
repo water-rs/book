@@ -93,7 +93,9 @@ snapshots before diffing them against your committed reference images.
 
 This book keeps generated illustrations in `src/assets/visuals/`. Each image
 is listed in `scripts/book-visuals/manifest.tsv` and rendered from the pinned
-WaterUI submodule through a small preview project:
+WaterUI submodule through the runnable
+[`examples/book-visuals`](https://github.com/water-rs/book/tree/main/examples/book-visuals)
+preview example:
 
 ```bash
 scripts/render-book-visuals
@@ -101,8 +103,10 @@ scripts/render-book-visuals
 
 Use `--check` when you want to prove the committed PNGs match a fresh
 `water preview` render. The renderer requires `oxipng` so committed assets stay
-small without changing pixels. The normal book validation uses `--check-links`
-only, so Cloudflare Pages can keep deploying with a plain `mdbook build`.
+small without changing pixels; `--check` also uses `ffmpeg` for a PSNR compare
+when Hydrolysis text rasterization differs by a few antialiasing pixels. The
+normal book validation uses `--check-links` only, so Cloudflare Pages can keep
+deploying with a plain `mdbook build`.
 
 ## CI/CD Integration Patterns
 

@@ -20,6 +20,10 @@ This chapter covers the `Resolvable` trait, the `AnyResolvable<T>` type-erased
 wrapper, the `Map` combinator, the `Hook<C>` system for intercepting view
 configurations, and `Dynamic::watch` for bridging signals to views.
 
+![WaterUI custom color token preview with accent success highlight and foreground swatches](../assets/visuals/06-advanced/theme-color-resolver-sample.png)
+
+*A Hydrolysis preview of custom color tokens resolved through the environment. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## The Resolvable trait
 
 The core abstraction is `waterui_core::resolve::Resolvable`:

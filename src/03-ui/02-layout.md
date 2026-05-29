@@ -8,6 +8,10 @@
 
 Every app needs to place things on screen — a title at the top, a button at the bottom, a sidebar on the left. WaterUI uses a declarative layout system inspired by SwiftUI: you compose views using stacks, spacers, frames, and grids, and the framework resolves sizes and positions through a proposal-based layout protocol. All values are in **logical pixels** (points/dp) — the same unit as Figma and Sketch. Native backends convert to physical pixels automatically.
 
+![WaterUI layout preview showing VStack HStack and ZStack composition](../assets/visuals/03-ui/layout-stack-sample.png)
+
+*A Hydrolysis preview of WaterUI stack layout primitives. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## Stacks
 
 Stacks are your primary tool for arranging views. Think of them as the rows and columns of your interface. WaterUI provides three kinds: `vstack` (vertical), `hstack` (horizontal), and `zstack` (overlay).

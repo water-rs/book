@@ -20,7 +20,7 @@
 
 ![Canvas drawing with rectangles circles curves and text](../assets/visuals/05-graphics/canvas-shapes.png)
 
-*A WaterUI Canvas preview showing vector drawing primitives.*
+*A WaterUI Canvas preview showing vector drawing primitives. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ```rust,ignore
 use waterui::prelude::*;

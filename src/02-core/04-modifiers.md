@@ -18,6 +18,10 @@ text!("Hello")
 
 This approach keeps your view constructors simple and your styling composable.
 
+![WaterUI modifiers preview showing padding background border opacity and filters](../assets/visuals/02-core/modifiers-visual-stack.png)
+
+*A Hydrolysis preview showing how modifier order changes rendered output. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## How Modifiers Work
 
 Every modifier method on `ViewExt` takes `self` (consuming the view) and returns a new type that wraps it. For example:

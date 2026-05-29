@@ -9,6 +9,10 @@
 
 Every app that collects user data needs forms — registration screens, settings panels, profile editors. Building these by hand means wiring up a text field for each string, a toggle for each boolean, a stepper for each number. WaterUI's form system solves this by generating UI controls from your Rust data structures. Derive a single trait, and your struct becomes an editable form.
 
+![WaterUI form preview with field toggle stepper slider and accent color swatch](../assets/visuals/03-ui/forms-data-entry-sample.png)
+
+*A Hydrolysis preview of stable WaterUI data-entry controls used by forms. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## The `FormBuilder` trait
 
 The `FormBuilder` trait is the foundation of the form system. It maps a type to a view that can edit a `Binding` of that type:
@@ -175,9 +179,7 @@ use waterui::prelude::*;
 use waterui::form::picker::color::ColorPicker;
 
 fn accent_picker(accent: &Binding<Color>) -> impl View {
-    ColorPicker::new(accent)
-        .label("Accent Color")
-        .with_alpha()
+    ColorPicker::new("Accent Color", accent).with_alpha()
 }
 ```
 

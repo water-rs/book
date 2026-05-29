@@ -29,7 +29,7 @@ Three filters on a text view -- and thanks to automatic fusion, the brightness a
 
 ![Filtered gradient card with blur brightness and contrast](../assets/visuals/05-graphics/filter-frosted-gradient.png)
 
-*FilterViewExt applied to a WaterUI view snapshot.*
+*FilterViewExt applied to a WaterUI view snapshot. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ## Architecture
 

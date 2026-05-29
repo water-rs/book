@@ -10,7 +10,7 @@ Think of an app store hero banner, or a login screen where colors drift and blen
 
 ![Static mesh gradient rendered by WaterUI graphics](../assets/visuals/05-graphics/gradient-mesh.png)
 
-*A mesh gradient rendered with waterui::graphics::Gradient.*
+*A mesh gradient rendered with waterui::graphics::Gradient. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ## Where Gradient Types Live
 

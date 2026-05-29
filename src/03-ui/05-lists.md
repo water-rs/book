@@ -8,6 +8,10 @@
 
 Every app needs a way to show lists of data — a chat thread, a to-do list, a feed of posts, a directory of contacts. Unlike a fixed set of views you write by hand, these collections grow and shrink at runtime as data changes. WaterUI provides `List<V>` as the native list surface, `for_each` to map collections to views, and the new `ListSection` marker to group rows under semantic headers.
 
+![WaterUI list preview with section headers rows detail rows and footer](../assets/visuals/03-ui/lists-sections-sample.png)
+
+*A Hydrolysis preview of sectioned WaterUI lists. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## A first dynamic list
 
 `List::for_each` is the bridge between a data collection and the rows on screen. You give it a collection and a generator that returns one `ListItem` per element:

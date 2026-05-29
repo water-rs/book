@@ -8,6 +8,10 @@
 
 As your app grows beyond a single screen, you need a way to move between them. A user taps a contact to see their details, navigates to settings, or switches between tabs. WaterUI provides a declarative navigation system that lowers to native platform patterns — `UINavigationController` on Apple platforms, fragment navigation on Android — giving your app a first-class feel on every platform.
 
+![WaterUI navigation preview with a titled stack and navigation links](../assets/visuals/03-ui/navigation-stack-sample.png)
+
+*A Hydrolysis preview of WaterUI navigation chrome and links. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## `NavigationStack`
 
 `NavigationStack` is the container that manages a stack of navigation views. Think of it as a deck of cards: the root screen is at the bottom, and each navigation action pushes a new card on top.

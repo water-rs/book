@@ -10,6 +10,10 @@ Need to let users share a link by scanning their phone, or display a product bar
 
 > **Feature flag:** Barcodes live behind the `barcode` feature on `waterui`. Enable it in `Cargo.toml` (`waterui = { version = "...", features = ["barcode"] }`) before importing `waterui::barcode`.
 
+![QR code rendered by WaterUI for https://book.waterui.dev](../assets/visuals/04-rich/barcode-qr-book-waterui-dev.png)
+
+*A QR code rendered from the pinned WaterUI barcode component. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## Quick Start
 
 ```rust,ignore
@@ -28,10 +32,6 @@ fn my_barcode() -> impl View {
 
 Both `Barcode::qr` and `Barcode::code128` return a `Barcode` struct that
 implements `View` and can be placed directly in your view hierarchy.
-
-![QR code rendered by WaterUI for https://book.waterui.dev](../assets/visuals/04-rich/barcode-qr-book-waterui-dev.png)
-
-*A QR code rendered from the pinned WaterUI barcode component.*
 
 ---
 
@@ -58,6 +58,10 @@ pub enum BarcodeSymbology {
 ## Customizing Colors
 
 The default black-and-white look works fine, but you can match your app's branding with custom colors.
+
+![WaterUI barcode preview with a gradient QR code and green Code128 barcode](../assets/visuals/04-rich/barcode-custom-colors.png)
+
+*A Hydrolysis preview of custom barcode colors and gradient fills. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ### Dark Module Color
 

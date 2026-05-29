@@ -26,7 +26,7 @@ fn my_effect() -> impl View {
 
 ![ShaderSurface preview with a plasma fragment shader](../assets/visuals/05-graphics/shader-plasma.png)
 
-*A WGSL fragment shader rendered through ShaderSurface.*
+*A WGSL fragment shader rendered through ShaderSurface. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ## Creating a ShaderSurface manually
 

@@ -8,6 +8,10 @@
 
 Text is the most fundamental building block in any user interface. Whether you are showing a headline, a label beside a toggle, or a paragraph of help text, you reach for the `Text` component first. WaterUI gives you a small two-function API: `text()` for plain content that does not change, and the `text!` macro for reactive strings that interpolate captured bindings and (optionally) consult a translation catalog.
 
+![WaterUI typography preview with title headline caption and styled text](../assets/visuals/03-ui/text-typography-sample.png)
+
+*A Hydrolysis preview of WaterUI text rendered with semantic typography and colors. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+
 ## Static text with `text()`
 
 The simplest way to display text is the `text()` function. It accepts anything that converts into `Text` — a `&'static str` becomes localized through the catalog, while `String` and `Str` are used verbatim:
