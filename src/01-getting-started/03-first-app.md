@@ -132,9 +132,9 @@ the framework composes them without forcing you to box the children.
 
 ## Step 4: adding reactive state
 
-Now for the interesting part. WaterUI uses **reactive bindings** from the
-`nami` crate to manage state. When a binding's value changes, any view that
-depends on it updates automatically -- no manual refresh calls, no diffing.
+Now for the interesting part. WaterUI uses **reactive bindings** to manage
+state. When a binding's value changes, any view that depends on it updates
+automatically -- no manual refresh calls, no diffing.
 
 Create a binding with one of the typed `Binding` constructors:
 

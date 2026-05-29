@@ -63,12 +63,12 @@ corresponding UIKit/AppKit views:
 
 ### Reactive Integration
 
-The Swift backend subscribes to `nami` signals through FFI watchers. When a
+The Swift backend subscribes to WaterUI reactive signals through FFI watchers. When a
 `Computed<T>` value changes, the Rust side invokes a C callback that the Swift
 side registered:
 
 ```text
-nami::Binding<String> changes
+Binding<String> changes
   --> Computed<Str> fires
     --> C callback invoked
       --> Swift closure updates UILabel.text

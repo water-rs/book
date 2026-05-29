@@ -119,9 +119,10 @@ text pipeline -- so accessibility and localization come for free:
 
 ```rust,ignore
 use waterui::text::IntoText;
+use waterui::text::font::Caption;
 
 pub fn caption(content: impl IntoText) -> Text {
-    Text::new(content).font(Font::caption())
+    Text::new(content).font(Caption)
 }
 
 caption("Saved");                  // &'static str -> SemanticText
@@ -227,8 +228,8 @@ prefer composition over wrapping:
 // Prefer: compose with existing modifiers
 pub fn card(content: impl View) -> impl View {
     content
-        .padding(EdgeInsets::all(16.0))
-        .background(Color::surface())
+        .padding_with(EdgeInsets::all(16.0))
+        .background(waterui::theme::color::Surface)
         .corner_radius(12.0)
         .shadow(Shadow::default())
 }
@@ -238,8 +239,8 @@ pub struct Card<V> { content: V }
 impl<V: View> View for Card<V> {
     fn body(self, env: &Environment) -> impl View {
         self.content
-            .padding(EdgeInsets::all(16.0))
-            .background(Color::surface())
+            .padding_with(EdgeInsets::all(16.0))
+            .background(waterui::theme::color::Surface)
             // ... same thing but more code
     }
 }
@@ -290,7 +291,7 @@ Test view construction without rendering:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use waterui_core::Environment;
+    use waterui::Environment;
 
     #[test]
     fn button_config_has_correct_defaults() {
@@ -352,7 +353,7 @@ components by composing simple ones:
 ```rust,ignore
 // Good: composition
 pub fn labeled_field(label: &str, field: impl View) -> impl View {
-    vstack((text(label).font(Font::caption()), field)).spacing(4.0)
+    vstack((text(label).font(waterui::text::font::Caption), field)).spacing(4.0)
 }
 
 // Bad: trying to "inherit" from TextField

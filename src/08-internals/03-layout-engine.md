@@ -24,7 +24,7 @@ This means `spacing(8.0)` produces the same physical size on a 1x display, a 2x
 Retina display, and a 3x mobile display. You can translate designs from Figma to
 WaterUI using the exact same numbers.
 
-> **Tip:** If your designer hands you a Figma file with a button at 44pt height and 16pt padding, you can use those exact values in WaterUI: `.frame(height: 44.0).padding(16.0)`.
+> **Tip:** If your designer hands you a Figma file with a button at 44pt height and 16pt padding, you can use those exact values in WaterUI: `.height(44.0).padding_with(16.0)`.
 
 ## The Layout Trait
 
@@ -173,15 +173,15 @@ but determines its own height from content.
 
 ### Frames
 
-The `frame()` modifier constrains a view to specific dimensions:
+The frame modifiers constrain a view to specific dimensions:
 
 ```rust,ignore
-text("Hello").frame(width: 200.0, height: 100.0)
+text("Hello").size(200.0, 100.0)
 ```
 
-The frame layout proposes the constrained size to its child, then returns exactly
-the requested dimensions. If only one dimension is specified, the other uses the
-child's intrinsic size.
+The frame layout proposes the constrained size to its child, then returns the
+requested dimensions. Use `.width(...)`, `.height(...)`, or `.size(width,
+height)` depending on which axes you want to constrain.
 
 ### Grids
 
@@ -199,7 +199,7 @@ behavior.
 The `Padding` modifier insets the child by specified amounts on each edge:
 
 ```rust,ignore
-text("Padded").padding(EdgeInsets::all(16.0))
+text("Padded").padding_with(EdgeInsets::all(16.0))
 ```
 
 During sizing, it adds the padding to the child's size. During placement, it

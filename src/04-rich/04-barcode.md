@@ -13,7 +13,7 @@ Need to let users share a link by scanning their phone, or display a product bar
 ## Quick Start
 
 ```rust,ignore
-use waterui_barcode::Barcode;
+use waterui::barcode::Barcode;
 
 // QR code
 fn my_qr() -> impl View {
@@ -61,7 +61,7 @@ By default, dark modules are black. Change them with `dark_color`. `Srgb::new`
 takes three linear-light channels in `0.0..=1.0`:
 
 ```rust,ignore
-use waterui_barcode::Barcode;
+use waterui::barcode::Barcode;
 use waterui::graphics::color::Srgb;
 
 fn blue_qr() -> impl View {
@@ -87,7 +87,7 @@ fn dark_mode_qr() -> impl View {
 Apply a linear gradient to the dark modules for a more eye-catching look:
 
 ```rust,ignore
-use waterui_barcode::Barcode;
+use waterui::barcode::Barcode;
 use waterui::graphics::color::Srgb;
 
 fn gradient_qr() -> impl View {
@@ -112,7 +112,7 @@ Gradient coordinates are normalized to the barcode's bounding square:
 For advanced effects -- imagine a QR code filled with an animated gradient, or modules that shimmer with a particle effect -- use `fill_gpu`. Any type implementing `GpuView` can serve as the fill source:
 
 ```rust,ignore
-use waterui_barcode::Barcode;
+use waterui::barcode::Barcode;
 
 fn artistic_qr(animated_renderer: impl GpuView) -> impl View {
     Barcode::qr("https://waterui.dev")
@@ -260,11 +260,11 @@ A settings page with a shareable QR code:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui_barcode::Barcode;
+use waterui::barcode::Barcode;
 use waterui::graphics::color::Srgb;
 
 fn share_page() -> impl View {
-    let url = "https://waterui.dev/invite/abc123";
+    let url = "https://book.waterui.dev";
 
     vstack((
         text("Scan to join"),
@@ -281,7 +281,7 @@ A branded QR code with a gradient:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui_barcode::Barcode;
+use waterui::barcode::Barcode;
 use waterui::graphics::color::Srgb;
 
 fn branded_qr() -> impl View {

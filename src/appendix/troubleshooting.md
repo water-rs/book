@@ -292,8 +292,8 @@ to an empty/missing resource.
 
 Common causes:
 
-1. **Zero size**: The view has no intrinsic size and no frame modifier.
-   Add `.frame(width: ..., height: ...)` or ensure the parent provides
+1. **Zero size**: The view has no intrinsic size and no frame constraint.
+   Add `.size(width, height)` or ensure the parent provides
    enough space.
 2. **Hidden by opacity**: Check for `.opacity(0.0)` or a fully transparent
    background color.
@@ -402,7 +402,7 @@ water run --platform <platform> --logs debug
 RUST_LOG=debug water run --platform <platform>
 
 # More specific filtering
-RUST_LOG=waterui=debug,nami=trace water run --platform <platform>
+RUST_LOG=waterui=debug,waterui_core=trace water run --platform <platform>
 ```
 
 On Apple platforms, logs are sent to `os_log` with subsystem `dev.waterui`.

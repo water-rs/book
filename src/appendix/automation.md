@@ -29,7 +29,7 @@ Pipe through `jq` to parse fields:
 
 ```bash
 # Inspect the first iOS simulator's identifier
-water --json devices | jq '.ios_simulators[0].udid'
+water --json devices | jq '.ios[0].udid'
 ```
 
 ### Non-interactive mode
@@ -70,7 +70,7 @@ water build --platform linux
 water --json devices > devices.json
 
 # Run on a specific device
-DEVICE_ID=$(water --json devices | jq -r '.ios_simulators[0].udid')
+DEVICE_ID=$(water --json devices | jq -r '.ios[0].udid')
 water run --platform ios --device "$DEVICE_ID"
 ```
 
@@ -250,9 +250,9 @@ For production releases, the `water` CLI handles platform-specific packaging.
 `--platform` is a flag and `--release` switches to optimized output:
 
 ```bash
-water package --platform ios --release
-water package --platform android --release
-water package --platform linux --release
+water package --platform ios --backend apple --release
+water package --platform android --backend android --arch arm64 --release
+water package --platform linux --backend gtk4 --release
 ```
 
 ### Clean Builds

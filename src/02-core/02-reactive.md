@@ -1,4 +1,4 @@
-# Reactive state with nami
+# Reactive state
 
 > **In this chapter, you will:**
 > - Learn how `Binding<T>` gives your views mutable, reactive state
@@ -9,11 +9,15 @@
 
 Imagine a counter app. The user taps a button and the number on screen updates instantly -- no manual DOM manipulation, no message passing, no diffing algorithm. You change the data; the UI follows.
 
-WaterUI delivers that through **nami**, a fine-grained reactivity system. Nami provides signals, bindings, and combinators so your views update automatically when data changes. This chapter walks through every reactive primitive you will use day to day.
+WaterUI delivers that through `waterui::reactive`, a fine-grained reactivity
+system re-exported by the top-level `waterui` crate. It provides signals,
+bindings, collections, and combinators so your views update automatically when
+data changes. This chapter walks through every reactive primitive you will use
+day to day.
 
 ## The `Signal` trait
 
-At the foundation of nami is the `Signal` trait (defined in `nami-core`):
+At the foundation of WaterUI reactivity is the `Signal` trait:
 
 ```rust
 pub trait Signal: Clone + 'static {
@@ -29,7 +33,7 @@ pub trait Signal: Clone + 'static {
 - **`watch()`** registers a callback that fires whenever the value changes. It returns a guard -- dropping the guard unsubscribes the watcher.
 - **`Context<T>`** wraps the new value along with optional metadata (e.g., animation hints). Call `ctx.into_value()` to extract the raw value.
 
-Every reactive type in nami implements `Signal`. This uniform interface is what makes the combinator system work -- any signal can be mapped, zipped, filtered, or composed with any other signal.
+Every reactive type in `waterui::reactive` implements `Signal`. This uniform interface is what makes the combinator system work -- any signal can be mapped, zipped, filtered, or composed with any other signal.
 
 ## `Binding<T>`: mutable reactive state
 
@@ -468,7 +472,7 @@ A `Constant<T>` implements `Signal` but its `watch()` is a no-op -- watchers are
 For expensive constant computations that should only run on first access:
 
 ```rust
-use nami::constant::Lazy;
+use waterui::reactive::constant::Lazy;
 
 let config = Lazy::new(|| {
     // Expensive computation, runs only once
@@ -587,7 +591,7 @@ assert_eq!(pair.get().0, 100);
 For dynamic lists -- think todo items, chat messages, or search results -- `Binding<Vec<T>>` works but does not tell you *what* changed. `List<T>` is a reactive `Vec` that notifies watchers when its contents change, with fine-grained information about insertions, removals, and reorderings:
 
 ```rust
-use nami::collection::List;
+use waterui::reactive::collection::{Collection, List};
 
 let items = List::new();
 
@@ -615,7 +619,7 @@ for item in &items {
 ```rust
 // Watch the entire collection
 let _guard = items.watch(.., |ctx| {
-    let current: &[String] = ctx.into_value();
+    let current = ctx.into_value();
     tracing::debug!("Items: {current:?}");
 });
 
@@ -633,15 +637,29 @@ To render a reactive list, use `ForEach`:
 
 ```rust
 use waterui::views::ForEach;
+use waterui::Identifiable;
+
+#[derive(Clone)]
+struct TodoItem {
+    id: i32,
+    title: String,
+    completed: Binding<bool>,
+}
+
+impl Identifiable for TodoItem {
+    type Id = i32;
+
+    fn id(&self) -> Self::Id {
+        self.id
+    }
+}
 
 let todos: List<TodoItem> = List::new();
-
-// ForEach maps collection items to views
 let list_view = ForEach::new(todos, |item| {
     hstack((
         text(item.title),
         Spacer,
-        Toggle::new(item.completed),
+        Toggle::new(&item.completed),
     ))
 });
 ```
@@ -735,10 +753,10 @@ Many WaterUI components accept signals directly:
 
 ```rust
 let is_on = Binding::bool(false);
-Toggle::new(is_on) // Toggle reads and writes the binding
+Toggle::new(&is_on) // Toggle reads and writes the binding
 
 let progress = Binding::f64(0.5);
-Slider::new(progress) // Slider binds to the value
+Slider::new(&progress) // Slider binds to the value
 
 let label = Binding::container("Click me".to_string());
 Button::new(text!("{label}")).action(|| { /* action */ })
@@ -748,7 +766,7 @@ Button::new(text!("{label}")).action(|| { /* action */ })
 
 > **Never call `.get()` in view body code to feed values into the UI.**
 
-This is the single most important rule for working with nami. When you call `.get()`, you take a snapshot of the current value. The UI will never update when the signal changes because no watcher was registered:
+This is the single most important rule for working with WaterUI reactivity. When you call `.get()`, you take a snapshot of the current value. The UI will never update when the signal changes because no watcher was registered:
 
 ```rust
 // BAD -- breaks reactivity

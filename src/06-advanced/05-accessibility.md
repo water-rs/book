@@ -286,8 +286,9 @@ ring and the accessibility focus:
 use waterui::prelude::*;
 
 let focus = Binding::container::<Option<Field>>(None);
+let name = Binding::container(Str::from(""));
 
-TextField::new("Name", &name)
+field("Name", &name)
     .focused(&focus, Field::Name)
 ```
 

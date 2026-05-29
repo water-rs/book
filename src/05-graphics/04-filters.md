@@ -15,7 +15,7 @@ Filters turn ordinary views into polished UI: blurred photo galleries, frosted-g
 
 ```rust
 use waterui::prelude::*;
-use waterui_graphics::FilterViewExt;
+use waterui::graphics::FilterViewExt;
 
 fn frosted_card() -> impl View {
     text("Hello, World!")
@@ -81,7 +81,7 @@ Spatial filters sample neighboring pixels and require a separate GPU pass (compu
 ```rust
 use waterui::prelude::*;
 use waterui::media::Photo;
-use waterui_graphics::FilterViewExt;
+use waterui::graphics::FilterViewExt;
 
 fn blurred_photo(url: impl Into<waterui::Url>) -> impl View {
     Photo::new(url).blur(8.0)
@@ -132,7 +132,7 @@ Every filter convenience method accepts a reactive signal -- in particular, a `B
 ```rust
 use waterui::prelude::*;
 use waterui::media::Photo;
-use waterui_graphics::FilterViewExt;
+use waterui::graphics::FilterViewExt;
 
 fn interactive_blur(url: waterui::Url) -> impl View {
     let blur_radius = Binding::f64(0.0);
@@ -197,7 +197,7 @@ For effects that go beyond simple filters -- distortion, particle overlays, cust
 
 ```rust
 use core::future::Future;
-use waterui_graphics::{ViewEffect, EffectRenderer, EffectContext, EffectInput, EffectOutput, wgpu};
+use waterui::graphics::{ViewEffect, EffectRenderer, EffectContext, EffectInput, EffectOutput, wgpu};
 
 struct WaveDistortion {
     pipeline: Option<wgpu::RenderPipeline>,
@@ -252,7 +252,7 @@ For maximum control, implement `GpuFilter` directly. Notice that the trait's `se
 
 ```rust
 use core::future::Future;
-use waterui_graphics::{
+use waterui::graphics::{
     FilterContext, FilterInput, FilterOutput, FilterRenderResult, FilterSetupResult, GpuFilter, wgpu,
 };
 
@@ -288,8 +288,8 @@ fn custom_filtered() -> impl View {
 `FilteredView::new` is the lower-level wrapper -- it takes an `AnyView` and the filter directly:
 
 ```rust
-use waterui_core::AnyView;
-use waterui_graphics::FilteredView;
+use waterui::AnyView;
+use waterui::graphics::FilteredView;
 
 fn custom_filtered() -> impl View {
     FilteredView::new(AnyView::new(text("Hello")), CustomFilter::default())

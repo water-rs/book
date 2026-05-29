@@ -84,8 +84,7 @@ environment. The lookup uses `Environment::query::<K, V>()` so the token type
 itself can act as the phantom key:
 
 ```rust,ignore
-use waterui_core::{Environment, resolve::Resolvable};
-use waterui_core::reactive::{Computed, Signal};
+use waterui_core::{Computed, Environment, Signal, resolve::Resolvable};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BrandColor;
@@ -230,7 +229,7 @@ Use `Environment::insert_hook`:
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::component::button::ButtonConfig;
-use waterui_core::Environment;
+use waterui::Environment;
 
 let mut env = Environment::new();
 env.insert_hook(|_env, config: ButtonConfig| {
@@ -386,10 +385,11 @@ view that consumes it:
 use waterui::prelude::*;
 use waterui::app::App;
 use waterui_core::{
+    Computed,
     Environment,
+    Signal,
     env::Store,
     plugin::Plugin,
-    reactive::{Computed, Signal},
     resolve::Resolvable,
 };
 

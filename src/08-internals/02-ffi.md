@@ -25,8 +25,10 @@ heap allocations.
 
 ## The `export!()` Macro
 
-Every WaterUI application must invoke the `export!()` macro exactly once. This
-generates the C entry points that native backends call:
+Every generated FFI companion crate invokes the `export!()` macro exactly once.
+Your application crate exposes `pub fn app(env: Environment) -> App`; the CLI
+generated companion depends on that crate and owns the C entry points that
+native backends call:
 
 ```rust,ignore
 waterui_ffi::export!();
@@ -87,7 +89,7 @@ Steps 2-4 inject reactive theme signals that track platform appearance changes.
 The environment carries these signals into the view tree where colors and fonts
 resolve automatically.
 
-> **Note:** The ordering matters. Theme signals must be installed *before* calling `waterui_app()`, because the user's `app()` function may immediately reference `Color::foreground()` or `Font::body()`, which need the theme to be in place.
+> **Note:** The ordering matters. Theme signals must be installed *before* calling `waterui_app()`, because the user's `app()` function may immediately reference theme tokens such as `theme::color::Foreground` or text presets such as `.body()`, which need the theme to be in place.
 
 ## Theme Installation APIs
 

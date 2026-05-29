@@ -50,7 +50,7 @@ pixel data to the GPU-backed `Image` view.
 use waterui::media::Photo;
 
 fn avatar() -> impl View {
-    Photo::new("https://example.com/avatar.jpg")
+    Photo::new("https://static.rust-lang.org/logos/rust-logo-512x512.png")
 }
 ```
 
@@ -68,7 +68,7 @@ use waterui::media::Photo;
 use waterui::media::photo::Event as PhotoEvent;
 
 fn profile_photo() -> impl View {
-    Photo::new("https://example.com/photo.jpg")
+    Photo::new("https://static.rust-lang.org/logos/rust-logo-512x512.png")
         .on_event(|event| match event {
             PhotoEvent::Loaded => tracing::info!("Image loaded successfully"),
             PhotoEvent::Error(msg) => tracing::error!("Failed to load: {msg}"),
@@ -97,7 +97,7 @@ fn blurry_photo() -> impl View {
     let saturation = Binding::f64(1.0);
 
     vstack((
-        Photo::new("https://example.com/photo.jpg")
+        Photo::new("https://static.rust-lang.org/logos/rust-logo-512x512.png")
             .blur(blur.clone())
             .saturation(saturation.clone()),
         Slider::new(&blur).range(0.0..=20.0),
@@ -158,7 +158,7 @@ The quickest way to get video playing is `VideoPlayer`, which comes with platfor
 use waterui::media::{AspectRatio, VideoPlayer};
 
 fn trailer() -> impl View {
-    VideoPlayer::new("https://example.com/trailer.mp4")
+    VideoPlayer::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
         .show_controls(true)
         .aspect_ratio(AspectRatio::Fit)
 }
@@ -186,7 +186,7 @@ use waterui::prelude::*;
 use waterui::media::{AspectRatio, Video};
 
 fn background_video() -> impl View {
-    Video::new("https://example.com/background.mp4")
+    Video::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4")
         .aspect_ratio(AspectRatio::Fill)
         .loops(true)
 }
@@ -209,7 +209,7 @@ use waterui::media::VideoPlayer;
 
 fn mutable_player() -> impl View {
     let muted = Binding::bool(false);
-    VideoPlayer::new("https://example.com/music.mp4")
+    VideoPlayer::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4")
         .muted(&muted)
 }
 ```
@@ -225,7 +225,7 @@ use waterui::media::VideoPlayer;
 use waterui::media::Event as VideoEvent;
 
 fn player_with_events() -> impl View {
-    VideoPlayer::new("https://example.com/clip.mp4")
+    VideoPlayer::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4")
         .on_event(|event| match event {
             VideoEvent::ReadyToPlay => tracing::info!("ready"),
             VideoEvent::Ended => tracing::info!("playback ended"),
@@ -261,8 +261,8 @@ use waterui::media::live::LivePhotoSource;
 
 fn my_live_photo() -> impl View {
     let source = LivePhotoSource::new(
-        Url::parse("https://example.com/photo.jpg").unwrap(),
-        Url::parse("https://example.com/video.mov").unwrap(),
+        Url::parse("https://static.rust-lang.org/logos/rust-logo-512x512.png").unwrap(),
+        Url::parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4").unwrap(),
     );
     LivePhoto::new(source)
 }
@@ -285,11 +285,11 @@ use waterui::media::{Media, Url};
 use waterui::media::live::LivePhotoSource;
 
 let items: Vec<Media> = vec![
-    Media::Image(Url::parse("https://example.com/photo.jpg").unwrap()),
-    Media::Video(Url::parse("https://example.com/clip.mp4").unwrap()),
+    Media::Image(Url::parse("https://static.rust-lang.org/logos/rust-logo-512x512.png").unwrap()),
+    Media::Video(Url::parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4").unwrap()),
     Media::LivePhoto(LivePhotoSource::new(
-        Url::parse("https://example.com/live.jpg").unwrap(),
-        Url::parse("https://example.com/live.mov").unwrap(),
+        Url::parse("https://static.rust-lang.org/logos/rust-logo-512x512.png").unwrap(),
+        Url::parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4").unwrap(),
     )),
 ];
 ```
@@ -381,7 +381,7 @@ use waterui::prelude::*;
 use waterui::media::Photo;
 
 fn vintage_photo() -> impl View {
-    Photo::new("https://example.com/photo.jpg")
+    Photo::new("https://static.rust-lang.org/logos/rust-logo-512x512.png")
         .saturation(0.6)
         .brightness(-0.05)
         .blur(1.5)

@@ -108,7 +108,7 @@ The `[package]` section defines the application identity:
 [package]
 type = "playground"          # or "app"
 name = "My Application"
-bundle_identifier = "com.example.myapp"
+bundle_identifier = "dev.waterui.myapp"
 ```
 
 **Fields:**
@@ -335,32 +335,34 @@ pub fn app(env: Environment) -> App {
 For multi-window applications:
 
 ```rust
+use waterui::app::App;
+use waterui::prelude::*;
 use waterui::window::Window;
+use waterui::window::WindowState;
 
+# fn main_view() -> impl View { text("Main") }
+# fn settings_view() -> impl View { text("Settings") }
 pub fn app(env: Environment) -> App {
     App::new_with_windows(
         [
-            Window::new("Main", main_view),
-            Window::new("Settings", settings_view),
+            Window::new("Main", Binding::container(WindowState::Normal), main_view),
+            Window::new("Settings", Binding::container(WindowState::Normal), settings_view),
         ],
         env,
     )
 }
 ```
 
-### 3. The FFI Export Macro
+### 3. The generated FFI companion
 
-```rust
-waterui_ffi::export!();
-```
+Your user crate stops at `app(env)`. The CLI generates a separate FFI
+companion crate in the managed backend cache for playground projects, or in
+`backends/ffi/` for app projects. That companion depends on your crate and
+`waterui-ffi`, calls the export macro, and exposes the C-ABI functions native
+backends load.
 
-This macro generates the C-ABI functions that native backends call to
-initialise the runtime, obtain the root view tree, and drive the render loop.
-Without this line, the native backend cannot communicate with your Rust code.
-
-> **Warning:** Forgetting `waterui_ffi::export!()` is one of the most common
-> mistakes. Your project will compile, but the app will crash at launch because
-> the native backend cannot find the FFI entry points.
+Do not add `waterui_ffi::export!()` to `src/lib.rs`; it belongs in the
+generated companion crate, not in your application crate.
 
 ## Putting It All Together
 
@@ -388,7 +390,7 @@ my-app/
 [package]
 type = "playground"
 name = "My App"
-bundle_identifier = "com.example.myapp"
+bundle_identifier = "dev.waterui.myapp"
 ```
 
 ```toml
@@ -399,11 +401,16 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["staticlib", "cdylib"]
+crate-type = ["lib"]
 
 [dependencies]
-waterui = "0.2"
-waterui-ffi = "0.2"
+waterui = { version = "0.2", default-features = false }
+
+[target."cfg(not(target_arch = \"wasm32\"))".dependencies]
+waterui = { version = "0.2", default-features = false, features = ["assets", "media", "webview", "flow-markdown"] }
+
+[features]
+dev = ["waterui/dynamic_linking"]
 ```
 
 ```rust
@@ -420,8 +427,6 @@ fn main() -> impl View {
 pub fn app(env: Environment) -> App {
     App::new(main, env).title("My App")
 }
-
-waterui_ffi::export!();
 ```
 
 ## Playground vs Full: When to Switch
@@ -439,10 +444,12 @@ Switch to **full project mode** when you need:
 - App Store or Play Store submission
 - Fine-grained control over backend dependencies
 
-To convert a playground project to a full project, change `type = "playground"`
-to `type = "app"` in `Water.toml`, copy the backend directories from `.water/`
-to your project root, and add a `[backends]` section. Alternatively, create a
-fresh full project and move your Rust code over.
+To move from playground to app mode, create a fresh app project with the
+backends you want and move your `src/`, `assets/`, and manifest settings over.
+If you intentionally want to keep generated native projects, copy them from the
+managed cache at
+`~/.water/build_cache/<absolute-project-path>/managed_backends/`, set
+`type = "app"`, and add a matching `[backends]` section.
 
 > **Tip:** There is no rush to switch. Many developers stay in playground mode
 > well into development and only convert when they are ready to customise

@@ -44,8 +44,8 @@ Now let's see how to apply these to your reactive values.
 
 ## Animated Signals
 
-The `AnimationExt` trait is implemented for every type that implements
-`nami::SignalExt`. It provides two methods that cover most use cases.
+The `AnimationExt` trait is implemented for every WaterUI reactive signal. It
+provides two methods that cover most use cases.
 
 ### `.animated()`
 

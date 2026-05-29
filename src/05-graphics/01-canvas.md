@@ -8,15 +8,21 @@
 
 `Canvas` is WaterUI's 2D vector graphics view, powered by [Vello](https://github.com/linebender/vello). If you have used the HTML5 Canvas API, the drawing interface will feel familiar -- but every command runs on the GPU through wgpu.
 
+> **Checkpoint status:** in the pinned WaterUI commit, `waterui-canvas` exists
+> as a workspace crate but is not re-exported by the top-level `waterui`
+> facade. The examples in this chapter describe that crate-level API and are
+> marked `rust,ignore` until the facade exposes a public `waterui::canvas`
+> module.
+
 ## Overview
 
 `Canvas` is a callback-based drawing surface. You provide a closure that receives a `DrawingContext`, and WaterUI invokes it whenever the scene needs to repaint. Internally, the canvas drives a Vello scene that is built into a `GpuSurface`, so your drawing commands compile into GPU-friendly scene data.
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui_canvas::{Canvas, DrawingContext};
-use waterui_core::layout::{Rect, Size};
-use waterui_graphics::color::Srgb;
+use waterui::layout::{Rect, Size};
+use waterui::graphics::color::Srgb;
 
 fn my_canvas() -> impl View {
     Canvas::new(|ctx: &mut DrawingContext| {
@@ -33,7 +39,7 @@ fn my_canvas() -> impl View {
 
 The `DrawingContext` is the primary interface for all drawing operations. It provides access to the canvas dimensions and a rich set of drawing methods.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     // Canvas dimensions are available as fields
     let width = ctx.width;
@@ -51,7 +57,7 @@ Let's start with the basics. Every shape begins with setting a fill or stroke st
 
 The most common primitive. Fill, stroke, or clear rectangles with a single call.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     let rect = Rect::new(Point::new(10.0, 10.0), Size::new(200.0, 100.0));
 
@@ -71,7 +77,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 ### Circles
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     ctx.set_fill_style(Srgb::new_u8(242, 140, 168));
     ctx.fill_circle(Point::new(100.0, 100.0), 50.0);
@@ -84,7 +90,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 ### Lines
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     ctx.set_stroke_style(Srgb::new(1.0, 1.0, 1.0));
     ctx.set_line_width(2.0);
@@ -99,7 +105,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 For complex shapes, use the `Path` builder. It follows the HTML5 Canvas path API closely, so you can construct anything from triangles to intricate curves.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     let mut path = ctx.begin_path();
 
@@ -116,7 +122,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 ### Bezier Curves
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     let mut path = ctx.begin_path();
     path.move_to(Point::new(10.0, 100.0));
@@ -142,7 +148,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 ### Arcs and Ellipses
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     let mut path = ctx.begin_path();
 
@@ -177,7 +183,7 @@ Canvas supports three types of gradients for richer fills: linear, radial, and c
 
 ### Linear Gradient
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     let mut gradient = ctx.create_linear_gradient(0.0, 0.0, 200.0, 200.0);
     gradient.add_color_stop(0.0, Srgb::new(1.0, 0.0, 0.0));
@@ -193,7 +199,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 The radial gradient interpolates between two circles defined by center and radius.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     let mut gradient = ctx.create_radial_gradient(
         100.0, 100.0, 10.0,  // inner circle: center (100,100), radius 10
@@ -209,7 +215,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 ### Conic (Sweep) Gradient
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     let mut gradient = ctx.create_conic_gradient(
         0.0,    // start angle in radians
@@ -232,7 +238,7 @@ Load images from raw pixels or encoded bytes (PNG, JPEG, AVIF) and draw them on 
 
 ### Loading Images
 
-```rust
+```rust,ignore
 use waterui_canvas::CanvasImage;
 
 // From encoded bytes (PNG, JPEG, AVIF)
@@ -251,7 +257,7 @@ let size = image.size(); // Returns Size
 
 ### Drawing Images
 
-```rust
+```rust,ignore
 Canvas::new(move |ctx: &mut DrawingContext| {
     // Draw at natural size
     ctx.draw_image(&image, Point::new(10.0, 10.0));
@@ -271,7 +277,7 @@ Canvas::new(move |ctx: &mut DrawingContext| {
 
 Canvas maintains a transform stack. Transforms affect all subsequent drawing operations until restored. This is how you create rotated labels, zoomed views, or any kind of coordinate space manipulation.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     ctx.save();
 
@@ -305,7 +311,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 Fine-grained control over how strokes are rendered.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     ctx.set_stroke_style(Srgb::new(1.0, 1.0, 1.0));
 
@@ -331,7 +337,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 Push clip or alpha layers to constrain or blend drawing operations. Clipping is especially useful for creating shaped windows into your content.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     // Clip to a rectangle
     let clip = Rect::new(Point::new(20.0, 20.0), Size::new(160.0, 160.0));
@@ -357,7 +363,7 @@ You can also clip to arbitrary paths using `push_clip_path` and apply alpha with
 
 Control how complex self-intersecting paths determine their interior.
 
-```rust
+```rust,ignore
 use waterui_canvas::FillRule;
 
 Canvas::new(|ctx: &mut DrawingContext| {
@@ -374,7 +380,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 Add shadows to shapes and paths for depth and visual hierarchy.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     ctx.set_shadow_color(Srgb::new(0.0, 0.0, 0.0));
     ctx.set_shadow_blur(10.0);
@@ -389,7 +395,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 Set a global opacity that affects all drawing operations.
 
-```rust
+```rust,ignore
 Canvas::new(|ctx: &mut DrawingContext| {
     ctx.set_global_alpha(0.5); // 50% transparent
 
@@ -404,7 +410,7 @@ Canvas::new(|ctx: &mut DrawingContext| {
 
 `DrawingContext` lays out text with [Parley](https://github.com/linebender/parley) and rasterizes glyphs through Vello. Use `set_font` to choose a typeface, then `fill_text` or `stroke_text` to draw. For body content with localization, prefer the `text!`/`Text` view -- canvas text is best for charts, annotations, and freeform graphics.
 
-```rust
+```rust,ignore
 use waterui_canvas::{FontSpec, FontWeight, TextMetrics};
 
 Canvas::new(|ctx: &mut DrawingContext| {
@@ -425,11 +431,11 @@ To wrap text within a rectangle, call `draw_text_in_rect`, which width-constrain
 
 `Canvas` redraws on its own whenever a signal you read inside the closure changes. The simplest path is `Canvas::with_signal`, which threads the current value into your draw callback and tracks it for you:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui_canvas::{Canvas, DrawingContext};
-use waterui_core::layout::Point;
-use waterui_graphics::color::Srgb;
+use waterui::layout::Point;
+use waterui::graphics::color::Srgb;
 
 fn pulsing_dot(angle: Binding<f32>) -> impl View {
     Canvas::with_signal(angle, |ctx: &mut DrawingContext, angle| {
@@ -458,7 +464,7 @@ If you have to drive an animation that does not depend on a signal, call `ctx.re
 
 Here is a clock face that draws hour markers radiating from the center. Because `Canvas` redraws every frame, the hands could easily be animated with time-based logic.
 
-```rust
+```rust,ignore
 fn clock_canvas() -> impl View {
     Canvas::new(|ctx: &mut DrawingContext| {
         let cx = ctx.width / 2.0;

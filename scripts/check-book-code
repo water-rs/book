@@ -1,0 +1,47 @@
+#!/bin/bash
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "$0")/.." && pwd)
+cd "$repo_dir"
+
+reject_matches() {
+  local label="$1"
+  local pattern="$2"
+
+  if rg -n "$pattern" src; then
+    echo "found $label in book sources" >&2
+    exit 1
+  fi
+}
+
+reject_matches "stale WaterUI API references" "water create --playground|waterui_(webview|map|barcode|graphics|icon|locale|controls)|nami::|WebView::new|Id::new\\(|\\.frame\\(|\\.padding\\([^\\)]|Font::(body|headline|caption)|Color::(white|surface|muted_foreground|foreground)|ios_simulators|crate-type = \\[\\\"staticlib\\\"|TextField::new\\(\\\"|Slider::new\\([^&]|waterui_core::reactive"
+reject_matches "placeholder URLs or fake credentials" "example\\.com|prod-key|abc123|MyApp/1\\.0|from_environment\\("
+
+expected_nami=$(git -C waterui ls-tree HEAD vendor/nami | awk '{print $3}')
+actual_nami=$(git -C waterui/vendor/nami rev-parse HEAD 2>/dev/null || true)
+
+if [ -z "$expected_nami" ]; then
+  echo "waterui/vendor/nami is not recorded in the pinned waterui commit" >&2
+  exit 1
+fi
+
+if [ ! -f waterui/vendor/nami/Cargo.toml ] || [ "$actual_nami" != "$expected_nami" ]; then
+  cat >&2 <<EOF
+waterui/vendor/nami is not materialized at the pinned waterui gitlink.
+
+expected: $expected_nami
+actual:   ${actual_nami:-missing}
+
+Run:
+  git -C waterui submodule update --init --recursive vendor/nami
+
+Then re-run:
+  scripts/check-book-code
+EOF
+  exit 1
+fi
+
+cargo build
+cargo test
+PATH="$repo_dir/scripts:$PATH" mdbook test
+mdbook build

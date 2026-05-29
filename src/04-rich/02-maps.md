@@ -20,8 +20,8 @@ Picture a ride-sharing app that follows your car in real time, or a travel guide
 The map crate re-exports the location crate for convenience:
 
 ```rust,ignore
-use waterui_map::location; // waterkit-location
-use waterui_map::Location; // waterkit_location::Location
+use waterui::map::location; // waterkit-location
+use waterui::map::Location; // waterkit_location::Location
 ```
 
 ---
@@ -35,7 +35,7 @@ Before you can display a map, you need to tell it *where* to look. That starts w
 A geographic point on the globe:
 
 ```rust,ignore
-use waterui_map::Coordinate;
+use waterui::map::Coordinate;
 
 let san_francisco = Coordinate::new(37.7749, -122.4194);
 let tokyo = Coordinate::new(35.6762, 139.6503);
@@ -51,7 +51,7 @@ let tokyo = Coordinate::new(35.6762, 139.6503);
 You can convert from a `waterkit_location::Location` directly:
 
 ```rust,ignore
-use waterui_map::Coordinate;
+use waterui::map::Coordinate;
 use waterkit_location::Location;
 
 // From a Location reference
@@ -67,7 +67,7 @@ A `Region` describes the visible area of the map -- a center coordinate plus
 a span in degrees:
 
 ```rust,ignore
-use waterui_map::{Coordinate, Region};
+use waterui::map::{Coordinate, Region};
 
 // Explicit span
 let bay_area = Region::new(
@@ -99,7 +99,7 @@ Now let's put a map on screen. You will find it is just as straightforward as pl
 ### Basic Map
 
 ```rust,ignore
-use waterui_map::{Map, Coordinate, Region};
+use waterui::map::{Map, Coordinate, Region};
 
 fn city_map() -> impl View {
     let region = Region::new(
@@ -120,7 +120,7 @@ fn city_map() -> impl View {
 If you only have a coordinate and want the default zoom:
 
 ```rust,ignore
-use waterui_map::{Map, Coordinate};
+use waterui::map::{Map, Coordinate};
 
 fn pin_map() -> impl View {
     Map::centered_on(Coordinate::new(35.6762, 139.6503))
@@ -134,7 +134,7 @@ fn pin_map() -> impl View {
 When working directly with the `waterkit-location` crate:
 
 ```rust,ignore
-use waterui_map::Map;
+use waterui::map::Map;
 use waterkit_location::Location;
 
 fn location_map(location: Computed<Location>) -> impl View {
@@ -149,7 +149,7 @@ fn location_map(location: Computed<Location>) -> impl View {
 A map without markers is just a pretty picture. Add pins with `Annotation`:
 
 ```rust,ignore
-use waterui_map::{Map, Coordinate, Region, Annotation};
+use waterui::map::{Map, Coordinate, Region, Annotation};
 
 fn annotated_map() -> impl View {
     let sf = Coordinate::new(37.7749, -122.4194);
@@ -186,7 +186,7 @@ the marker list from a reactive signal. This is perfect for search results, live
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui_map::{Map, Coordinate, Region, Annotation};
+use waterui::map::{Map, Coordinate, Region, Annotation};
 
 fn dynamic_markers() -> impl View {
     let markers = Binding::container(vec![
@@ -205,7 +205,7 @@ fn dynamic_markers() -> impl View {
 Choose between three display modes to match the feel of your app:
 
 ```rust,ignore
-use waterui_map::{Map, Region, MapStyle};
+use waterui::map::{Map, Region, MapStyle};
 
 fn satellite_view() -> impl View {
     Map::new(Region::default())
@@ -228,7 +228,7 @@ fn satellite_view() -> impl View {
 Display the familiar blue dot indicating the user's current location:
 
 ```rust,ignore
-use waterui_map::{Map, Region};
+use waterui::map::{Map, Region};
 
 fn location_enabled_map() -> impl View {
     Map::new(Region::default())
@@ -245,7 +245,7 @@ fn location_enabled_map() -> impl View {
 enables the user-location indicator. The map moves as the user moves -- great for navigation or fitness tracking:
 
 ```rust,ignore
-use waterui_map::Map;
+use waterui::map::Map;
 use waterkit_location::Location;
 
 fn tracking_map(location: Computed<Location>) -> impl View {
@@ -264,7 +264,7 @@ region to the location signal.
 Fine-tune the map's interactive behavior. For example, you might want a non-interactive overview map in a list cell:
 
 ```rust,ignore
-use waterui_map::{Map, Region};
+use waterui::map::{Map, Region};
 
 fn static_overview() -> impl View {
     Map::new(Region::default())
@@ -351,7 +351,7 @@ async fn ensure_location_access() {
 A free function `map()` is available as a shorthand for `Map::new()`:
 
 ```rust,ignore
-use waterui_map::{map, Region};
+use waterui::map::{map, Region};
 
 fn quick_map() -> impl View {
     map(Region::default())
@@ -367,7 +367,7 @@ map centered on it with an annotation:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui_map::{Annotation, Coordinate, Map, MapStyle, Region};
+use waterui::map::{Annotation, Coordinate, Map, MapStyle, Region};
 use waterkit_location::Location;
 
 fn location_app() -> impl View {
@@ -416,7 +416,8 @@ fn location_app() -> impl View {
 
 The `Map` component uses the `configurable!` macro with `StretchAxis::Both`,
 meaning it expands to fill available space in both directions by default. Use
-layout modifiers like `.frame()` to constrain its size when needed.
+layout modifiers like `.size(width, height)`, `.width(...)`, or `.height(...)`
+to constrain its size when needed.
 
 ---
 

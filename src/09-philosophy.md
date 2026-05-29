@@ -40,8 +40,9 @@ target -- the Hydrolysis backend draws its own pixels on the GPU instead.
 
 ## Reactive, Not Virtual DOM
 
-WaterUI uses **fine-grained reactivity** from the `nami` crate. There is no virtual
-DOM, no tree diffing, and no reconciliation pass.
+WaterUI uses **fine-grained reactivity** through `Binding<T>` and
+`Computed<T>`. There is no virtual DOM, no tree diffing, and no reconciliation
+pass.
 
 ### How It Works
 
@@ -137,10 +138,10 @@ This philosophy extends to the API design:
 
 - **Layout adapts**: `StretchAxis::MainAxis` means "expand along whatever axis the
   parent uses," not "expand horizontally."
-- **Colors adapt**: `Color::foreground()` is not a specific hex value -- it resolves
+- **Colors adapt**: `theme::color::Foreground` is not a specific hex value -- it resolves
   to the platform's foreground color, whether that is black, white, or a custom
   theme color.
-- **Typography adapts**: `Font::body()` resolves to San Francisco on Apple, Roboto
+- **Typography adapts**: `.body()` and `text::font::Body` resolve to San Francisco on Apple, Roboto
   on Android, and the system font on Linux.
 
 ## Design Decisions
@@ -159,15 +160,17 @@ a design specification:
 
 ```rust,ignore
 fn profile_card(user: &User) -> impl View {
+    use waterui::theme::color::{MutedForeground, Surface};
+
     hstack((
         avatar(user.photo),
         vstack((
-            text(user.name).font(Font::headline()),
-            text(user.bio).foreground(Color::muted_foreground()),
+            text(user.name).headline(),
+            text(user.bio).foreground(MutedForeground),
         ))
     ))
-    .padding(16.0)
-    .background(Color::surface())
+    .padding_with(16.0)
+    .background(Surface)
 }
 ```
 
@@ -195,7 +198,7 @@ a better fit because:
 - A label always displays the current text, not a history of texts.
 - When a new subscriber connects, it immediately gets the current value.
 
-The `nami` crate provides `Binding<T>` (current value + change notifications) and
+WaterUI exposes `Binding<T>` (current value + change notifications) and
 `Computed<T>` (derived value that updates automatically). These are synchronous,
 glitch-free, and main-thread-safe -- exactly what UI state management needs.
 

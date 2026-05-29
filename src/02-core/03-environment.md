@@ -501,7 +501,7 @@ fn api_status() -> impl View {
 
 pub fn app(mut env: Environment) -> App {
     env.install(ApiConfig {
-        base_url: "https://api.example.com".into(),
+        base_url: "https://api.github.com".into(),
         timeout_ms: 5000,
     });
     App::new(main, env)

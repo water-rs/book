@@ -39,7 +39,8 @@ development. Choosing the right one upfront will save you time.
 Playground mode is designed for **quick experimentation**. When you create a
 project with `--mode playground`, the CLI manages all native backend projects
 automatically inside the global build cache under
-`~/.water/build_cache/<project>/`. You only write Rust.
+`~/.water/build_cache/<absolute-project-path>/managed_backends/`. You only
+write Rust.
 
 ```bash
 water create "My Experiment" --mode playground
@@ -75,7 +76,7 @@ configuration. Native backend projects live under a `backends/` directory in
 your project root and are checked into version control.
 
 ```bash
-water create "Production App" --backends apple,android,gtk4
+water create "Production App" --backends apple,android
 ```
 
 What you get:
@@ -119,7 +120,7 @@ water create "Counter" --mode playground
 water create "My App" --backends apple,android
 
 # With custom bundle identifier
-water create "My App" --bundle-id com.mycompany.myapp --backends apple
+water create "My App" --bundle-id dev.waterui.myapp --backends apple
 
 # Link to a local WaterUI checkout (for framework development)
 water create "Dev App" --waterui-path ../waterui --backends apple
@@ -137,6 +138,9 @@ water create "Dev App" --waterui-path ../waterui --backends apple
 
 When run without arguments in an interactive terminal, the CLI prompts for each
 value with sensible defaults.
+
+GTK4 app backends can only be scaffolded on Linux hosts at this checkpoint.
+Hydrolysis is available for macOS, Linux, Windows, and Web.
 
 ### `water run`
 

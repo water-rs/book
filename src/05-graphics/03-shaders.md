@@ -29,7 +29,7 @@ fn my_effect() -> impl View {
 `shader!` is sugar over two more explicit constructors. Reach for them when you need to wire something the macro does not cover (computed paths, generated shader source, and so on).
 
 ```rust
-use waterui_graphics::ShaderSurface;
+use waterui::graphics::ShaderSurface;
 
 // from a static string -- no cache key
 fn gradient_effect() -> impl View {
@@ -168,7 +168,7 @@ WaterUI provides two compile-time macros, both returning a `ShaderSource` (alias
 Loads a complete WGSL shader with both vertex and fragment stages. Use this when you write your own vertex stage:
 
 ```rust
-use waterui_graphics::{include_shader, prewarm::ShaderSource};
+use waterui::graphics::{include_shader, prewarm::ShaderSource};
 
 static MY_SHADER: ShaderSource = include_shader!("shaders/my_effect.wgsl");
 ```
@@ -178,7 +178,7 @@ static MY_SHADER: ShaderSource = include_shader!("shaders/my_effect.wgsl");
 Loads a fragment-only shader. The `ShaderSurface` prelude (uniforms + full-screen quad vertex shader) is prepended at runtime:
 
 ```rust
-use waterui_graphics::{include_fragment_shader, prewarm::ShaderSource, ShaderSurface};
+use waterui::graphics::{include_fragment_shader, prewarm::ShaderSource, ShaderSurface};
 
 static MY_FRAGMENT: ShaderSource = include_fragment_shader!("shaders/my_fragment.wgsl");
 

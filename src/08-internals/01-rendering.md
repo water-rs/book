@@ -204,10 +204,10 @@ pub fn dispatch<V: View>(&mut self, view: V, env: &Environment, context: C) -> R
 
 The initial render is only half the story. What happens when data changes?
 
-WaterUI does not diff entire view trees. Instead, it relies on fine-grained reactivity
-from the `nami` crate. When a `Binding<T>` changes, only the `Computed<T>` signals
-that depend on it fire. Each signal is connected to a specific widget property through
-a watcher:
+WaterUI does not diff entire view trees. Instead, it relies on fine-grained
+reactivity exposed through `Binding<T>` and `Computed<T>`. When a binding
+changes, only the computed signals that depend on it fire. Each signal is
+connected to a specific widget property through a watcher:
 
 ```text
 Binding<String> --> Computed<Str> --> Watcher --> UILabel.text

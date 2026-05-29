@@ -37,14 +37,14 @@ Rust View Tree  --->  FFI (C ABI)  --->  Native Backend  --->  Platform UI
 
 ### Key Features
 
-- **Cross-platform**: iOS, Android, macOS, and Linux (GTK4) from one Rust
-  codebase. An experimental self-drawn backend (Hydrolysis, powered by Vello)
-  and a terminal UI backend are also under development.
+- **Cross-platform**: iOS, Android, macOS, and Linux from one Rust codebase.
+  The default native backends are Apple, Android, and GTK4; Hydrolysis provides
+  an experimental self-drawn path for macOS, Linux, Windows, and Web.
 - **Type-safe**: Leverage Rust's type system, ownership, and lifetimes to
   eliminate whole categories of runtime errors at compile time.
-- **Reactive**: Powered by the `nami` crate, every `Binding<T>`, `Computed<T>`,
-  and `Signal` automatically propagates changes through the view tree so the UI
-  stays in sync with your data.
+- **Reactive**: WaterUI's `Binding<T>`, `Computed<T>`, and `Signal` types
+  automatically propagate changes through the view tree so the UI stays in sync
+  with your data.
 - **Declarative**: Describe your UI as a composition of `View` values. Layout,
   styling, and interaction are expressed through method chaining and tuple
   composition rather than imperative mutation.
@@ -58,9 +58,8 @@ Rust View Tree  --->  FFI (C ABI)  --->  Native Backend  --->  Platform UI
 |---------|-------------|------------|--------|
 | Apple | iOS, macOS | SwiftUI / UIKit / AppKit via Swift | Stable |
 | Android | Android | Android Views via Kotlin / JNI | Stable |
-| GTK4 | Linux, macOS | GTK4 via gtk4-rs | Stable |
-| Hydrolysis | Any | Self-drawn (Vello / tiny-skia / wgpu) | Experimental |
-| TUI | Terminal | Terminal UI | Work in progress |
+| GTK4 | Linux | GTK4 via gtk4-rs | Stable |
+| Hydrolysis | macOS, Linux, Windows, Web | Self-drawn (Vello / tiny-skia / wgpu) | Experimental |
 
 > **Note:** You only need one backend to get started. Most readers begin with
 > whichever platform they already have tooling for -- macOS if you have a Mac,
@@ -82,7 +81,8 @@ top-level `waterui` crate re-exports everything through `waterui::prelude::*`.
 | `waterui-navigation` | `components/navigation/` | Navigation containers, `TabView` |
 | `waterui-form` | `components/form/` | `#[form]` derive macro, form builder |
 | `waterui-media` | `components/media/` | Photos, video, audio playback |
-| `waterui-graphics` | `components/graphics/` | Canvas, GPU surface, drawing primitives |
+| `waterui-graphics` | `components/graphics/` | GPU surfaces, filters, gradients, image analysis |
+| `waterui-canvas` | `components/canvas/` | Workspace canvas crate; not re-exported by `waterui` at this checkpoint |
 | `waterui-icon` | `components/icon/` | Cross-platform icon system |
 | `waterui-webview` | `components/webview/` | Embedded web views |
 | `waterui-macros` | `macros/` | Proc macros: `text!`, `#[form]`, `#[preview]` |
@@ -92,7 +92,7 @@ top-level `waterui` crate re-exports everything through `waterui::prelude::*`.
 | `waterui-url` | `utils/url/` | URL handling utilities |
 | `waterui-locale` | `utils/locale/` | Localisation and formatting |
 | `waterui-assets` | `components/assets/` | Asset loading and management |
-| `nami` | `vendor/nami/` (vendored submodule) | Fine-grained reactive runtime: `Binding`, `Computed`, `Signal` |
+| `nami` | `vendor/nami/` (vendored submodule) | Fine-grained reactive implementation behind `waterui::reactive`; app code should use WaterUI re-exports |
 
 ### Backend Crates
 
@@ -126,7 +126,7 @@ The book is structured in eight parts that build on each other:
 
 1. **Getting Started** -- Install the toolchain, learn the CLI, create your
    first app, and understand the project layout.
-2. **Core Concepts** -- The `View` trait, reactive state with `nami`,
+2. **Core Concepts** -- The `View` trait, WaterUI reactive state,
    environment-based dependency injection, and modifiers.
 3. **Building UIs** -- Text, layout, controls, forms, lists, conditional
    rendering, and navigation.
@@ -139,8 +139,10 @@ The book is structured in eight parts that build on each other:
 8. **Under the Hood** -- How WaterUI renders, the FFI bridge, the layout
    engine, and backend architecture.
 
-Each chapter contains runnable code examples. Clone the repository and use
-`water create --playground` to set up sandbox projects as you follow along.
+Most chapters contain runnable code examples. Clone the repository and use
+`water create "Counter" --mode playground` to set up sandbox projects as you
+follow along. Chapters that discuss workspace-only internals call that out
+explicitly.
 
 ## A Taste of WaterUI
 
@@ -169,14 +171,13 @@ pub fn main() -> impl View {
 pub fn app(env: Environment) -> App {
     App::new(main, env)
 }
-
-waterui_ffi::export!();
 ```
 
-This single file compiles and runs on iOS, Android, macOS, and Linux without
-any platform-specific code. Notice how you declare *what* you want -- a text
-display and two buttons -- and WaterUI handles the rest. No platform `#[cfg]`
-blocks, no conditional compilation, no separate codebases.
+This is the user crate's `src/lib.rs`: it defines your root view and the
+public `app(env)` constructor. The CLI generates a companion FFI crate that
+exports the C entry points native backends need, so you do not write
+`waterui_ffi::export!()` in this file. The same Rust view code runs on the
+supported native targets without platform-specific `#[cfg]` branches.
 
 ## Contributing
 

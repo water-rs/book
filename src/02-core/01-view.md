@@ -280,7 +280,7 @@ fn header(title: &'static str) -> impl View {
     text(title)
         .padding()
         .background(Color::blue())
-        .foreground(Color::white())
+        .foreground(Color::srgb(255, 255, 255))
 }
 
 struct ItemRow {

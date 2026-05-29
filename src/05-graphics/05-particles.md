@@ -205,7 +205,7 @@ fn celebration_card() -> impl View {
 }
 ```
 
-`ParticleSystem` stretches in both axes by default (it inherits `GpuSurface`'s layout behavior). Wrap it in `.frame(width, height)` if you need a fixed size.
+`ParticleSystem` stretches in both axes by default (it inherits `GpuSurface`'s layout behavior). Use `.size(width, height)` if you need a fixed size.
 
 ## Offscreen Testing
 

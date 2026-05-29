@@ -2,7 +2,7 @@
 
 > **In this chapter, you will:**
 > - Display dynamic collections with `List::for_each` and the `Identifiable` trait
-> - Use `nami::collection::List` for reactive, fine-grained collection updates
+> - Use `waterui::reactive::collection::List` for reactive, fine-grained collection updates
 > - Group rows with the new `ListSection` semantic marker
 > - Build a complete contacts list with add and remove operations
 
@@ -14,6 +14,7 @@ Every app needs a way to show lists of data — a chat thread, a to-do list, a f
 
 ```rust
 use waterui::prelude::*;
+use waterui::Identifiable;
 use waterui::component::list::{List, ListItem};
 
 #[derive(Clone)]
@@ -46,6 +47,7 @@ fn todo_list(items: Vec<TodoItem>) -> impl View {
 Every item in a `for_each` generator must implement `Identifiable`. The trait provides a stable identity for each element so the framework can efficiently diff, insert, and remove rows when the collection changes:
 
 ```rust
+# use core::hash::Hash;
 pub trait Identifiable {
     type Id: Hash + Ord + Clone;
     fn id(&self) -> Self::Id;
@@ -59,12 +61,14 @@ Common `Id` types are integers, UUIDs, and string keys.
 > treat it as a removal followed by an insertion, which is more expensive
 > than an in-place update.
 
-## Reactive collections with `nami::List`
+## Reactive collections with `waterui::reactive::collection::List`
 
-A plain `Vec` works for static data, but lists usually change at runtime. The `List<T>` type from `nami::collection` is a reactive collection: every mutation emits a fine-grained change notification that the UI observes:
+A plain `Vec` works for static data, but lists usually change at runtime. The
+`List<T>` type from `waterui::reactive::collection` is a reactive collection:
+every mutation emits a fine-grained change notification that the UI observes:
 
 ```rust
-use nami::collection::List as ReactiveList;
+use waterui::reactive::collection::List as ReactiveList;
 # #[derive(Clone)] struct TodoItem { id: i32, title: String, done: bool }
 
 fn seed() {
@@ -85,7 +89,7 @@ fn seed() {
 Initialise from a `Vec`:
 
 ```rust
-# use nami::collection::List as ReactiveList;
+# use waterui::reactive::collection::List as ReactiveList;
 # #[derive(Clone)] struct TodoItem { id: i32, title: String, done: bool }
 fn from_seed(item1: TodoItem, item2: TodoItem) {
     let _ = ReactiveList::from(vec![item1, item2]);
@@ -98,22 +102,26 @@ The pinned waterui adds a `ListSection` semantic marker so a single `List` can e
 
 ```rust
 use waterui::prelude::*;
+use waterui::Identifiable;
 use waterui::component::list::{List, ListItem, ListSection};
 
 #[derive(Clone)]
-struct Contact { id: i32, name: String, group: &'static str }
-impl Identifiable for Contact {
+struct ContactRow {
+    id: i32,
+    name: String,
+    section: Option<&'static str>,
+}
+
+impl Identifiable for ContactRow {
     type Id = i32;
     fn id(&self) -> i32 { self.id }
 }
 
-fn directory(contacts: Vec<Contact>) -> impl View {
-    let mut last_group: Option<&'static str> = None;
-    List::for_each(contacts, move |contact| {
+fn directory(contacts: Vec<ContactRow>) -> impl View {
+    List::for_each(contacts, |contact| {
         let mut row = ListItem::new(text(contact.name.clone()));
-        if last_group != Some(contact.group) {
-            last_group = Some(contact.group);
-            row = row.section(ListSection::new(contact.group));
+        if let Some(section) = contact.section {
+            row = row.section(ListSection::new(section));
         }
         row
     })
@@ -132,8 +140,9 @@ fn directory(contacts: Vec<Contact>) -> impl View {
 
 ```rust
 use waterui::prelude::*;
+use waterui::Identifiable;
 use waterui::component::list::{List, ListDelete, ListItem, ListMove};
-use nami::collection::List as ReactiveList;
+use waterui::reactive::collection::List as ReactiveList;
 
 # #[derive(Clone)] struct Contact { id: i32 }
 # impl Identifiable for Contact { type Id = i32; fn id(&self) -> i32 { self.id } }
@@ -152,6 +161,7 @@ fn editable(items: ReactiveList<Contact>) -> impl View {
                 // perform reorder on the reactive list
             },
         )
+        .state(&items)
 }
 ```
 
@@ -179,8 +189,9 @@ Here is a contacts screen with a reactive list, a typed `Contact` model, and an 
 
 ```rust
 use waterui::prelude::*;
+use waterui::Identifiable;
 use waterui::component::list::{List, ListItem};
-use nami::collection::List as ReactiveList;
+use waterui::reactive::collection::List as ReactiveList;
 
 #[derive(Clone)]
 struct Contact { id: i32, name: String }
@@ -225,7 +236,7 @@ fn contacts_screen() -> impl View {
 
 ## Performance considerations
 
-1. **Use `nami::List<T>` for mutable collections.** It emits fine-grained
+1. **Use `waterui::reactive::collection::List<T>` for mutable collections.** It emits fine-grained
    change notifications. A plain `Vec` is suitable only for static data.
 2. **Keep `Identifiable::id()` stable.** Changing an item's id forces a
    removal + insertion instead of an in-place update.

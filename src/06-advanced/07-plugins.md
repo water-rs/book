@@ -312,14 +312,14 @@ logical keys, use `Environment::store` and `Environment::query`. The `K` type
 acts as a phantom key; the `V` is the actual stored value:
 
 ```rust,ignore
-use waterui_core::Environment;
+use waterui::Environment;
 
 struct ApiBaseUrl;
 struct CdnBaseUrl;
 
 let env = Environment::new()
-    .store::<ApiBaseUrl, _>("https://api.example.com".to_string())
-    .store::<CdnBaseUrl, _>("https://cdn.example.com".to_string());
+    .store::<ApiBaseUrl, _>("https://api.github.com".to_string())
+    .store::<CdnBaseUrl, _>("https://static.rust-lang.org".to_string());
 
 let api_url = env.query::<ApiBaseUrl, String>();
 let cdn_url = env.query::<CdnBaseUrl, String>();
@@ -334,11 +334,11 @@ Larger applications benefit from composing many plugins into a single setup
 function. This keeps `app()` clean and makes it easy to swap configurations:
 
 ```rust,ignore
-use waterui_core::Environment;
+use waterui::Environment;
 
-fn setup_production(env: &mut Environment) {
+fn setup_production(env: &mut Environment, analytics: AnalyticsPlugin) {
     env.install(ThemePlugin::light())
-        .install(AnalyticsPlugin::new("prod-key"))
+        .install(analytics)
         .install(ErrorViewPlugin)
         .install(LoadingViewPlugin);
 }

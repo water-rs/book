@@ -140,19 +140,20 @@ For custom layouts or fields outside the automatic mapping, implement `FormBuild
 use waterui::prelude::*;
 use waterui::form::secure::{Secure, secure};
 
+#[derive(Clone, Project)]
 struct LoginForm {
     username: String,
     password: Secure,
 }
 
 impl FormBuilder for LoginForm {
-    type View = waterui::layout::stack::VStack<((waterui_controls::TextField, waterui::form::SecureField),)>;
+    type View = waterui::layout::stack::VStack<((waterui::component::TextField, waterui::form::SecureField),)>;
 
     fn view<L: IntoLabel>(binding: &Binding<Self>, _label: L, _placeholder: Str) -> Self::View {
         // Project the struct binding into per-field bindings.
-        let projected = LoginForm::project(binding);
+        let projected = binding.project();
         vstack((
-            field("Username", &projected.username),
+            <String as FormBuilder>::view(&projected.username, "Username", Str::from("")),
             secure("Password", &projected.password),
         ))
     }

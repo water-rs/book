@@ -33,7 +33,7 @@ application code then obtains the controller and creates web views through it.
 The simplest way to embed web content is with `WebView::open`:
 
 ```rust,ignore
-use waterui_webview::WebView;
+use waterui::webview::WebView;
 
 fn docs_page() -> impl View {
     WebView::open("https://waterui.dev/docs")
@@ -55,13 +55,13 @@ For more control, obtain the controller from the environment, open a fresh
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui_webview::{WebView, WebViewController};
+use waterui::webview::{WebView, WebViewController};
 
 fn custom_browser() -> impl View {
     use_env(|controller: WebViewController| {
         let webview = controller.open();
-        webview.go_to("https://example.com");
-        webview.set_user_agent("MyApp/1.0");
+        webview.go_to("https://book.waterui.dev");
+        webview.set_user_agent("WaterUIBook/1.0");
         webview
     })
 }
@@ -76,11 +76,11 @@ When you want to configure the underlying handle immediately after creation
 but still build the view in a single expression, use `WebView::open_then`:
 
 ```rust,ignore
-use waterui_webview::WebView;
+use waterui::webview::WebView;
 
 fn configured_webview() -> impl View {
-    WebView::open_then("https://example.com", |handle| {
-        handle.set_user_agent("MyApp/1.0");
+    WebView::open_then("https://book.waterui.dev", |handle| {
+        handle.set_user_agent("WaterUIBook/1.0");
         handle.set_redirects_enabled(false);
     })
 }
@@ -97,7 +97,7 @@ Once you have a `WebView` instance, control navigation imperatively:
 
 ```rust,ignore
 // Navigate to a URL
-webview.go_to("https://example.com");
+webview.go_to("https://book.waterui.dev");
 
 // Refresh the current page
 webview.refresh();
@@ -130,12 +130,16 @@ back and forward buttons in your custom browser chrome.
 Subscribe to navigation lifecycle events through the reactive `event()` signal:
 
 ```rust,ignore
-use waterui_webview::{WebView, WebViewEvent};
+use waterui::prelude::*;
+use waterui::webview::{WebViewController, WebViewEvent};
 
-let webview = WebView::new(handle);
-
-// Watch events reactively
-webview.event(); // returns impl Signal<Output = WebViewEvent>
+fn eventful_webview() -> impl View {
+    use_env(|controller: WebViewController| {
+        let webview = controller.open();
+        let _events = webview.event(); // impl Signal<Output = WebViewEvent>
+        webview
+    })
+}
 ```
 
 ### `WebViewEvent` Variants
@@ -152,7 +156,7 @@ webview.event(); // returns impl Signal<Output = WebViewEvent>
 ### Error Types
 
 ```rust,ignore
-use waterui_webview::WebViewError;
+use waterui::webview::WebViewError;
 ```
 
 | Error | Description |
@@ -188,7 +192,7 @@ constructed, use script injection instead.
 Inject scripts that run automatically on every page load:
 
 ```rust,ignore
-use waterui_webview::ScriptInjectionTime;
+use waterui::webview::ScriptInjectionTime;
 
 // Run before DOM construction
 webview.inject_script(
@@ -243,7 +247,7 @@ window.greet.postMessage("World");
 Combine `inject_script` and `add_handler` for a clean API that hides platform differences from your web code:
 
 ```rust,ignore
-use waterui_webview::ScriptInjectionTime;
+use waterui::webview::ScriptInjectionTime;
 
 // Inject a friendly JavaScript API
 webview.inject_script(r#"
@@ -275,17 +279,19 @@ webview.handle().remove_handler("greet");
 Manage cookies programmatically -- useful for authentication flows or session management:
 
 ```rust,ignore
-use waterui_webview::cookie::Cookie;
+use waterui::webview::{WebView, cookie::Cookie};
 
 // Set a cookie
-let cookie = Cookie::build(("session", "abc123"))
-    .domain("example.com")
-    .path("/")
-    .secure(true)
-    .build()
-    .unwrap();
+fn set_session_cookie(webview: &WebView, session_token: &str) {
+    let cookie = Cookie::build(("session", session_token))
+        .domain("book.waterui.dev")
+        .path("/")
+        .secure(true)
+        .build()
+        .unwrap();
 
-webview.handle().set_cookie(cookie);
+    webview.handle().set_cookie(cookie);
+}
 
 // Retrieve all cookies
 let cookies = webview.handle().get_cookies();
@@ -294,7 +300,7 @@ for c in &cookies {
 }
 ```
 
-The `cookie` crate (re-exported as `waterui_webview::cookie`) provides the
+The `cookie` crate (re-exported as `waterui::webview::cookie`) provides the
 `Cookie` type.
 
 ---
@@ -309,8 +315,9 @@ webview.set_redirects_enabled(false);
 
 // Reactively via a binding
 let allow_redirects = Binding::bool(true);
-let webview = WebView::new(handle)
-    .redirects_enabled(allow_redirects.into_computed());
+let webview = controller
+    .open()
+    .redirects_enabled(allow_redirects);
 ```
 
 The `redirects_enabled` builder method watches the signal and syncs the
@@ -323,7 +330,7 @@ setting automatically when the value changes.
 Customize the user agent string sent with requests:
 
 ```rust,ignore
-webview.set_user_agent("MyApp/1.0 (WaterUI)");
+webview.set_user_agent("WaterUIBook/1.0");
 ```
 
 ---
@@ -334,7 +341,7 @@ Let's put it all together. Here is a minimal in-app browser with back/forward bu
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui_webview::{WebView, WebViewController};
+use waterui::webview::{WebView, WebViewController};
 
 fn mini_browser() -> impl View {
     use_env(|controller: WebViewController| {
@@ -381,8 +388,8 @@ forward buttons grey out automatically as the navigation history changes.
 | Redirect control | Full support | Backend-dependent | -- |
 
 `WebView` is declared as a *raw view* with `StretchAxis::Both`, so it
-expands to fill all available space by default. Wrap it in a `.frame()` modifier
-or constrain it with layout containers to control its size.
+expands to fill all available space by default. Use `.size(width, height)`,
+`.width(...)`, `.height(...)`, or a parent layout to control its size.
 
 ### Downcasting the Handle
 

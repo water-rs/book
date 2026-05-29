@@ -31,7 +31,7 @@ A `GpuSurface` owns exactly one `GpuView` instance for its lifetime. `GpuView::s
 
 ```rust
 use waterui::prelude::*;
-use waterui_graphics::GpuSurface;
+use waterui::graphics::GpuSurface;
 
 GpuSurface::new(MyRenderer::default())             // fills available space
 GpuSurface::new(MyRenderer::default()).size(400.0, 300.0) // fixed
@@ -40,13 +40,14 @@ GpuSurface::new(MyRenderer::default()).size(400.0, 300.0) // fixed
 ## The GpuView trait
 
 ```rust
-use waterui_graphics::{GpuContext, GpuFrame};
+use waterui::Environment;
+use waterui::graphics::{GpuContext, GpuFrame};
 
 pub trait GpuView: 'static {
     async fn setup(
         &mut self,
         ctx: &GpuContext<'_>,
-        env: &mut waterui_core::Environment,
+        env: &mut Environment,
     );
 
     fn render(&mut self, frame: &mut GpuFrame);
@@ -61,7 +62,7 @@ A few details that the type signature does not show:
 
 ### Lifecycle
 
-1. **Setup** runs once after the wgpu device is ready. Build pipelines, buffers, bind groups, and any owned textures here. Clone `ctx.redraw_handle` if you need to wake the surface from outside the render loop (for example, when a `nami` signal changes, a timer fires, or a network response arrives).
+1. **Setup** runs once after the wgpu device is ready. Build pipelines, buffers, bind groups, and any owned textures here. Clone `ctx.redraw_handle` if you need to wake the surface from outside the render loop (for example, when a WaterUI signal changes, a timer fires, or a network response arrives).
 2. **Resize** is implicit: each call to `render` carries the current `frame.width`/`frame.height`. Recreate size-dependent resources by detecting a size change inside `render`.
 3. **Render** runs whenever the surface is dirty. Submit your wgpu commands into `frame.queue`. Call `frame.request_redraw()` to ask for the next frame.
 
@@ -116,8 +117,8 @@ Here is a complete "hello triangle" implementation. The shader lives in its own 
 
 ```rust
 // triangle.rs
-use waterui::prelude::*;
-use waterui_graphics::{GpuContext, GpuFrame, GpuSurface, GpuView, impl_gpu_subview, wgpu};
+use waterui::{Environment, prelude::*};
+use waterui::graphics::{GpuContext, GpuFrame, GpuSurface, GpuView, impl_gpu_subview, wgpu};
 
 #[derive(Default)]
 struct TriangleRenderer {
@@ -128,7 +129,7 @@ impl GpuView for TriangleRenderer {
     async fn setup(
         &mut self,
         ctx: &GpuContext<'_>,
-        _env: &mut waterui_core::Environment,
+        _env: &mut Environment,
     ) {
         let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("triangle"),
@@ -239,7 +240,7 @@ For animations that depend on something other than the frame loop -- a timer, a 
 async fn setup(
     &mut self,
     ctx: &GpuContext<'_>,
-    _env: &mut waterui_core::Environment,
+    _env: &mut waterui::Environment,
 ) {
     let redraw = ctx.redraw_handle.clone();
     self.guard = Some(self.signal.watch(move |_| redraw.request_redraw()));
@@ -255,7 +256,7 @@ This pattern is exactly how `MeshGradient` reacts to its color signal without th
 
 ```rust
 use std::num::NonZeroU32;
-use waterui_graphics::{GpuSurface, OffscreenRenderConfig, OffscreenSize, wgpu};
+use waterui::graphics::{GpuSurface, OffscreenRenderConfig, OffscreenSize, wgpu};
 
 let size = OffscreenSize::try_from_pixels(1024, 768)?;
 let config = OffscreenRenderConfig::new(size)
@@ -287,8 +288,8 @@ output.save_sdr_png("sdr_snapshot.png")?; // tone-mapped SDR fallback
 `OffscreenRenderConfig` lets you simulate input for hover/gesture tests:
 
 ```rust
-use waterui_core::layout::Point;
-use waterui_graphics::{GestureState, PointerState};
+use waterui::layout::Point;
+use waterui::graphics::{GestureState, PointerState};
 
 let config = OffscreenRenderConfig::new(size)
     .format(wgpu::TextureFormat::Rgba8UnormSrgb)

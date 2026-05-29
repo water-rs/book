@@ -243,15 +243,16 @@ Most apps organise their top-level screens with tabs. `Tabs` provides a tabbed c
 
 ```rust
 use waterui::prelude::*;
-use waterui::id::{Id, TaggedView};
+use waterui::id::{Mapping, TaggedView};
 use waterui::navigation::tab::{Tab, Tabs};
 
 fn home_content() -> impl View { text("Home") }
 fn settings_content() -> impl View { text("Settings") }
 
 fn main_app() -> impl View {
-    let home_id = Id::new();
-    let settings_id = Id::new();
+    let tabs = Mapping::new();
+    let home_id = tabs.register("home");
+    let settings_id = tabs.register("settings");
     let selection = Binding::container(home_id);
 
     Tabs::new(
@@ -286,11 +287,13 @@ Control whether the tab bar appears at the top or bottom:
 ```rust
 use waterui::prelude::*;
 use waterui::navigation::tab::{TabPosition, Tabs};
-use waterui::id::Id;
+use waterui::id::{Id, Mapping};
 
 # fn placeholder_tabs() -> Vec<waterui::navigation::tab::Tab<Id>> { Vec::new() }
 fn top_tabs() -> impl View {
-    Tabs::new(Binding::container(Id::new()), placeholder_tabs()).position(TabPosition::Top)
+    let tabs = Mapping::new();
+    let selected = tabs.register("home");
+    Tabs::new(Binding::container(selected), placeholder_tabs()).position(TabPosition::Top)
 }
 ```
 
@@ -321,7 +324,7 @@ Here is a complete app skeleton with tabs, a typed navigation path, and programm
 
 ```rust
 use waterui::prelude::*;
-use waterui::id::{Id, TaggedView};
+use waterui::id::{Mapping, TaggedView};
 use waterui::navigation::tab::{Tab, Tabs};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -347,8 +350,9 @@ fn item_detail(id: i32) -> impl View {
 fn profile_view() -> impl View { text("Profile Screen") }
 
 fn app() -> impl View {
-    let browse_id = Id::new();
-    let profile_id = Id::new();
+    let tabs = Mapping::new();
+    let browse_id = tabs.register("browse");
+    let profile_id = tabs.register("profile");
     let tab_selection = Binding::container(browse_id);
 
     Tabs::new(

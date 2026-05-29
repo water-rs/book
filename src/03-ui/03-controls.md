@@ -135,7 +135,7 @@ fn cta_row() -> impl View {
 
 ```rust
 use waterui::prelude::*;
-use waterui_icon::system_icon;
+use waterui::icon::system_icon;
 
 fn add_button() -> impl View {
     button(label("Add Item").icon(system_icon::plus())).action(|| {})

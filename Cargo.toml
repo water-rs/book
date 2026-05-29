@@ -7,4 +7,4 @@ edition = "2024"
 # Users only depend on `waterui` - all sub-crates are re-exported through it
 
 [dependencies]
-waterui = { path = "waterui" }
+waterui = { path = "waterui", features = ["barcode", "map", "particle", "chart"] }
