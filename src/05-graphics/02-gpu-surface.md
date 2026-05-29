@@ -129,7 +129,7 @@ impl GpuView for TriangleRenderer {
     async fn setup(
         &mut self,
         ctx: &GpuContext<'_>,
-        _env: &mut Environment,
+        env: &mut Environment,
     ) {
         let shader = ctx.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("triangle"),
@@ -240,7 +240,7 @@ For animations that depend on something other than the frame loop -- a timer, a 
 async fn setup(
     &mut self,
     ctx: &GpuContext<'_>,
-    _env: &mut waterui::Environment,
+    env: &mut waterui::Environment,
 ) {
     let redraw = ctx.redraw_handle.clone();
     self.guard = Some(self.signal.watch(move |_| redraw.request_redraw()));

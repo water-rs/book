@@ -16,6 +16,7 @@ reject_matches() {
 
 reject_matches "stale WaterUI API references" "water create --playground|waterui_(webview|map|barcode|graphics|icon|locale|controls)|nami::|WebView::new|Id::new\\(|\\.frame\\(|\\.padding\\([^\\)]|Font::(body|headline|caption)|Color::(white|surface|muted_foreground|foreground)|ios_simulators|crate-type = \\[\\\"staticlib\\\"|TextField::new\\(\\\"|Slider::new\\([^&]|waterui_core::reactive"
 reject_matches "placeholder URLs or fake credentials" "example\\.com|prod-key|abc123|MyApp/1\\.0|from_environment\\("
+reject_matches "reader-facing underscore placeholder names" "(^|[^A-Za-z0-9])_[A-Za-z][A-Za-z0-9_]*"
 
 nami_path=$(git -C waterui ls-tree -r HEAD | awk '$1 == "160000" && $4 ~ /(^|\/)nami$/ {print $4; exit}')
 

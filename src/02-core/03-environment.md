@@ -284,7 +284,7 @@ When you set up a manual watcher on a signal, the watcher is unsubscribed as soo
 
 ```rust
 pub struct Retain {
-    _value: Box<dyn Any>,
+    // private fields
 }
 ```
 
@@ -343,7 +343,7 @@ Or using `Hook::new` directly when you need to keep the hook value around:
 ```rust
 use waterui_core::view::Hook;
 
-let hook: Hook<ButtonConfig> = Hook::new(|_env, config: ButtonConfig| {
+let hook: Hook<ButtonConfig> = Hook::new(|env, config: ButtonConfig| {
     my_custom_button(config)
 });
 env.insert(hook);
@@ -390,11 +390,11 @@ impl Plugin for DarkThemePlugin {
         env.insert(self);
 
         // Install hooks for themed components
-        env.insert_hook(|_env: &Environment, config: ButtonConfig| {
+        env.insert_hook(|env: &Environment, config: ButtonConfig| {
             dark_themed_button(config)
         });
 
-        env.insert_hook(|_env: &Environment, config: ToggleConfig| {
+        env.insert_hook(|env: &Environment, config: ToggleConfig| {
             dark_themed_toggle(config)
         });
 
@@ -519,7 +519,7 @@ struct RoundedButtonPlugin;
 impl Plugin for RoundedButtonPlugin {
     fn install(self, env: &mut Environment) {
         env.insert(self);
-        env.insert_hook(|_env: &Environment, config: ButtonConfig| {
+        env.insert_hook(|env: &Environment, config: ButtonConfig| {
             // Re-render the default button, then wrap it in chrome.
             config.render()
                 .padding()

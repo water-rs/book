@@ -66,7 +66,7 @@ data) and calls the user's `app(env: Environment) -> App` function. Returns a
 ### `JNI_OnLoad` (Android only)
 
 ```rust,ignore
-extern "system" fn JNI_OnLoad(vm: *mut c_void, _reserved: *mut c_void) -> i32
+extern "system" fn JNI_OnLoad(vm: *mut c_void, reserved: *mut c_void) -> i32
 ```
 
 Initializes the Android NDK context and JNI module. This is generated only when

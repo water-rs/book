@@ -367,7 +367,7 @@ pub struct LoggingButtonsPlugin;
 
 impl Plugin for LoggingButtonsPlugin {
     fn install(self, env: &mut Environment) {
-        env.insert_hook(|_env, config: ButtonConfig| {
+        env.insert_hook(|env, config: ButtonConfig| {
             tracing::debug!(?config, "button rendered");
             config.render()
         });

@@ -55,7 +55,7 @@ Every `ShaderSurface` shader receives a standard uniform buffer automatically. Y
 struct Uniforms {
     time: f32,           // Elapsed time in seconds since creation
     resolution: vec2<f32>, // Surface size in pixels (width, height)
-    _padding: f32,
+    padding: f32,
 }
 
 @group(0) @binding(0)

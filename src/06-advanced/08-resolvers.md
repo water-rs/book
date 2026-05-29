@@ -232,7 +232,7 @@ use waterui::component::button::ButtonConfig;
 use waterui::Environment;
 
 let mut env = Environment::new();
-env.insert_hook(|_env, config: ButtonConfig| {
+env.insert_hook(|env, config: ButtonConfig| {
     tracing::debug!(?config, "button rendered");
     config.render()
 });
@@ -273,7 +273,7 @@ pub struct BorderedButtonsPlugin;
 
 impl Plugin for BorderedButtonsPlugin {
     fn install(self, env: &mut Environment) {
-        env.insert_hook(|_env, mut config: ButtonConfig| {
+        env.insert_hook(|env, mut config: ButtonConfig| {
             config.style = ButtonStyle::Bordered;
             config.render()
         });

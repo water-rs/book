@@ -364,7 +364,7 @@ fn handle_selection(selected: &Selected) {
     match selected.media() {
         Media::Image(url) => tracing::info!("selected image: {url}"),
         Media::Video(url) => tracing::info!("selected video: {url}"),
-        Media::LivePhoto(_source) => tracing::info!("selected live photo"),
+        Media::LivePhoto(source) => tracing::info!(?source, "selected live photo"),
     }
 }
 ```

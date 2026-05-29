@@ -78,7 +78,7 @@ struct ProfileCard {
 }
 
 impl View for ProfileCard {
-    fn body(self, _env: &Environment) -> impl View {
+    fn body(self, env: &Environment) -> impl View {
         let Self { name, avatar_url, show_bio } = self;
         vstack((
             text!("{name}"),
@@ -290,7 +290,7 @@ struct ItemRow {
 }
 
 impl View for ItemRow {
-    fn body(self, _env: &Environment) -> impl View {
+    fn body(self, env: &Environment) -> impl View {
         let Self { label, count, highlighted } = self;
         hstack((
             text(label),
