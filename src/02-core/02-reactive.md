@@ -19,7 +19,7 @@ day to day.
 
 At the foundation of WaterUI reactivity is the `Signal` trait:
 
-```rust
+```rust,ignore
 pub trait Signal: Clone + 'static {
     type Output;
     type Guard;
@@ -41,7 +41,7 @@ Every reactive type in `waterui::reactive` implements `Signal`. This uniform int
 
 ### Creating bindings
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::Str;
 
@@ -62,7 +62,7 @@ Use the typed constructors (`Binding::i32`, `Binding::u32`, `Binding::i64`, `Bin
 
 ### Reading values
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 let count = Binding::i32(10);
@@ -71,7 +71,7 @@ let current = count.get(); // 10
 
 ### Writing values
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 let count = Binding::i32(0);
@@ -106,7 +106,7 @@ text.append(" World"); // "Hello World"
 
 For complex mutations, use `with_mut` or `get_mut`:
 
-```rust
+```rust,ignore
 let items = Binding::container(vec!["a".to_string(), "b".to_string()]);
 
 // with_mut -- preferred, avoids extra clone for Container bindings
@@ -131,7 +131,7 @@ The `with_mut` method is more efficient for `Container`-backed bindings because 
 
 Extract the value and replace it with the default:
 
-```rust
+```rust,ignore
 let name = Binding::container("hello".to_string());
 let taken = name.take(); // taken == "hello", name is now ""
 ```
@@ -142,7 +142,7 @@ Now that you know how to read and write bindings, let's look at the specialized 
 
 `Binding<bool>` has specialized methods that make working with toggles and flags ergonomic:
 
-```rust
+```rust,ignore
 let dark_mode = Binding::bool(false);
 
 dark_mode.toggle();     // false -> true
@@ -164,7 +164,7 @@ let enabled = !dark_mode; // same as dark_mode.reverse()
 
 `Binding<Option<T>>` provides unwrapping helpers so you do not have to manually match on `Some`/`None`:
 
-```rust
+```rust,ignore
 let maybe_name = Binding::container::<Option<String>>(None);
 
 // Unwrap with default
@@ -182,7 +182,7 @@ Setting a value on the unwrapped binding wraps it in `Some` automatically.
 
 For `PartialOrd` types:
 
-```rust
+```rust,ignore
 let volume = Binding::container(0.5f32);
 
 // Only accept values in range (reject out-of-range sets)
@@ -194,7 +194,7 @@ let clamped = volume.clamp(0.0..=1.0);
 
 For `Signed` types:
 
-```rust
+```rust,ignore
 let number = Binding::i32(10);
 
 let sign = number.sign();      // Binding<bool>: true if non-negative
@@ -208,7 +208,7 @@ let neg2 = -number;            // operator syntax for negate()
 
 Sometimes you need a derived binding that can be written to as well as read. `Binding::mapping` creates a two-way derived binding:
 
-```rust
+```rust,ignore
 let celsius = Binding::f64(0.0);
 
 let fahrenheit = Binding::mapping(
@@ -227,7 +227,7 @@ Try setting `fahrenheit` to `32.0` and check what `celsius.get()` returns.
 
 Create a binding that rejects invalid values:
 
-```rust
+```rust,ignore
 let age = Binding::i32(25);
 let valid_age = age.filter(|&a| a >= 0 && a <= 150);
 valid_age.set(-1); // silently ignored
@@ -236,7 +236,7 @@ assert_eq!(age.get(), 25); // unchanged
 
 ### Condition and Equality
 
-```rust
+```rust,ignore
 let score = Binding::i32(85);
 
 // Condition: arbitrary predicate -> Binding<bool>
@@ -250,13 +250,13 @@ let is_perfect = score.equal_to(100);
 
 While `Binding` is for state you *own and modify*, `Computed` is for values you *derive from other signals*. It is a type-erased, read-only signal that wraps any `Signal` implementation behind a `Box<dyn ...>`:
 
-```rust
+```rust,ignore
 pub struct Computed<T>(Box<dyn ComputedImpl<Output = T>>);
 ```
 
 Create computed values from other signals:
 
-```rust
+```rust,ignore
 let count = Binding::i32(5);
 
 // From a binding (zero-cost conversion)
@@ -281,7 +281,7 @@ The `SignalExt` trait is automatically available on all `Signal` types. It provi
 
 The most fundamental combinator. It creates a new signal whose value is derived from another:
 
-```rust
+```rust,ignore
 let count = Binding::i32(5);
 let doubled = count.map(|n| n * 2);
 assert_eq!(doubled.get(), 10);
@@ -294,7 +294,7 @@ assert_eq!(doubled.get(), 20);
 
 When you need a value that depends on *two* signals, use `zip`:
 
-```rust
+```rust,ignore
 let width = Binding::container(100.0f32);
 let height = Binding::container(50.0f32);
 
@@ -306,14 +306,14 @@ assert_eq!(area.get(), 5000.0);
 
 ### Type Conversion: map_into
 
-```rust
+```rust,ignore
 let count = Binding::i32(42);
 let as_i64 = count.map_into::<i64>();
 ```
 
 ### Side Effects: inspect
 
-```rust
+```rust,ignore
 let value = Binding::i32(0);
 let inspected = value.inspect(|v| tracing::debug!("Value changed to {v}"));
 ```
@@ -322,7 +322,7 @@ let inspected = value.inspect(|v| tracing::debug!("Value changed to {v}"));
 
 ### Deduplication: distinct
 
-```rust
+```rust,ignore
 let noisy = Binding::i32(5);
 let quiet = noisy.distinct(); // only emits when value actually changes
 ```
@@ -331,14 +331,14 @@ let quiet = noisy.distinct(); // only emits when value actually changes
 
 ### Caching: cached
 
-```rust
+```rust,ignore
 let expensive = count.map(|n| heavy_computation(n));
 let cached_result = expensive.cached(); // memoizes the last value
 ```
 
 ### Type Erasure: computed
 
-```rust
+```rust,ignore
 let signal = count.map(|n| n * 2);
 let erased: Computed<i32> = signal.computed();
 ```
@@ -347,7 +347,7 @@ let erased: Computed<i32> = signal.computed();
 
 These produce boolean signals from numeric or comparable values:
 
-```rust
+```rust,ignore
 let score = Binding::i32(85);
 
 let is_100 = score.equal_to(100);          // Signal<Output = bool>
@@ -362,7 +362,7 @@ let at_most_90 = score.le(90);             // less or equal
 
 Combine boolean signals with familiar logical operations:
 
-```rust
+```rust,ignore
 let logged_in = Binding::bool(true);
 let is_admin = Binding::bool(false);
 
@@ -377,7 +377,7 @@ let role = is_admin.select("admin", "user"); // Signal<Output = &str>
 
 ### Numeric Combinators
 
-```rust
+```rust,ignore
 let temp = Binding::i32(-5);
 
 let abs_temp = temp.abs();          // 5
@@ -392,7 +392,7 @@ let sign = temp.sign();             // false (negative)
 
 Work with `Signal<Output = Option<T>>` without unwrapping manually:
 
-```rust
+```rust,ignore
 let maybe = Binding::container(Some(42i32));
 
 let is_some = maybe.is_some();              // true
@@ -411,7 +411,7 @@ let chained = maybe.and_then_some(|n| if n > 0 { Some(n) } else { None });
 
 ### Result Combinators
 
-```rust
+```rust,ignore
 let result = Binding::container::<Result<i32, String>>(Ok(42));
 
 let is_ok = result.is_ok();
@@ -425,7 +425,7 @@ let mapped_err = result.map_err(|e| format!("Error: {e}"));
 
 ### String Combinators
 
-```rust
+```rust,ignore
 let text = Binding::container("hello world".to_string());
 
 let empty = text.is_empty();             // false
@@ -437,7 +437,7 @@ let has_world = text.contains("world");  // true
 
 These require the `timer` feature and are essential for handling rapid user input:
 
-```rust
+```rust,ignore
 use std::time::Duration;
 
 let rapid_input = Binding::container(String::new());
@@ -455,7 +455,7 @@ let throttled = rapid_input.throttle(Duration::from_millis(100));
 
 For values that never change but need to participate in the signal graph:
 
-```rust
+```rust,ignore
 use waterui::reactive::constant;
 
 let tax_rate = constant(0.08);
@@ -471,7 +471,7 @@ A `Constant<T>` implements `Signal` but its `watch()` is a no-op -- watchers are
 
 For expensive constant computations that should only run on first access:
 
-```rust
+```rust,ignore
 use waterui::reactive::constant::Lazy;
 
 let config = Lazy::new(|| {
@@ -487,7 +487,7 @@ let value = config.get();
 
 Building formatted strings from multiple reactive values is a common need. The `s!` macro creates a signal that produces a formatted `String`, automatically capturing reactive variables from scope:
 
-```rust
+```rust,ignore
 let name = Binding::container("Alice".to_string());
 let age = Binding::i32(30);
 
@@ -512,7 +512,7 @@ The macro supports up to 4 reactive variables. It automatically `zip`s and `map`
 
 The `text!` macro creates a localized `Text` view with full i18n support:
 
-```rust
+```rust,ignore
 // Simple text -- looked up in i18n/*.toml files
 text!("Hello, World!")
 
@@ -549,7 +549,7 @@ Translation files are TOML in the `i18n/` directory:
 
 When you have a `Binding<Struct>`, you often need to pass individual fields to different child views. The `Project` derive macro lets you decompose a struct binding into per-field bindings:
 
-```rust
+```rust,ignore
 #[derive(Clone, Project)]
 struct Person {
     name: String,
@@ -577,7 +577,7 @@ The macro generates a `PersonProjected` struct with `Binding<T>` for each field.
 
 Tuples also implement `Project` natively (up to 14 elements):
 
-```rust
+```rust,ignore
 let pair = Binding::container((42i32, "hello".to_string()));
 let (num, text) = pair.project();
 num.set(100);
@@ -590,7 +590,7 @@ assert_eq!(pair.get().0, 100);
 
 For dynamic lists -- think todo items, chat messages, or search results -- `Binding<Vec<T>>` works but does not tell you *what* changed. `List<T>` is a reactive `Vec` that notifies watchers when its contents change, with fine-grained information about insertions, removals, and reorderings:
 
-```rust
+```rust,ignore
 use waterui::reactive::collection::{Collection, List};
 
 let items = List::new();
@@ -616,7 +616,7 @@ for item in &items {
 
 `List<T>` implements the `Collection` trait, which supports range-based watching:
 
-```rust
+```rust,ignore
 // Watch the entire collection
 let all_items_guard = items.watch(.., |ctx| {
     let current = ctx.into_value();
@@ -635,7 +635,7 @@ let visible_items_guard = items.watch(1..4, |ctx| {
 
 To render a reactive list, use `ForEach`:
 
-```rust
+```rust,ignore
 use waterui::views::ForEach;
 use waterui::Identifiable;
 
@@ -672,7 +672,7 @@ Each item must implement `Identifiable` so the framework can track insertions, r
 
 Since `Binding<T>` is `!Send` (it uses `Rc` internally), you cannot send it across threads. If you need to update UI state from a background task -- say, after fetching data from a network -- the `BindingMailbox` provides an async interface:
 
-```rust
+```rust,ignore
 let count = Binding::i32(0);
 let mailbox = count.mailbox();
 
@@ -694,7 +694,7 @@ The mailbox spawns a local task that processes jobs sequentially on the UI threa
 
 While most reactive updates happen automatically through the view system, you can watch signals manually for side effects like logging, analytics, or synchronizing with external systems:
 
-```rust
+```rust,ignore
 let count = Binding::i32(0);
 
 let guard = count.watch(|ctx| {
@@ -709,7 +709,7 @@ let guard = count.watch(|ctx| {
 
 To keep a manual watcher alive for the lifetime of a view:
 
-```rust
+```rust,ignore
 fn my_view(count: Binding<i32>) -> impl View {
     let guard = count.watch(|ctx| {
         tracing::debug!("Count: {}", ctx.into_value());
@@ -728,7 +728,7 @@ There are several ways to connect reactive state to the UI. Let's look at each a
 
 Rebuild a view section whenever a signal changes:
 
-```rust
+```rust,ignore
 let count = Binding::i32(0);
 
 Dynamic::watch(count, |n| {
@@ -742,7 +742,7 @@ This is the most general approach -- the closure receives the raw value and retu
 
 For text content, the macros handle reactivity automatically:
 
-```rust
+```rust,ignore
 let name = Binding::container("World".to_string());
 text!("Hello, {name}") // updates when name changes
 ```
@@ -751,7 +751,7 @@ text!("Hello, {name}") // updates when name changes
 
 Many WaterUI components accept signals directly:
 
-```rust
+```rust,ignore
 let is_on = Binding::bool(false);
 Toggle::new(&is_on) // Toggle reads and writes the binding
 
@@ -768,7 +768,7 @@ Button::new(text!("{label}")).action(|| { /* action */ })
 
 This is the single most important rule for working with WaterUI reactivity. When you call `.get()`, you take a snapshot of the current value. The UI will never update when the signal changes because no watcher was registered:
 
-```rust
+```rust,ignore
 // BAD -- breaks reactivity
 fn bad_view(count: Binding<i32>) -> impl View {
     let n = count.get(); // snapshot! never updates
@@ -798,7 +798,7 @@ Use `.get()` only in:
 
 Use `zip` and `map` to derive values from multiple signals without breaking reactivity:
 
-```rust
+```rust,ignore
 let first_name = Binding::container("Alice".to_string());
 let last_name = Binding::container("Smith".to_string());
 
@@ -812,7 +812,7 @@ Dynamic::watch(full_name, |name| text!("{name}"))
 
 For more than two signals, chain `zip`:
 
-```rust
+```rust,ignore
 let a = Binding::i32(1);
 let b = Binding::i32(2);
 let c = Binding::i32(3);

@@ -1,0 +1,8 @@
+id	chapter	function_path	frame	output	alt	caption
+barcode-qr-book-waterui-dev	src/04-rich/04-barcode.md	barcode_qr_book_waterui_dev	420x420	src/assets/visuals/04-rich/barcode-qr-book-waterui-dev.png	QR code rendered by WaterUI for https://book.waterui.dev	A QR code rendered from the pinned WaterUI barcode component.
+canvas-shapes	src/05-graphics/01-canvas.md	canvas_shapes	640x360	src/assets/visuals/05-graphics/canvas-shapes.png	Canvas drawing with rectangles circles curves and text	A WaterUI Canvas preview showing vector drawing primitives.
+gpu-surface-triangle	src/05-graphics/02-gpu-surface.md	gpu_surface_triangle	640x360	src/assets/visuals/05-graphics/gpu-surface-triangle.png	GPU surface preview rendering a colored triangle	A custom GpuView rendered through water preview.
+shader-plasma	src/05-graphics/03-shaders.md	shader_plasma	640x360	src/assets/visuals/05-graphics/shader-plasma.png	ShaderSurface preview with a plasma fragment shader	A WGSL fragment shader rendered through ShaderSurface.
+filter-frosted-gradient	src/05-graphics/04-filters.md	filter_frosted_gradient	640x360	src/assets/visuals/05-graphics/filter-frosted-gradient.png	Filtered gradient card with blur brightness and contrast	FilterViewExt applied to a WaterUI view snapshot.
+particle-confetti	src/05-graphics/05-particles.md	particle_confetti	640x360	src/assets/visuals/05-graphics/particle-confetti.png	Deterministic confetti emitter preview with particle colors	A WaterUI preview image illustrating a confetti particle emitter.
+gradient-mesh	src/05-graphics/06-gradients.md	gradient_mesh	640x360	src/assets/visuals/05-graphics/gradient-mesh.png	Static mesh gradient rendered by WaterUI graphics	A mesh gradient rendered with waterui::graphics::Gradient.

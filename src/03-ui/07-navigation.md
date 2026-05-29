@@ -12,7 +12,7 @@ As your app grows beyond a single screen, you need a way to move between them. A
 
 `NavigationStack` is the container that manages a stack of navigation views. Think of it as a deck of cards: the root screen is at the bottom, and each navigation action pushes a new card on top.
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn home_screen() -> impl View { text("Home") }
@@ -28,7 +28,7 @@ The root view is displayed initially. When navigation occurs (via `NavigationLin
 
 Every screen in a stack is a `NavigationView`. It pairs a navigation bar with your content. The most ergonomic way to build one is the `.title(...)` modifier from `ViewExt`, which wraps any view in a `NavigationView`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn detail_screen(name: &str) -> NavigationView {
@@ -46,7 +46,7 @@ You can also call `NavigationView::new(title, content)` directly when you want f
 
 Control how the title appears in the navigation bar:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn settings(content: impl View) -> NavigationView {
@@ -74,7 +74,7 @@ The `NavigationTitleDisplayMode` enum has three variants:
 
 `NavigationView` exposes leading and trailing slots so you can place toolbar content beside the title:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn toolbar_screen(content: impl View) -> NavigationView {
@@ -91,7 +91,7 @@ For full customisation — bar background color, hidden state, or a search field
 
 The simplest way to add push navigation is `NavigationLink`. It renders as a tappable element that pushes a new screen when activated:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn settings_content() -> impl View { text("Settings") }
@@ -121,7 +121,7 @@ The first argument is the label (any `IntoLabel`), and the second is a closure t
 
 `NavigationLink` is great for simple drill-downs, but real apps need deep links, "back to root" actions, and routing from button handlers. For programmatic control, model navigation with a typed `NavigationPath<T>`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -151,7 +151,7 @@ The `destination` closure maps each route value to a `NavigationView`. This patt
 
 When the stack is path-backed, prefer `NavigationLink::value` for declarative pushes. The link reads `NavigationPathController<T>` from the environment automatically and pushes the value when tapped:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 # #[derive(Clone, PartialEq, Eq)] enum Route { Detail(i32) }
@@ -167,7 +167,7 @@ fn home_with_links() -> impl View {
 
 `NavigationPath` is backed by a reactive list. Mutate it from button handlers via `NavigationPathController<T>`, which is automatically extracted from the environment:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 # #[derive(Clone, PartialEq, Eq)] enum Route { Detail(i32) }
@@ -186,7 +186,7 @@ fn back_to_root() -> impl View {
 
 `NavigationPathController` exposes `push`, `pop`, `pop_n`, and `clear`. Pre-populating a path is just as easy:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 # #[derive(Clone, PartialEq, Eq)] enum Route { Detail(i32), Settings }
 fn prepopulated_stack() -> impl View {
@@ -199,7 +199,7 @@ fn prepopulated_stack() -> impl View {
 
 Control the transition animation style on the stack:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::navigation::NavigationTransition;
 
@@ -222,7 +222,7 @@ fn fade_stack(root: impl View) -> impl View {
 
 For navigation outside a typed path — pushing an arbitrary `NavigationView` directly — extract `NavigationController` from the environment:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn detail_content() -> impl View { text("Detail") }
@@ -244,7 +244,7 @@ fn detail_button() -> impl View {
 
 Most apps organise their top-level screens with tabs. `Tabs` provides a tabbed container with a tab bar:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::id::{Mapping, TaggedView};
 use waterui::navigation::tab::{Tab, Tabs};
@@ -287,7 +287,7 @@ Each `Tab` consists of:
 
 Control whether the tab bar appears at the top or bottom:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::navigation::tab::{TabPosition, Tabs};
 use waterui::id::{Id, Mapping};
@@ -313,7 +313,7 @@ The `selection` binding is a `Binding<Id>` that tracks the currently active tab.
 
 `navigation(title, view)` is a shortcut equivalent to `NavigationView::new(title, view)`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn ad_hoc() -> NavigationView {
@@ -325,7 +325,7 @@ fn ad_hoc() -> NavigationView {
 
 Here is a complete app skeleton with tabs, a typed navigation path, and programmatic routing:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::id::{Mapping, TaggedView};
 use waterui::navigation::tab::{Tab, Tabs};

@@ -94,7 +94,8 @@ book/
 │   ├── 09-philosophy.md
 │   ├── appendix/
 │   └── lib.rs            # canonical, compile-tested example snippets
-├── scripts/              # mdbook helpers (custom rustdoc wrapper)
+├── scripts/              # mdbook helpers and book visual generation
+│   └── book-visuals/     # water preview project + manifest for generated images
 └── waterui/              # submodule — DO NOT edit
 ```
 
@@ -111,6 +112,9 @@ Future agents read this map to navigate.
   minimal. Do not add CI logic, preflight scripts, or workspace-wide formatters
   there. If a workflow change is genuinely required, surface it for review
   rather than slipping it into an unrelated PR.
+- `src/assets/visuals/` — generated book illustrations that are checked in
+  only when they are listed in `scripts/book-visuals/manifest.tsv` and can be
+  regenerated with `scripts/render-book-visuals`.
 
 ---
 

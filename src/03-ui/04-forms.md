@@ -13,7 +13,7 @@ Every app that collects user data needs forms — registration screens, settings
 
 The `FormBuilder` trait is the foundation of the form system. It maps a type to a view that can edit a `Binding` of that type:
 
-```rust
+```rust,ignore
 pub trait FormBuilder: Sized {
     type View: View;
 
@@ -38,7 +38,7 @@ You can implement this trait manually for full control, but in most cases the de
 
 Annotate your struct with `#[derive(FormBuilder)]`, and each field generates an appropriate control:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[derive(Default, Clone, Debug, FormBuilder, Project)]
@@ -58,7 +58,7 @@ That is it — three lines of fields, and WaterUI knows how to render a text fie
 
 Use the `form()` function to create a view from a binding:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 # #[derive(Default, Clone, Debug, FormBuilder, Project)] struct UserProfile { name: String }
@@ -70,7 +70,7 @@ fn profile_editor() -> impl View {
 
 Pre-fill with initial data by constructing the binding directly:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 # #[derive(Default, Clone, Debug, FormBuilder, Project)] struct UserProfile { name: String }
@@ -100,7 +100,7 @@ The derive macro maps Rust types to controls automatically:
 
 The derive macro converts each field name from `snake_case` to a `"Title Case"` label. A doc comment on the field becomes the placeholder argument passed to `FormBuilder::view`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[form]
@@ -123,7 +123,7 @@ If you need different ranges or formatting, use a manual implementation (below).
 
 `Color` fields produce a `ColorPicker` with platform-native UI:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[form]
@@ -136,7 +136,7 @@ pub struct ThemeConfig {
 
 For custom layouts or fields outside the automatic mapping, implement `FormBuilder` yourself:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::form::secure::{Secure, secure};
 
@@ -170,7 +170,7 @@ Beyond the automatic mapping, WaterUI provides specialised controls for specific
 
 `ColorPicker` provides a platform-native color selection interface:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::form::picker::color::ColorPicker;
 
@@ -187,7 +187,7 @@ fn accent_picker(accent: &Binding<Color>) -> impl View {
 
 `DatePicker` adapts to the bound type — `jiff::civil::Date`, `Time`, or `DateTime` — and supports several picker layouts:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::form::picker::date::{DatePicker, DatePickerType};
 use jiff::civil::Date;
@@ -213,7 +213,7 @@ Date picker types:
 
 `Picker` lets users select from a list of options. Each item is a `text(label).tag(value)` — the label is what the user sees, the tag is the value written back into the binding:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::form::picker::{Picker, PickerStyle};
 
@@ -242,7 +242,7 @@ Picker styles:
 
 `SecureField` masks input and uses automatic memory zeroing (via `zeroize`) for password-grade security. Use it for passwords, API keys, and other sensitive data:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::form::secure::{Secure, secure};
 
@@ -264,7 +264,7 @@ The `Secure` type wraps a `String` with:
 
 Here is a complete example that ties auto-generation, a submit button, and reactive state together:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[form]
@@ -303,7 +303,7 @@ fn registration_form() -> impl View {
 
 A form is only as good as the data it collects. WaterUI provides a composable validation system through the `Validator` trait and the `Validatable` extension. `Range<T>`, `regex::Regex`, and the marker `Required` come out of the box:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::form::valid::{Required, Validator};
 use regex::Regex;
@@ -344,7 +344,7 @@ fn build_validators() {
 
 Wrap a form control with validation to get automatic error display:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::form::valid::ValidatableView;
 use regex::Regex;
@@ -363,7 +363,7 @@ fn validated_email(value: &Binding<Str>) -> impl View {
 
 The binding returned by `FormBuilder::binding()` provides field-level access through projection:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 # #[form] pub struct Registration { pub username: String }

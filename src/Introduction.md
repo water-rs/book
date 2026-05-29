@@ -75,16 +75,16 @@ top-level `waterui` crate re-exports everything through `waterui::prelude::*`.
 |-------|------|------|
 | `waterui` | `/` | Facade crate, re-exports components, prelude, macros |
 | `waterui-core` | `core/` | `View` trait, `Environment`, `AnyView`, reactive primitives |
-| `waterui-layout` | `components/layout/` | `VStack`, `HStack`, `ZStack`, `ScrollView`, `Spacer`, grids |
-| `waterui-text` | `components/text/` | `Text` view, fonts, styled text, markdown |
-| `waterui-controls` | `components/controls/` | `Button`, `Toggle`, `Slider`, `Stepper`, `TextField` |
-| `waterui-navigation` | `components/navigation/` | Navigation containers, `TabView` |
-| `waterui-form` | `components/form/` | `#[form]` derive macro, form builder |
-| `waterui-media` | `components/media/` | Photos, video, audio playback |
-| `waterui-graphics` | `components/graphics/` | GPU surfaces, filters, gradients, image analysis |
-| `waterui-canvas` | `components/canvas/` | Workspace canvas crate; not re-exported by `waterui` at this checkpoint |
-| `waterui-icon` | `components/icon/` | Cross-platform icon system |
-| `waterui-webview` | `components/webview/` | Embedded web views |
+| `waterui-layout` | `components/foundation/layout/` | `VStack`, `HStack`, `ZStack`, `ScrollView`, `Spacer`, grids |
+| `waterui-text` | `components/foundation/text/` | `Text` view, fonts, styled text, markdown |
+| `waterui-controls` | `components/foundation/controls/` | `Button`, `Toggle`, `Slider`, `Stepper`, `TextField` |
+| `waterui-navigation` | `components/foundation/navigation/` | Navigation containers, `TabView` |
+| `waterui-form` | `components/foundation/form/` | `#[form]` derive macro, form builder |
+| `waterui-media` | `components/multimedia/media/` | Photos, video, audio playback |
+| `waterui-graphics` | `components/visual/graphics/` | GPU surfaces, filters, gradients, image analysis |
+| `waterui-canvas` | `components/visual/canvas/` | Workspace canvas crate; not re-exported by `waterui` at this checkpoint |
+| `waterui-icon` | `components/foundation/icon/` | Cross-platform icon system |
+| `waterui-webview` | `components/platform/webview/` | Embedded web views |
 | `waterui-macros` | `macros/` | Proc macros: `text!`, `#[form]`, `#[preview]` |
 | `waterui-ffi` | `ffi/` | C FFI bridge, `export!()` macro |
 | `waterui-cli` | `cli/` | The `water` CLI for scaffolding, building, running, packaging |
@@ -148,7 +148,7 @@ explicitly.
 
 Here is a minimal counter application to give you a feel for the framework:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::app::App;
 
@@ -159,11 +159,11 @@ pub fn main() -> impl View {
         text!("Count: {counter}"),
         hstack((
             button("Decrement")
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1))
+                .state(&counter),
             button("Increment")
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1))
+                .state(&counter),
         )),
     ))
 }

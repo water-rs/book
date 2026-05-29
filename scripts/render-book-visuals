@@ -1,0 +1,171 @@
+#!/bin/bash
+set -euo pipefail
+
+repo_dir=$(cd "$(dirname "$0")/.." && pwd)
+manifest="$repo_dir/scripts/book-visuals/manifest.tsv"
+preview_dir="$repo_dir/scripts/book-visuals/preview"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/render-book-visuals [--check|--check-links|--list]
+
+Render committed book visuals from scripts/book-visuals/manifest.tsv.
+
+  --check        render to a temporary directory and compare with committed PNGs
+  --check-links  verify manifest outputs exist, are PNG files, and are referenced
+  --list         print manifest ids and output paths
+EOF
+}
+
+mode=render
+case "${1:-}" in
+  "")
+    ;;
+  --check)
+    mode=check
+    ;;
+  --check-links)
+    mode=check_links
+    ;;
+  --list)
+    mode=list
+    ;;
+  -h|--help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    exit 64
+    ;;
+esac
+
+if [ ! -f "$manifest" ]; then
+  echo "missing visual manifest: $manifest" >&2
+  exit 1
+fi
+
+water_command() {
+  if [ -n "${WATER_BIN:-}" ]; then
+    "$WATER_BIN" "$@"
+    return
+  fi
+
+  local pinned_water="$repo_dir/waterui/target/debug/water"
+  if [ -x "$pinned_water" ]; then
+    "$pinned_water" "$@"
+    return
+  fi
+
+  cargo run --manifest-path "$repo_dir/waterui/cli/Cargo.toml" -- "$@"
+}
+
+ensure_png() {
+  local path="$1"
+  if [ ! -s "$path" ]; then
+    echo "visual output is missing or empty: $path" >&2
+    exit 1
+  fi
+  local signature
+  signature=$(LC_ALL=C od -An -N8 -tx1 "$path" | tr -d ' \n')
+  if [ "$signature" != "89504e470d0a1a0a" ]; then
+    echo "visual output is not a PNG: $path" >&2
+    exit 1
+  fi
+}
+
+optimize_png() {
+  local path="$1"
+  if ! command -v oxipng >/dev/null 2>&1; then
+    echo "missing required PNG optimizer: oxipng" >&2
+    exit 1
+  fi
+  oxipng -q -o 4 --strip safe "$path"
+}
+
+render_visual() {
+  local function_path="$1"
+  local frame="$2"
+  local output="$3"
+  mkdir -p "$(dirname "$output")"
+  water_command preview "$function_path" \
+    --platform macos \
+    --backend hydrolysis \
+    --theme material3 \
+    --frame "$frame" \
+    --path "$preview_dir" \
+    --output "$output"
+  ensure_png "$output"
+  optimize_png "$output"
+  ensure_png "$output"
+}
+
+check_manifest_row() {
+  local id="$1"
+  local chapter="$2"
+  local output="$3"
+  local alt="$4"
+  local caption="$5"
+  local absolute_chapter="$repo_dir/$chapter"
+  local absolute_output="$repo_dir/$output"
+
+  if [ ! -f "$absolute_chapter" ]; then
+    echo "visual $id references missing chapter: $chapter" >&2
+    exit 1
+  fi
+  case "$output" in
+    src/assets/visuals/*.png)
+      ;;
+    *)
+      echo "visual $id output must live under src/assets/visuals and end in .png: $output" >&2
+      exit 1
+      ;;
+  esac
+  ensure_png "$absolute_output"
+  local link_path="../${output#src/}"
+  if ! rg -F "$link_path" "$absolute_chapter" >/dev/null; then
+    echo "visual $id output is not referenced by $chapter: $link_path" >&2
+    exit 1
+  fi
+  if ! rg -F "$alt" "$absolute_chapter" >/dev/null; then
+    echo "visual $id alt text is not present in $chapter" >&2
+    exit 1
+  fi
+  if ! rg -F "$caption" "$absolute_chapter" >/dev/null; then
+    echo "visual $id caption is not present in $chapter" >&2
+    exit 1
+  fi
+}
+
+tmp_dir=
+if [ "$mode" = check ]; then
+  tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/book-visuals.XXXXXX")
+  trap 'rm -rf "$tmp_dir"' EXIT
+fi
+
+tail -n +2 "$manifest" | while IFS=$'\t' read -r id chapter function_path frame output alt caption; do
+  if [ -z "$id" ]; then
+    continue
+  fi
+
+  case "$mode" in
+    list)
+      printf '%s\t%s\n' "$id" "$output"
+      ;;
+    check_links)
+      check_manifest_row "$id" "$chapter" "$output" "$alt" "$caption"
+      ;;
+    check)
+      expected="$repo_dir/$output"
+      actual="$tmp_dir/$output"
+      render_visual "$function_path" "$frame" "$actual"
+      if ! cmp -s "$expected" "$actual"; then
+        echo "visual $id differs from committed output: $output" >&2
+        exit 1
+      fi
+      ;;
+    render)
+      render_visual "$function_path" "$frame" "$repo_dir/$output"
+      ;;
+  esac
+done

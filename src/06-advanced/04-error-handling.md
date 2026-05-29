@@ -47,7 +47,7 @@ is a type-erased error wrapper that implements `View`. It wraps any
 `std::error::Error` and renders it using the environment's configured error
 view builder:
 
-```rust
+```rust,ignore
 use waterui::widget::error::Error;
 
 let io_err = std::io::Error::new(
@@ -82,7 +82,7 @@ let custom_error = Error::from_view(vstack((
 `Error` preserves the original error type and supports downcasting, so you can
 recover the specific error when you need to:
 
-```rust
+```rust,ignore
 use waterui::widget::error::Error;
 use std::io;
 

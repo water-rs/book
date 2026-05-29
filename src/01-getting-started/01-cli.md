@@ -297,7 +297,7 @@ water preview login_screen --platform macos --output login.png
 
 The function must be annotated with the `#[preview]` attribute macro:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[preview]

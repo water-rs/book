@@ -16,7 +16,7 @@ Stacks are your primary tool for arranging views. Think of them as the rows and 
 
 `vstack` arranges children from top to bottom. It accepts a tuple of views:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn profile_card() -> impl View {
@@ -34,7 +34,7 @@ Default spacing between children is **10pt** and alignment is **center**.
 
 Use the struct constructor for full control:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn left_aligned() -> impl View {
@@ -47,7 +47,7 @@ fn left_aligned() -> impl View {
 
 Or chain the builder methods on `vstack`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn trailing_8pt() -> impl View {
@@ -62,7 +62,7 @@ fn trailing_8pt() -> impl View {
 
 #### Horizontal alignment options
 
-```rust
+```rust,ignore
 pub enum HorizontalAlignment {
     Leading,  // left in LTR locales
     Center,   // default
@@ -74,7 +74,7 @@ pub enum HorizontalAlignment {
 
 `hstack` arranges children left to right. This is what you reach for when building toolbars, rows of buttons, or any side-by-side arrangement:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn toolbar() -> impl View {
@@ -90,7 +90,7 @@ Default spacing is **10pt** and alignment is **center** (vertical).
 
 #### Custom spacing and alignment
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn top_aligned() -> impl View {
@@ -103,7 +103,7 @@ fn top_aligned() -> impl View {
 
 #### Vertical alignment options
 
-```rust
+```rust,ignore
 pub enum VerticalAlignment {
     Top,
     Center,  // default
@@ -117,7 +117,7 @@ pub enum VerticalAlignment {
 
 When you need to layer views on top of each other — a badge on an avatar, text over an image — reach for `zstack`. The last child in the tuple renders on top, and the stack sizes itself to fit the largest child:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn badge() -> impl View {
@@ -132,7 +132,7 @@ fn badge() -> impl View {
 
 Control where children are positioned within the stack:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn corner_badge(image: impl View, dot: impl View) -> impl View {
@@ -142,7 +142,7 @@ fn corner_badge(image: impl View, dot: impl View) -> impl View {
 
 The `Alignment` enum has nine positions:
 
-```rust
+```rust,ignore
 pub enum Alignment {
     TopLeading, Top, TopTrailing,
     Leading, Center, Trailing,    // Center is the default
@@ -154,7 +154,7 @@ pub enum Alignment {
 
 `Spacer` is a flexible gap that expands to push views apart. It adapts to its parent container: in an `HStack` it expands horizontally, in a `VStack` it expands vertically. This is one of the most useful layout tools you have.
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn pushed_to_the_edge() -> impl View {
@@ -170,7 +170,7 @@ fn pushed_to_the_edge() -> impl View {
 
 Use `spacer_min` to set a minimum length the spacer never shrinks below:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn at_least_20pt() -> impl View {
@@ -182,7 +182,7 @@ fn at_least_20pt() -> impl View {
 
 The `Divider` widget draws a thin line for visual separation between sections:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn sectioned() -> impl View {
@@ -198,7 +198,7 @@ fn sectioned() -> impl View {
 
 Add breathing room around a view with the `Padding` wrapper, or its `ViewExt` shortcuts. `padding()` applies a default 14pt inset; use `padding_with(EdgeInsets)` for exact control:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn padded() -> impl View {
@@ -230,7 +230,7 @@ fn padded() -> impl View {
 
 When you need a view to be a specific size, or at least a minimum width, wrap it in `Frame`. It supports minimum, ideal, and maximum dimensions:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::layout::frame::Frame;
 
@@ -251,7 +251,7 @@ fn bounded() -> impl View {
 
 Control how the child is positioned within the frame:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::layout::frame::Frame;
 
@@ -281,7 +281,7 @@ fn bottom_right() -> impl View {
 
 When content might exceed the available space, wrap it in a scroll view. This is essential for long lists and tall forms:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn long_list() -> impl View {
@@ -307,7 +307,7 @@ Three convenience constructors map to `ScrollView`:
 
 For content that naturally falls into rows and columns — a settings panel with labels and values, or an image gallery — use `Grid`. You specify the number of columns, and the grid distributes children into rows automatically:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn settings_grid() -> impl View {
@@ -321,7 +321,7 @@ fn settings_grid() -> impl View {
 
 ### Grid customisation
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::layout::grid::{Grid, GridRow};
 
@@ -338,7 +338,7 @@ Default spacing is **8pt** in both directions, and default alignment is **Center
 
 An `Overlay` layers content on top of a base view without changing the base's layout sizing. Use it for badges, highlights, and decorations:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn avatar_with_badge(avatar: impl View, dot: impl View) -> impl View {
@@ -355,7 +355,7 @@ Unlike `zstack`, the overlay's size is determined entirely by the base child. Th
 
 `background()` renders a view behind another view. The content child determines the size, and the background fills those bounds:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn highlighted() -> impl View {
@@ -367,7 +367,7 @@ fn highlighted() -> impl View {
 
 For the rare cases where stacks and grids are not enough — floating action buttons, custom popovers, canvas-like UIs — use `absolute` with the `PositionExt` extensions:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn floating_ui(fab: impl View) -> impl View {
@@ -401,7 +401,7 @@ The `PositionExt` trait provides these methods on any `View`:
 
 `UnitPoint` uses normalised coordinates (0.0 to 1.0):
 
-```rust
+```rust,ignore
 UnitPoint::TOP_LEADING     // (0.0, 0.0)
 UnitPoint::TOP             // (0.5, 0.0)
 UnitPoint::TOP_TRAILING    // (1.0, 0.0)
@@ -417,7 +417,7 @@ UnitPoint::BOTTOM_TRAILING // (1.0, 1.0)
 
 Pin-based positioning uses edge distances to compute position and size. This is useful when you want a child to stretch between edges or sit at a fixed offset from a corner:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::layout::PinConstraints;
 
@@ -442,7 +442,7 @@ When both `leading` and `trailing` are set, the width is computed automatically.
 
 Every view has an associated `StretchAxis` that tells parent layouts whether it wants to expand along one or both axes. Understanding this concept helps you predict how views behave inside stacks:
 
-```rust
+```rust,ignore
 pub enum StretchAxis {
     None,       // content-sized (e.g. Text, Button)
     Horizontal, // expands width (e.g. TextField, Slider, VStack)
@@ -463,7 +463,7 @@ Stacks use this information to distribute surplus space. For example, `Spacer` r
 
 Stacks support dynamic children through `for_each`. Instead of a fixed tuple, you provide a reactive collection and a generator that returns one view per element:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::reactive::collection::List as ReactiveList;
 

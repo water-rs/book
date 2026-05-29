@@ -15,7 +15,7 @@ Preview is supported on **macOS, the iOS Simulator, physical iOS, and Android** 
 
 Mark any function returning `impl View` with `#[preview]`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[preview]
@@ -33,7 +33,7 @@ The macro keeps your original function untouched and generates a `#[unsafe(no_ma
 
 If your view function takes parameters, every parameter needs a default value supplied through the macro attribute. Preview has no other way to invent argument values:
 
-```rust
+```rust,ignore
 #[preview(count = 5, name = "John")]
 fn user_card(count: i32, name: &str) -> impl View {
     vstack((

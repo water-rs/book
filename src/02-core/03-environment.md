@@ -29,7 +29,7 @@ This design gives you:
 
 ### Empty Environment
 
-```rust
+```rust,ignore
 let env = Environment::new();
 ```
 
@@ -37,7 +37,7 @@ let env = Environment::new();
 
 Use `insert` for imperative insertion. Both `insert` and `with` mutate the environment in place; `with` returns `&mut Self` so successive calls can be chained on a mutable handle:
 
-```rust
+```rust,ignore
 let mut env = Environment::new();
 
 // Imperative
@@ -55,7 +55,7 @@ Since types are keys, each type can appear at most once. Inserting the same type
 
 What if you need two values of the same type? Use `Store<K, V>` where `K` is a zero-sized marker type. `store` consumes the environment and returns a new one (it is the chainable cousin of `with`):
 
-```rust
+```rust,ignore
 use waterui_core::env::Store;
 
 struct PrimaryColor;
@@ -68,7 +68,7 @@ let env = Environment::new()
 
 Now the environment holds two `Color` values distinguished by their marker type. Query them with:
 
-```rust
+```rust,ignore
 let primary: Option<&Color> = env.query::<PrimaryColor, Color>();
 let accent: Option<&Color> = env.query::<AccentColor, Color>();
 ```
@@ -77,7 +77,7 @@ let accent: Option<&Color> = env.query::<AccentColor, Color>();
 
 ### Installing Plugins
 
-```rust
+```rust,ignore
 let mut env = Environment::new();
 env.install(MyThemePlugin);
 env.install(LocalizationPlugin::new("en"));
@@ -89,7 +89,7 @@ The `install` method calls the plugin's `install` method, which can insert multi
 
 ### Direct Lookup
 
-```rust
+```rust,ignore
 // Returns Option<&T>
 if let Some(theme) = env.get::<MyTheme>() {
     // use theme
@@ -100,13 +100,13 @@ if let Some(theme) = env.get::<MyTheme>() {
 
 Lazily initialize a value if it does not exist:
 
-```rust
+```rust,ignore
 let config = env.get_or_insert_with(|| AppConfig::default());
 ```
 
 ### Removing Values
 
-```rust
+```rust,ignore
 env.remove::<MyTheme>();
 ```
 
@@ -118,7 +118,7 @@ Now that you know how to seed and query the environment directly, let's see how 
 
 `use_env` creates a view that receives extracted values from the environment. This is the primary way your views consume shared configuration:
 
-```rust
+```rust,ignore
 use waterui_core::env::use_env;
 
 let view = use_env(|theme: MyTheme| {
@@ -132,7 +132,7 @@ The closure parameter must implement the `Extractor` trait (more on this below).
 
 For optional values, wrap the extractor in `Option`:
 
-```rust
+```rust,ignore
 let view = use_env(|theme: Option<MyTheme>| {
     match theme {
         Some(theme) => {
@@ -150,7 +150,7 @@ let view = use_env(|theme: Option<MyTheme>| {
 
 Extract multiple values at once:
 
-```rust
+```rust,ignore
 let view = use_env(|(nav, db): (NavigationController, Database)| {
     let name = db.name();
     text!("Connected to {name}")
@@ -163,7 +163,7 @@ Tuple extractors are implemented for tuples up to 8 elements.
 
 Inject a value into the environment for a view's subtree:
 
-```rust
+```rust,ignore
 // All descendants of this view will see MyConfig in their environment
 my_view.with(MyConfig { debug: true })
 ```
@@ -176,7 +176,7 @@ This creates a `With<V, T>` wrapper that clones the current environment, inserts
 
 Install a plugin into the environment for a subtree:
 
-```rust
+```rust,ignore
 my_view.install(MyPlugin)
 ```
 
@@ -186,7 +186,7 @@ This is equivalent to `use_env(|mut env: Environment| { env.install(plugin); Met
 
 The `Extractor` trait defines how to pull values from an `Environment`:
 
-```rust
+```rust,ignore
 pub trait Extractor: 'static + Sized {
     fn extract(env: &Environment) -> Result<Self, Error>;
 }
@@ -205,7 +205,7 @@ pub trait Extractor: 'static + Sized {
 
 `Use<T>` is the standard way to extract a value. It implements `Deref<Target = T>`:
 
-```rust
+```rust,ignore
 use waterui_core::extract::Use;
 
 let view = use_env(|Use(config): Use<AppConfig>| {
@@ -220,7 +220,7 @@ If the type is not found, extraction returns an error with a clear message descr
 
 The `impl_extractor!` macro generates an `Extractor` impl that delegates to `Use<T>`:
 
-```rust
+```rust,ignore
 impl_extractor!(MyConfig);
 
 // Now you can write:
@@ -237,7 +237,7 @@ Metadata attaches additional rendering instructions to views. There are two kind
 
 ### Metadata\<T\> (Mandatory)
 
-```rust
+```rust,ignore
 pub struct Metadata<T: MetadataKey> {
     pub content: AnyView,
     pub value: T,
@@ -246,7 +246,7 @@ pub struct Metadata<T: MetadataKey> {
 
 If a renderer encounters `Metadata<T>` and does not handle it, calling `body()` will panic. This ensures critical rendering instructions (e.g., environment overrides, lifecycle hooks) are not silently dropped.
 
-```rust
+```rust,ignore
 // Attach mandatory metadata
 let view = Metadata::new(my_view, LifeCycleHook::new(LifeCycle::Appear, || {
     tracing::info!("View appeared!");
@@ -255,7 +255,7 @@ let view = Metadata::new(my_view, LifeCycleHook::new(LifeCycle::Appear, || {
 
 ### IgnorableMetadata\<T\> (Optional)
 
-```rust
+```rust,ignore
 pub struct IgnorableMetadata<T: MetadataKey> {
     pub content: AnyView,
     pub value: T,
@@ -264,7 +264,7 @@ pub struct IgnorableMetadata<T: MetadataKey> {
 
 If a renderer does not handle this metadata, `body()` simply returns the content view -- the metadata is silently discarded. Use this for hints that improve the experience but are not required (e.g., accessibility labels).
 
-```rust
+```rust,ignore
 let view = IgnorableMetadata::new(my_view, AccessibilityLabel::new("Submit button"));
 ```
 
@@ -272,7 +272,7 @@ let view = IgnorableMetadata::new(my_view, AccessibilityLabel::new("Submit butto
 
 Both metadata types require the value to implement `MetadataKey`:
 
-```rust
+```rust,ignore
 pub trait MetadataKey: 'static {}
 ```
 
@@ -282,7 +282,7 @@ This is a simple marker trait. Implement it for any type you want to attach as m
 
 When you set up a manual watcher on a signal, the watcher is unsubscribed as soon as its guard is dropped. But view body functions are one-shot -- they return a view and then their local variables go out of scope. `Retain` solves this by keeping an arbitrary value alive for the lifetime of the view:
 
-```rust
+```rust,ignore
 pub struct Retain {
     // private fields
 }
@@ -290,7 +290,7 @@ pub struct Retain {
 
 Use it through `ViewExt::retain`:
 
-```rust
+```rust,ignore
 fn my_view(data: Binding<String>) -> impl View {
     let guard = data.watch(|ctx| {
         tracing::debug!("Data changed: {}", ctx.into_value());
@@ -305,7 +305,7 @@ Without `.retain()`, the guard would be dropped at the end of the function, imme
 
 You can retain multiple values by chaining or passing a tuple:
 
-```rust
+```rust,ignore
 text!("Hello")
     .retain(guard1)
     .retain(guard2)
@@ -321,7 +321,7 @@ text!("Hello")
 
 Hooks allow global interception of configurable views. This is the mechanism that powers WaterUI's theming system. A `Hook<C>` wraps a function that receives an `Environment` and a `ViewConfiguration`, and returns a custom view:
 
-```rust
+```rust,ignore
 pub struct Hook<C>(Box<dyn Fn(&Environment, C) -> AnyView>);
 ```
 
@@ -329,7 +329,7 @@ Construct one with `Hook::new(|env, config| ...)`, where the closure may return 
 
 ### Installing a Hook
 
-```rust
+```rust,ignore
 env.insert_hook(|env: &Environment, config: ButtonConfig| {
     // Return a custom view instead of the default button
     custom_button(config.label, config.action)
@@ -340,7 +340,7 @@ env.insert_hook(|env: &Environment, config: ButtonConfig| {
 
 Or using `Hook::new` directly when you need to keep the hook value around:
 
-```rust
+```rust,ignore
 use waterui_core::view::Hook;
 
 let hook: Hook<ButtonConfig> = Hook::new(|env, config: ButtonConfig| {
@@ -367,7 +367,7 @@ This is the mechanism behind WaterUI's theming system -- a theme plugin installs
 
 Plugins bundle related environment setup into a reusable unit. Instead of manually inserting values, hooks, and configurations, you define a plugin that does it all:
 
-```rust
+```rust,ignore
 pub trait Plugin: Sized + 'static {
     fn install(self, env: &mut Environment) {
         env.insert(self);
@@ -381,7 +381,7 @@ pub trait Plugin: Sized + 'static {
 
 The default `install` implementation stores the plugin itself in the environment. Override it to perform custom setup:
 
-```rust
+```rust,ignore
 struct DarkThemePlugin;
 
 impl Plugin for DarkThemePlugin {
@@ -406,7 +406,7 @@ impl Plugin for DarkThemePlugin {
 
 Install plugins at the app level or per-subtree:
 
-```rust
+```rust,ignore
 // App-wide: install into the root environment before constructing App.
 pub fn app(mut env: Environment) -> App {
     env.install(DarkThemePlugin);
@@ -426,7 +426,7 @@ Let's see the environment in action with some real-world patterns.
 
 ### Theming with Environment
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -478,7 +478,7 @@ fn app_root() -> impl View {
 
 ### Configuration Injection
 
-```rust
+```rust,ignore
 #[derive(Clone, Debug)]
 struct ApiConfig {
     base_url: String,
@@ -510,7 +510,7 @@ pub fn app(mut env: Environment) -> App {
 
 ### Button Hook Customization
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::shape::RoundedRectangle;
 

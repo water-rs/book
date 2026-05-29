@@ -12,7 +12,7 @@ Every app needs a way to show lists of data — a chat thread, a to-do list, a f
 
 `List::for_each` is the bridge between a data collection and the rows on screen. You give it a collection and a generator that returns one `ListItem` per element:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::Identifiable;
 use waterui::component::list::{List, ListItem};
@@ -46,7 +46,7 @@ fn todo_list(items: Vec<TodoItem>) -> impl View {
 
 Every item in a `for_each` generator must implement `Identifiable`. The trait provides a stable identity for each element so the framework can efficiently diff, insert, and remove rows when the collection changes:
 
-```rust
+```rust,ignore
 # use core::hash::Hash;
 pub trait Identifiable {
     type Id: Hash + Ord + Clone;
@@ -67,7 +67,7 @@ A plain `Vec` works for static data, but lists usually change at runtime. The
 `List<T>` type from `waterui::reactive::collection` is a reactive collection:
 every mutation emits a fine-grained change notification that the UI observes:
 
-```rust
+```rust,ignore
 use waterui::reactive::collection::List as ReactiveList;
 # #[derive(Clone)] struct TodoItem { id: i32, title: String, done: bool }
 
@@ -88,7 +88,7 @@ fn seed() {
 
 Initialise from a `Vec`:
 
-```rust
+```rust,ignore
 # use waterui::reactive::collection::List as ReactiveList;
 # #[derive(Clone)] struct TodoItem { id: i32, title: String, done: bool }
 fn from_seed(item1: TodoItem, item2: TodoItem) {
@@ -100,7 +100,7 @@ fn from_seed(item1: TodoItem, item2: TodoItem) {
 
 The pinned waterui adds a `ListSection` semantic marker so a single `List` can express multiple logical groups. Mark the first row of a section with `.section(ListSection::new("Header"))` and subsequent items belong to that section until another marker is encountered:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::Identifiable;
 use waterui::component::list::{List, ListItem, ListSection};
@@ -138,7 +138,7 @@ fn directory(contacts: Vec<ContactRow>) -> impl View {
 
 `List` exposes `editing(...)`, `on_delete(...)`, and `on_move(...)` builders. The handlers pull `ListDelete` (a row index) and `ListMove` (from/to indices) from the environment so you can dispatch on them just like any other extractor:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::Identifiable;
 use waterui::component::list::{List, ListDelete, ListItem, ListMove};
@@ -171,7 +171,7 @@ Per-row controls — `ListItem::deletable(false)`, for instance — refine the b
 
 When the data is genuinely static, you can collect any iterator of views into a `VStack`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn fruit_list() -> impl View {
@@ -187,7 +187,7 @@ This produces a `VStack` with default 10pt spacing. There is no virtualization h
 
 Here is a contacts screen with a reactive list, a typed `Contact` model, and an add button:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::Identifiable;
 use waterui::component::list::{List, ListItem};

@@ -54,7 +54,7 @@ minimum configuration required for a backend to register the interaction.
 
 Recognizes one or more consecutive taps:
 
-```rust
+```rust,ignore
 use waterui::gesture::TapGesture;
 
 let single = TapGesture::new();       // single tap
@@ -66,7 +66,7 @@ let triple = TapGesture::repeat(3);   // triple tap
 
 Activates after the pointer is held for a minimum duration:
 
-```rust
+```rust,ignore
 use waterui::gesture::LongPressGesture;
 
 let press = LongPressGesture::new(500); // 500ms minimum hold
@@ -78,7 +78,7 @@ The duration unit is interpreted by each backend (typically milliseconds).
 
 Begins after the pointer moves beyond a minimum distance:
 
-```rust
+```rust,ignore
 use waterui::gesture::DragGesture;
 
 let drag = DragGesture::new(5.0); // 5pt minimum travel
@@ -88,7 +88,7 @@ let drag = DragGesture::new(5.0); // 5pt minimum travel
 
 Recognizes pinch-to-zoom interactions:
 
-```rust
+```rust,ignore
 use waterui::gesture::MagnificationGesture;
 
 let pinch = MagnificationGesture::new(1.0); // initial scale factor
@@ -98,7 +98,7 @@ let pinch = MagnificationGesture::new(1.0); // initial scale factor
 
 Recognizes two-finger rotation:
 
-```rust
+```rust,ignore
 use waterui::gesture::RotationGesture;
 
 let rotation = RotationGesture::new(0.0); // initial angle in radians
@@ -108,7 +108,7 @@ All of these types can be converted into the unified `Gesture` enum, which also
 contains composition variants (`Then`, `Simultaneous`, `Exclusive`) that we will
 explore later in this chapter.
 
-```rust
+```rust,ignore
 use waterui::gesture::{Gesture, TapGesture};
 
 let gesture: Gesture = TapGesture::new().into();

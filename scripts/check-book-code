@@ -49,6 +49,7 @@ EOF
   exit 1
 fi
 
+scripts/render-book-visuals --check-links
 cargo build
 cargo test
 PATH="$repo_dir/scripts:$PATH" mdbook test

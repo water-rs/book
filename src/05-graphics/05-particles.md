@@ -38,6 +38,10 @@ fn rain() -> impl View {
 
 `ParticleSystem` is itself a `View`, so it composes with `vstack`, `zstack`, frames, and any other layout primitive in the framework.
 
+![Deterministic confetti emitter preview with particle colors](../assets/visuals/05-graphics/particle-confetti.png)
+
+*A WaterUI preview image illustrating a confetti particle emitter.*
+
 ## How It Works
 
 `ParticleSystem` builds an internal `ParticleConfig` through a flat modifier chain. When the view is rendered, it materializes a GPU surface that:

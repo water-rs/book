@@ -13,7 +13,7 @@ Filters turn ordinary views into polished UI: blurred photo galleries, frosted-g
 
 `FilterViewExt` adds filter methods to every view. Pull it in with the prelude:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::graphics::FilterViewExt;
 
@@ -27,6 +27,10 @@ fn frosted_card() -> impl View {
 
 Three filters on a text view -- and thanks to automatic fusion, the brightness and contrast adjustments execute as a single GPU pass.
 
+![Filtered gradient card with blur brightness and contrast](../assets/visuals/05-graphics/filter-frosted-gradient.png)
+
+*FilterViewExt applied to a WaterUI view snapshot.*
+
 ## Architecture
 
 The filter pipeline has four layers:
@@ -36,7 +40,7 @@ The filter pipeline has four layers:
 3. **`GpuFilter`** -- the low-level trait you implement for custom filters.
 4. **Native backend** -- captures the child view to a texture, runs the GPU filter in Rust, and displays the resulting texture.
 
-```
+```text
 view.blur(10.0)
     -> Filtered<V, FilterAdapter<Blur>>
         -> AppliedFilter metadata
@@ -78,7 +82,7 @@ Spatial filters sample neighboring pixels and require a separate GPU pass (compu
 
 ### A single filter
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::media::Photo;
 use waterui::graphics::FilterViewExt;
@@ -92,7 +96,7 @@ fn blurred_photo(url: impl Into<waterui::Url>) -> impl View {
 
 Use `.then()` to stack low-level `Filter` types from `filtrate_core::filters`:
 
-```rust
+```rust,ignore
 fn stylized_photo(url: impl Into<waterui::Url>) -> impl View {
     Photo::new(url)
         .blur(5.0)
@@ -104,7 +108,7 @@ fn stylized_photo(url: impl Into<waterui::Url>) -> impl View {
 
 Or use the convenience methods directly -- consecutive color filters are automatically fused:
 
-```rust
+```rust,ignore
 fn warm_vintage(url: impl Into<waterui::Url>) -> impl View {
     Photo::new(url)
         .brightness(0.05)
@@ -129,7 +133,7 @@ Spatial filters (like `blur` and `sharpen`) always require their own pass. A cha
 
 Every filter convenience method accepts a reactive signal -- in particular, a `Binding<f64>` from a slider works directly. Pass the binding by clone; never call `.get()` to feed a reactive sink.
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::media::Photo;
 use waterui::graphics::FilterViewExt;
@@ -148,18 +152,18 @@ fn interactive_blur(url: waterui::Url) -> impl View {
 
 When the binding feeding a filter is wrapped with an animation, the `FilterAdapter` interpolates between the previous and current values automatically.
 
-```rust
+```rust,ignore
 fn animated_filter_demo(url: waterui::Url) -> impl View {
     let blur = Binding::f64(0.0);
 
     vstack((
         Photo::new(url).blur(blur.clone()),
         button("Toggle blur")
-            .state(&blur)
             .action(|State(blur): State<Binding<f64>>| {
                 let target = if blur.get() > 0.0 { 0.0 } else { 20.0 };
                 with_animation(Animation::spring(180.0, 22.0), || blur.set(target));
-            }),
+            })
+            .state(&blur),
     ))
 }
 ```
@@ -173,7 +177,7 @@ The animation system supports three modes:
 
 Filter pipelines handle HDR-capable surfaces automatically. Override the default per filter chain:
 
-```rust
+```rust,ignore
 fn hdr_aware_filter(url: waterui::Url) -> impl View {
     Photo::new(url)
         .blur(10.0)
@@ -195,7 +199,7 @@ When the input or output surface is HDR (`Rgba16Float`), the scratch textures be
 
 For effects that go beyond simple filters -- distortion, particle overlays, custom post-processing -- use `ViewEffect` with the `EffectRenderer` trait:
 
-```rust
+```rust,ignore
 use core::future::Future;
 use waterui::graphics::{ViewEffect, EffectRenderer, EffectContext, EffectInput, EffectOutput, wgpu};
 
@@ -221,7 +225,7 @@ impl EffectRenderer for WaveDistortion {
 
 ### Using ViewEffect
 
-```rust
+```rust,ignore
 fn distorted_content() -> impl View {
     ViewEffect::new(
         text("Wavy text"),
@@ -234,7 +238,7 @@ fn distorted_content() -> impl View {
 
 By default, the output texture matches the captured view's size. Override it via `OutputSize`:
 
-```rust
+```rust,ignore
 // double resolution for higher quality
 ViewEffect::new(my_view(), effect)
     .output_size(OutputSize::Scale(2.0))
@@ -250,7 +254,7 @@ ViewEffect::new(my_view(), effect)
 
 For maximum control, implement `GpuFilter` directly. Notice that the trait's `setup` returns `FilterSetupResult` (i.e. `Result<(), &'static str>`) and `render` returns `FilterRenderResult` (`Result<bool, &'static str>`). The `bool` answers "is animation still running?".
 
-```rust
+```rust,ignore
 use core::future::Future;
 use waterui::graphics::{
     FilterContext, FilterInput, FilterOutput, FilterRenderResult, FilterSetupResult, GpuFilter, wgpu,
@@ -279,7 +283,7 @@ impl GpuFilter for CustomFilter {
 
 Apply it using `FilterViewExt::filter`:
 
-```rust
+```rust,ignore
 fn custom_filtered() -> impl View {
     text("Hello").filter(CustomFilter::default())
 }
@@ -287,7 +291,7 @@ fn custom_filtered() -> impl View {
 
 `FilteredView::new` is the lower-level wrapper -- it takes an `AnyView` and the filter directly:
 
-```rust
+```rust,ignore
 use waterui::AnyView;
 use waterui::graphics::FilteredView;
 
@@ -300,7 +304,7 @@ fn custom_filtered() -> impl View {
 
 WaterUI's high-level filters sit on top of the `filtrate-core` crate, which provides a pure-data `Filter` trait with parameter arrays. `FilterAdapter` bridges that into `GpuFilter`:
 
-```
+```text
 filtrate_core::Filter
     -> FilterAdapter<F>  (implements GpuFilter)
         -> AppliedFilter (type-erased metadata on the view)
@@ -318,7 +322,7 @@ filtrate_core::Filter
 
 ### Photo editor effect stack
 
-```rust
+```rust,ignore
 use filtrate_core::filters::{Brightness, Contrast, Saturation};
 
 fn photo_adjustments(
@@ -338,7 +342,7 @@ fn photo_adjustments(
 
 ### Frosted glass
 
-```rust
+```rust,ignore
 use filtrate_core::filters::{Brightness, Saturation};
 
 fn frosted_glass(content: impl View) -> impl View {
@@ -351,7 +355,7 @@ fn frosted_glass(content: impl View) -> impl View {
 
 ### Dramatic black-and-white
 
-```rust
+```rust,ignore
 use filtrate_core::filters::{Contrast, Vignette};
 
 fn dramatic_bw(url: waterui::Url) -> impl View {

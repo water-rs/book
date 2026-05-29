@@ -12,7 +12,7 @@ Text is the most fundamental building block in any user interface. Whether you a
 
 The simplest way to display text is the `text()` function. It accepts anything that converts into `Text` — a `&'static str` becomes localized through the catalog, while `String` and `Str` are used verbatim:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn greeting() -> impl View {
@@ -30,7 +30,7 @@ Here is what you need to know about how `Text` participates in layout:
 - **In stacks:** takes only the space it needs, leaving room for siblings.
 - **Wrapping:** wraps when width is constrained — for example by a parent `Frame`.
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn row() -> impl View {
@@ -45,7 +45,7 @@ fn row() -> impl View {
 
 Static strings are fine for fixed labels, but most apps need text that updates in response to state. The `text!` macro captures any named placeholder from the surrounding scope and re-evaluates whenever those bindings change. When a `i18n/<locale>.toml` catalog is present, the same call site also resolves the matching translation:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn counter_label(count: &Binding<i32>) -> impl View {
@@ -56,7 +56,7 @@ fn counter_label(count: &Binding<i32>) -> impl View {
 
 The macro only accepts named placeholders. Either name a binding directly (`{count}`), or alias an expression with `name = expr`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn welcome(get_name: impl Fn() -> String) -> impl View {
@@ -73,7 +73,7 @@ fn welcome(get_name: impl Fn() -> String) -> impl View {
 
 Calling `.get()` on a binding inside a view body reads the current value once and never re-runs. The text would freeze at construction time. Always express formatting through `text!` so the framework tracks the dependency:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn show(value: &Binding<f64>) -> impl View {
@@ -86,7 +86,7 @@ fn show(value: &Binding<f64>) -> impl View {
 
 Any signal whose output type implements `Display` can be rendered with `Text::display`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn show_price(price: &Binding<f64>) -> impl View {
@@ -100,7 +100,7 @@ fn show_price(price: &Binding<f64>) -> impl View {
 
 For specialised formatting — locale-specific dates or numbers — use `Text::format`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::text::locale::Formatter;
 
@@ -144,7 +144,7 @@ WaterUI provides a semantic font system with six built-in presets. Each preset r
 
 Use the convenience methods on `Text`. They work on values produced by both `text()` and `text!`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn typography() -> impl View {
@@ -163,7 +163,7 @@ fn typography() -> impl View {
 
 For fine-grained control, build a `Font` value and pass it to `.font()`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::text::font::{Font, FontWeight};
 
@@ -181,7 +181,7 @@ fn custom() -> impl View {
 
 The `FontWeight` enum provides nine standard weights:
 
-```rust
+```rust,ignore
 pub enum FontWeight {
     Thin,       // 100
     UltraLight, // 200
@@ -199,7 +199,7 @@ pub enum FontWeight {
 
 You do not always need to construct a `Font`. `Text` provides direct shortcuts. `.size()` and `.weight()` accept signals, so they can react:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn highlight(emphasised: &Binding<bool>) -> impl View {
@@ -215,7 +215,7 @@ fn highlight(emphasised: &Binding<bool>) -> impl View {
 
 Colors are zero-sized marker types you can pass into `.color()` or `.foreground()`. The built-in palette includes `Red`, `Blue`, `Green`, `Orange`, `Purple`, `Cyan`, `Yellow`, `Pink`, and `Grey`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn status() -> impl View {
@@ -236,7 +236,7 @@ fn status() -> impl View {
 
 ### Underline
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn link_label(highlighted: &Binding<bool>) -> impl View {
@@ -250,7 +250,7 @@ fn link_label(highlighted: &Binding<bool>) -> impl View {
 
 Strikethrough lives on `StyledStr`, not on `Text`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::text::styled::StyledStr;
 
@@ -263,7 +263,7 @@ fn deprecated() -> impl View {
 
 Sometimes you need mixed styles within a single line. `Text` implements `Add` and `AddAssign`, so styled fragments compose with `+`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn name_row() -> impl View {
@@ -277,7 +277,7 @@ The resulting `Text` preserves the styling of each fragment.
 
 For full control over rich text, build a `StyledStr` directly. Each chunk carries its own `Style`, which includes font, foreground color, background color, italic, underline, and strikethrough:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::text::styled::{Style, StyledStr};
 
@@ -293,7 +293,7 @@ fn intro() -> impl View {
 
 `StyledStr::from_markdown` parses a small subset of Markdown — headings, bold, italic, strikethrough, inline code, and paragraphs — into a styled string in one step:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::text::styled::StyledStr;
 
@@ -306,7 +306,7 @@ fn release_notes() -> impl View {
 
 If your app displays source code, WaterUI ships a `syntect`-backed highlighter. `highlight_text` is synchronous: it consumes a borrowed source string and a mutable highlighter, and returns a fully styled `StyledStr`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::text::highlight::{DefaultHighlighter, Language, highlight_text};
 

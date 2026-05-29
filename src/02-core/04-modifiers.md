@@ -9,7 +9,7 @@
 
 You have your views and your reactive state. Now you need to make them look good and respond to user input. In WaterUI, you do this with **modifiers** -- chainable methods that add styling, layout, and behavior to any view. Instead of passing dozens of parameters to a constructor, you build up the description one modifier at a time:
 
-```rust
+```rust,ignore
 text!("Hello")
     .padding()
     .background(Color::blue())
@@ -22,7 +22,7 @@ This approach keeps your view constructors simple and your styling composable.
 
 Every modifier method on `ViewExt` takes `self` (consuming the view) and returns a new type that wraps it. For example:
 
-```rust
+```rust,ignore
 text!("Hello")          // Text
     .padding()          // Padding (wraps Text)
     .background(Color::blue())  // Background (wraps Padding)
@@ -37,7 +37,7 @@ Because modifiers are type-level wrappers (not runtime property bags), the compi
 
 `ViewExt` is an extension trait automatically implemented for every `View`:
 
-```rust
+```rust,ignore
 pub trait ViewExt: View + Sized {
     // ... modifier methods ...
 }
@@ -55,7 +55,7 @@ Layout modifiers control sizing, spacing, and alignment -- the fundamentals of p
 
 Every UI needs breathing room. `padding` adds space around the view's content:
 
-```rust
+```rust,ignore
 // Default padding (14.0 points on all sides)
 text!("Hello").padding()
 
@@ -70,7 +70,7 @@ text!("Hello").padding_with(16.0)
 
 Fix the view to specific dimensions:
 
-```rust
+```rust,ignore
 Color::red().width(100.0)
 Color::red().height(50.0)
 Color::red().size(100.0, 50.0) // both at once
@@ -80,7 +80,7 @@ Color::red().size(100.0, 50.0) // both at once
 
 When you want a view that flexes within bounds:
 
-```rust
+```rust,ignore
 text!("Flexible")
     .min_width(80.0)
     .max_width(300.0)
@@ -95,7 +95,7 @@ text!("Bounded").min_size(80.0, 40.0).max_size(300.0, 200.0)
 
 Position the view within its allocated frame:
 
-```rust
+```rust,ignore
 text!("Top Left").alignment(Alignment::TopLeading)
 text!("Center").alignment(Alignment::Center)
 text!("Bottom Right").alignment(Alignment::BottomTrailing)
@@ -105,7 +105,7 @@ text!("Bottom Right").alignment(Alignment::BottomTrailing)
 
 Extend the view's bounds beyond safe area insets (useful for full-bleed backgrounds):
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 // Fill entire screen including notch/status bar area
@@ -119,7 +119,7 @@ header_view.ignore_safe_area(EdgeSet::TOP)
 
 The `width`, `height`, `alignment`, and constraint methods all return a `Frame`, which supports further chaining:
 
-```rust
+```rust,ignore
 text!("Hello")
     .width(200.0)        // returns Frame
     .height(50.0)        // Frame method
@@ -137,7 +137,7 @@ Visual modifiers affect the appearance of views without changing their layout. T
 
 Render content behind the view:
 
-```rust
+```rust,ignore
 // Solid color
 text!("Hello").background(Color::red())
 
@@ -156,7 +156,7 @@ The background fills the view's bounds. The content determines the layout size; 
 
 Set the foreground color for text and icons in the subtree:
 
-```rust
+```rust,ignore
 // All text in this VStack will be red
 vstack((
     text!("Hello"),
@@ -170,7 +170,7 @@ This works by injecting a `ForegroundOverride` into the environment, so it affec
 
 Control transparency. Any `IntoSignalF32` is accepted, including a constant `f32` or a reactive `Binding<f32>`:
 
-```rust
+```rust,ignore
 // Static opacity
 text!("Faded").opacity(0.5)
 
@@ -185,7 +185,7 @@ The `opacity` modifier maps to compositor-native operations (no GPU pass) and is
 
 Render content on top of the view, without affecting the base view's size:
 
-```rust
+```rust,ignore
 text!("Hello").overlay(
     Color::red().opacity(0.5)
 )
@@ -199,7 +199,7 @@ Unlike `ZStack`, an overlay does not influence the layout of the underlying view
 
 Add a drop shadow. `Shadow::new` takes a color, an offset vector, and a blur radius:
 
-```rust
+```rust,ignore
 use waterui::style::{Shadow, Vector};
 
 text!("Shadowed").shadow(Shadow::new(
@@ -213,7 +213,7 @@ text!("Shadowed").shadow(Shadow::new(
 
 Add a border around the view:
 
-```rust
+```rust,ignore
 // Simple border on all edges
 text!("Bordered").border(Color::red(), 2.0)
 
@@ -229,7 +229,7 @@ text!("Custom").border_with(custom)
 
 Clip the view to a shape. The shape is normalized to the view's bounds, so `RoundedRectangle::new` accepts a corner radius in `0.0..=0.5`:
 
-```rust
+```rust,ignore
 use waterui::shape::{Circle, RoundedRectangle};
 
 // Clip to circle
@@ -243,7 +243,7 @@ card_view.clip(RoundedRectangle::new(0.1))
 
 Control visibility. `visible` is implemented as a composition of opacity and hit testing -- when hidden, the view fades to opacity `0.0` and stops receiving touches:
 
-```rust
+```rust,ignore
 let show = Binding::bool(true);
 text!("Now you see me").visible(show)
 ```
@@ -256,7 +256,7 @@ Transforms are purely visual -- they change how the view is drawn but do not aff
 
 Scale the view around its center. Both axes accept any `IntoSignalF32`:
 
-```rust
+```rust,ignore
 // Uniform scale
 star_view.scale(1.5, 1.5)
 
@@ -275,7 +275,7 @@ star_view.scale_from(0.5, 0.5, Anchor::TOP_LEFT)
 
 Rotate the view in degrees:
 
-```rust
+```rust,ignore
 // Static (positive = clockwise)
 arrow_view.rotation(45.0)
 
@@ -291,7 +291,7 @@ dial_view.rotation_from(90.0, Anchor::TOP_LEFT)
 
 Translate the view:
 
-```rust
+```rust,ignore
 // Static offset
 badge.offset(10.0, -5.0)
 
@@ -311,7 +311,7 @@ These modifiers add gesture recognition and touch handling to views. They turn p
 
 The simplest interaction -- recognize a single tap:
 
-```rust
+```rust,ignore
 text!("Click me").on_tap(|| {
     tracing::info!("Tapped!");
 })
@@ -321,7 +321,7 @@ text!("Click me").on_tap(|| {
 
 Require a specific number of taps:
 
-```rust
+```rust,ignore
 text!("Double-tap me").on_tap_gesture_count(2, || {
     tracing::info!("Double tapped!");
 })
@@ -331,7 +331,7 @@ text!("Double-tap me").on_tap_gesture_count(2, || {
 
 Recognize a long press:
 
-```rust
+```rust,ignore
 text!("Press and hold").on_long_press_gesture(500, || {
     tracing::info!("Long pressed for 500ms!");
 })
@@ -341,7 +341,7 @@ text!("Press and hold").on_long_press_gesture(500, || {
 
 Attach any gesture recognizer:
 
-```rust
+```rust,ignore
 use waterui::gesture::*;
 
 text!("Custom gesture")
@@ -354,7 +354,7 @@ text!("Custom gesture")
 
 Control whether the view responds to touch/click events:
 
-```rust
+```rust,ignore
 // Disable hit testing -- touches pass through
 overlay_decoration.hittable(false)
 
@@ -367,7 +367,7 @@ my_view.hittable(interactive)
 
 Disable the view -- grays it out and blocks all interactions:
 
-```rust
+```rust,ignore
 // Static
 button("Submit").action(|| {}).disabled(true)
 
@@ -382,7 +382,7 @@ button("Submit").action(|| {}).disabled(is_loading)
 
 Make a view draggable:
 
-```rust
+```rust,ignore
 use waterui::drag_drop::DragData;
 
 text!("Drag me").draggable(DragData::text("Hello!"))
@@ -392,7 +392,7 @@ text!("Drag me").draggable(DragData::text("Hello!"))
 
 Make a view accept dropped content:
 
-```rust
+```rust,ignore
 text!("Drop here").drop_destination(|data: DragData| {
     tracing::info!("Received: {:?}", data);
 })
@@ -402,7 +402,7 @@ text!("Drop here").drop_destination(|data: DragData| {
 
 Sometimes your event handlers need to capture mutable state -- for example, tracking a hover count or toggling a flag. Use `ViewExt::state` to inject cloneable state into the view's environment, then extract it in handlers via the `State<T>` extractor:
 
-```rust
+```rust,ignore
 use waterui::extract::State;
 
 let count = Binding::i32(0);
@@ -434,7 +434,7 @@ These modifiers provide sensory feedback to the user, making your app feel more 
 
 Trigger haptic feedback on tap (requires the `std` feature):
 
-```rust
+```rust,ignore
 use waterkit_haptic::Intensity;
 
 text!("Haptic tap").on_tap_haptic(Intensity::MEDIUM, || {
@@ -451,7 +451,7 @@ text!("Haptic tap").on_tap_haptic_default(|| {
 
 Set the cursor style when hovering (desktop platforms):
 
-```rust
+```rust,ignore
 use waterui::cursor::CursorStyle;
 
 text!("Click me").cursor(CursorStyle::PointingHand)
@@ -461,7 +461,7 @@ text!("Click me").cursor(CursorStyle::PointingHand)
 
 Add a numeric badge overlay (common for notification counts):
 
-```rust
+```rust,ignore
 let unread = Binding::i32(5);
 SystemIcon::new("envelope").badge(unread)
 ```
@@ -474,7 +474,7 @@ Filter modifiers apply GPU-accelerated visual effects. They come from the `Filte
 
 Apply a Gaussian blur:
 
-```rust
+```rust,ignore
 photo_view.blur(10.0)
 
 // Reactive
@@ -486,7 +486,7 @@ photo_view.blur(blur_amount)
 
 Adjust brightness:
 
-```rust
+```rust,ignore
 photo_view.brightness(0.2)  // increase
 photo_view.brightness(-0.2) // decrease
 ```
@@ -495,7 +495,7 @@ photo_view.brightness(-0.2) // decrease
 
 Adjust contrast:
 
-```rust
+```rust,ignore
 photo_view.contrast(1.5) // higher contrast
 photo_view.contrast(0.5) // lower contrast
 ```
@@ -504,7 +504,7 @@ photo_view.contrast(0.5) // lower contrast
 
 Adjust color saturation:
 
-```rust
+```rust,ignore
 photo_view.saturation(1.5) // more vivid
 photo_view.saturation(0.0) // completely desaturated
 ```
@@ -513,7 +513,7 @@ photo_view.saturation(0.0) // completely desaturated
 
 Convert to grayscale:
 
-```rust
+```rust,ignore
 photo_view.grayscale(1.0) // fully grayscale
 photo_view.grayscale(0.5) // partially desaturated
 ```
@@ -522,7 +522,7 @@ photo_view.grayscale(0.5) // partially desaturated
 
 Rotate the hue of all colors (degrees):
 
-```rust
+```rust,ignore
 photo_view.hue_rotation(90.0)  // shift by 90 degrees
 photo_view.hue_rotation(180.0) // invert hues
 ```
@@ -539,7 +539,7 @@ These modifiers let you run code at specific points in a view's lifecycle.
 
 Execute code when the view becomes visible:
 
-```rust
+```rust,ignore
 text!("Hello").on_appear(|| {
     tracing::info!("View is now visible");
 })
@@ -551,7 +551,7 @@ text!("Hello").on_appear(|| {
 
 Execute code when the view is removed from the view hierarchy:
 
-```rust
+```rust,ignore
 text!("Hello").on_disappear(|| {
     tracing::info!("View removed from hierarchy");
 })
@@ -561,7 +561,7 @@ text!("Hello").on_disappear(|| {
 
 Monitor a signal and execute a handler when the value changes:
 
-```rust
+```rust,ignore
 let search = Binding::container(String::new());
 
 text_field("Search", search.clone())
@@ -576,7 +576,7 @@ This is a convenience over manual `watch()` + `retain()` -- the watcher lifecycl
 
 Spawn an async task tied to the view's lifecycle:
 
-```rust
+```rust,ignore
 text!("Loading...").task(async {
     let data = fetch_data().await;
     // The task is cancelled when the view is removed
@@ -589,7 +589,7 @@ text!("Loading...").task(async {
 
 React to cursor hover (macOS, iPadOS with trackpad, Android API 24+):
 
-```rust
+```rust,ignore
 text!("Hover me")
     .on_hover_enter(|| tracing::info!("Mouse entered"))
     .on_hover_exit(|| tracing::info!("Mouse exited"))
@@ -599,7 +599,7 @@ text!("Hover me")
 
 Attach a handler for any `Event` variant:
 
-```rust
+```rust,ignore
 use waterui_core::event::Event;
 
 text!("Interactive")
@@ -613,7 +613,7 @@ text!("Interactive")
 
 Attach arbitrary metadata to a view:
 
-```rust
+```rust,ignore
 text!("Important").metadata(MyCustomMetadata { priority: 1 })
 ```
 
@@ -621,7 +621,7 @@ text!("Important").metadata(MyCustomMetadata { priority: 1 })
 
 Tag a view for identification:
 
-```rust
+```rust,ignore
 text!("Item").tag(42)
 ```
 
@@ -629,7 +629,7 @@ text!("Item").tag(42)
 
 Convert to a type-erased `AnyView`:
 
-```rust
+```rust,ignore
 let view: AnyView = text!("Hello").anyview();
 ```
 
@@ -637,7 +637,7 @@ let view: AnyView = text!("Hello").anyview();
 
 Keep a value alive for the view's lifetime:
 
-```rust
+```rust,ignore
 let guard = some_signal.watch(|_| { /* ... */ });
 text!("Watching").retain(guard)
 ```
@@ -646,7 +646,7 @@ text!("Watching").retain(guard)
 
 Wrap in a navigation view with a title:
 
-```rust
+```rust,ignore
 content_view.title(text!("Settings"))
 ```
 
@@ -654,7 +654,7 @@ content_view.title(text!("Settings"))
 
 Mark the view as focused when a binding matches:
 
-```rust
+```rust,ignore
 let focus = Binding::container::<Option<Field>>(None);
 text_field("Name", name).focused(&focus, Field::Name)
 ```
@@ -663,7 +663,7 @@ text_field("Name", name).focused(&focus, Field::Name)
 
 Prevent screenshots of the view:
 
-```rust
+```rust,ignore
 sensitive_content.secure()
 ```
 
@@ -671,7 +671,7 @@ sensitive_content.secure()
 
 Attach a context menu (long-press on mobile, right-click on desktop). Menu content is built from `MenuView` implementations -- ordinary `Button`s with `.action()` work directly:
 
-```rust
+```rust,ignore
 text("Right-click me").context_menu((
     button("Copy").action(|| { /* ... */ }),
     button("Paste").action(|| { /* ... */ }),
@@ -682,7 +682,7 @@ text("Right-click me").context_menu((
 
 Set accessibility attributes:
 
-```rust
+```rust,ignore
 SystemIcon::new("star").a11y_label("Favorite")
 SystemIcon::new("star").a11y_role(AccessibilityRole::Button)
 ```
@@ -695,7 +695,7 @@ Modifier order matters in WaterUI because each modifier wraps the previous resul
 
 A common pattern where order matters:
 
-```rust
+```rust,ignore
 // Padding INSIDE the background
 text!("Hello")
     .padding()           // padding applied first
@@ -709,7 +709,7 @@ text!("Hello")
 
 Similarly for transforms:
 
-```rust
+```rust,ignore
 // Rotate then offset -- rotates in place, then translates
 view.rotation(45.0).offset(100.0, 0.0)
 
@@ -732,7 +732,7 @@ Try swapping `.padding()` and `.background()` on a view and observe the differen
 
 Here is a complete example that puts many modifier categories together:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::shape::RoundedRectangle;
 use waterui::style::{Shadow, Vector};

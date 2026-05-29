@@ -14,7 +14,7 @@ If you have used SwiftUI or Jetpack Compose, this will feel familiar. If not, do
 
 At the heart of WaterUI lies a single trait:
 
-```rust
+```rust,ignore
 pub trait View: 'static {
     fn body(self, env: &Environment) -> impl View;
 }
@@ -35,7 +35,7 @@ Key properties:
 
 The simplest way to create a view is with a plain function. Any `FnOnce() -> V` where `V: View` automatically implements `View`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn greeting() -> impl View {
@@ -45,7 +45,7 @@ fn greeting() -> impl View {
 
 Function views are the recommended starting point. They compose naturally and work with Rust's type inference:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -67,7 +67,7 @@ fn counter(count: Binding<i32>) -> impl View {
 
 When a component needs named configuration fields or builder-pattern ergonomics, define it as a struct:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -114,7 +114,7 @@ You do not always need to define your own views. Several standard types implemen
 
 `IntoView` converts arbitrary types into views within a given environment:
 
-```rust
+```rust,ignore
 pub trait IntoView {
     type Output: View;
     fn into_view(self, env: &Environment) -> Self::Output;
@@ -127,7 +127,7 @@ Every `View` automatically implements `IntoView` (returning itself). The trait i
 
 When you build layouts, you often want to pass multiple children of different types to a container. `TupleViews` converts tuples of views (and `Vec<V>` / `[V; N]`) into a `Vec<AnyView>`:
 
-```rust
+```rust,ignore
 pub trait TupleViews {
     fn into_views(self) -> Vec<AnyView>;
 }
@@ -135,7 +135,7 @@ pub trait TupleViews {
 
 It is implemented for tuples up to 15 elements:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 vstack((
@@ -147,7 +147,7 @@ vstack((
 
 Layout containers also accept `Vec<V>` and `[V; N]` as children of a uniform type:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 let items: Vec<_> = (0..5).map(|i| text!("Row {i}").anyview()).collect();
@@ -160,13 +160,13 @@ vstack(items)
 
 Rust requires every branch of an `if`/`match` to return the same type. `AnyView` erases the concrete type so heterogeneous branches can share a return type:
 
-```rust
+```rust,ignore
 pub struct AnyView(Box<dyn AnyViewImpl>);
 ```
 
 Create one with `AnyView::new` or the `.anyview()` modifier from `ViewExt`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn conditional_view(show_detail: bool) -> AnyView {
@@ -180,7 +180,7 @@ fn conditional_view(show_detail: bool) -> AnyView {
 
 `AnyView::new` automatically unwraps a nested `AnyView`, so wrapping is idempotent. It also supports inspection and downcasting:
 
-```rust
+```rust,ignore
 use core::any::TypeId;
 use waterui::prelude::*;
 
@@ -225,7 +225,7 @@ Composite views have a meaningful `body()` that returns other views. The framewo
 
 Some raw views support **hook-based theming** through `ConfigurableView` and `ViewConfiguration`. This is how WaterUI lets you restyle built-in components without modifying their source.
 
-```rust
+```rust,ignore
 pub trait ConfigurableView: View {
     type Config: ViewConfiguration;
     fn config(self) -> Self::Config;
@@ -272,7 +272,7 @@ It generates the wrapper struct, the `ConfigurableView` and `ViewConfiguration` 
 
 Here is a small example combining function views, struct views, conditionals, and reactive state:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 

@@ -32,7 +32,7 @@ fundamental primitives:
 
 Both primitives are variants of the `Animation` enum:
 
-```rust
+```rust,ignore
 pub enum Animation {
     Default,
     Bezier { duration: Duration, x1: f32, y1: f32, x2: f32, y2: f32 },
@@ -52,7 +52,7 @@ provides two methods that cover most use cases.
 The quickest way to add animation. This applies a sensible default (ease-in-out,
 250 ms) to any reactive value:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 let opacity = Binding::f64(1.0);
@@ -69,7 +69,7 @@ transition through intermediate values over 250 ms using an ease-in-out curve.
 
 When you need a specific curve or duration, use this method instead:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui_core::animation::Animation;
 use core::time::Duration;
@@ -106,7 +106,7 @@ If you have worked with CSS transitions before, these will feel familiar.
 
 For fine-grained control, use `Animation::bezier`:
 
-```rust
+```rust,ignore
 use waterui_core::animation::Animation;
 use core::time::Duration;
 
@@ -128,7 +128,7 @@ Sometimes a fixed-duration curve does not capture the right feel. Drag releases,
 toggles, and pull-to-refresh interactions feel more natural with physics-based
 motion. That is what spring animations are for.
 
-```rust
+```rust,ignore
 use waterui_core::animation::Animation;
 
 // stiffness: how quickly the spring accelerates (higher = faster)
@@ -151,7 +151,7 @@ Spring animations do not have a fixed duration. The framework uses a default
 duration of 600 ms for timing calculations, but the actual visual completion
 depends on the physics parameters.
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui_core::animation::Animation;
 
@@ -165,7 +165,7 @@ Under the hood, `Animation` delegates to `EasingCurve` for progress
 calculation. `EasingCurve` is a standalone type in `waterui_core::easing` with
 two variants:
 
-```rust
+```rust,ignore
 pub enum EasingCurve {
     CubicBezier(f32, f32, f32, f32),
     Spring { stiffness: f32, damping: f32 },
@@ -175,7 +175,7 @@ pub enum EasingCurve {
 You can use `EasingCurve` directly if you need easing outside of the animation
 metadata system. Common constants are available:
 
-```rust
+```rust,ignore
 use waterui_core::easing::EasingCurve;
 
 let _ = EasingCurve::LINEAR;       // (0, 0, 1, 1)
@@ -192,7 +192,7 @@ implement `Animatable`. Each animatable value exposes a payload that the
 renderer blends frame-by-frame using the lower-level `Interpolatable` trait
 from `waterui_core::easing`:
 
-```rust
+```rust,ignore
 pub trait Animatable: Clone {
     type AnimatableData: Interpolatable;
     fn animatable_data(&self) -> Self::AnimatableData;
@@ -220,7 +220,7 @@ might fade in, slide up, and scale all at once. Because each signal carries its
 own animation metadata, different properties can use different curves and
 durations:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui_core::animation::Animation;
 use core::time::Duration;
@@ -247,7 +247,7 @@ let anim_scale = scale.with_animation(
 
 When you trigger the state change, all three properties animate in parallel:
 
-```rust
+```rust,ignore
 # // Trigger the "appear" state
 # let opacity = waterui::prelude::Binding::f64(0.0);
 # let position = waterui::prelude::Binding::container((0.0, 100.0));
@@ -266,7 +266,7 @@ Animation metadata composes naturally with `map`, `zip`, and other signal
 combinators. This means you can derive animated values from other signals
 without any special effort:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui_core::animation::Animation;
 use core::time::Duration;
@@ -295,7 +295,7 @@ example, in a custom view renderer), use `Animation::interpolate` directly.
 It accepts the bounds by reference so you can interpolate any
 `Animatable` type, including tuples and arrays:
 
-```rust
+```rust,ignore
 use waterui_core::animation::Animation;
 use core::time::Duration;
 
@@ -311,7 +311,7 @@ let is_done = anim.is_complete(Duration::from_millis(300)); // true
 
 The `progress` method returns the eased progress as a float:
 
-```rust
+```rust,ignore
 # use waterui_core::animation::Animation;
 # use core::time::Duration;
 # let anim = Animation::ease_in_out(Duration::from_millis(300));

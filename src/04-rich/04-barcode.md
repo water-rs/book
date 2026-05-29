@@ -29,6 +29,10 @@ fn my_barcode() -> impl View {
 Both `Barcode::qr` and `Barcode::code128` return a `Barcode` struct that
 implements `View` and can be placed directly in your view hierarchy.
 
+![QR code rendered by WaterUI for https://book.waterui.dev](../assets/visuals/04-rich/barcode-qr-book-waterui-dev.png)
+
+*A QR code rendered from the pinned WaterUI barcode component.*
+
 ---
 
 ## Supported Symbologies

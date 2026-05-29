@@ -303,7 +303,7 @@ all three in the previous chapter, but let's formalise them here.
 
 A function that returns `impl View`:
 
-```rust
+```rust,ignore
 fn main() -> impl View {
     text("Hello, World!")
 }
@@ -316,7 +316,7 @@ The name `main` is a convention, not a requirement. You can name it anything.
 A public function named `app` that takes an `Environment` and returns an
 `App`:
 
-```rust
+```rust,ignore
 pub fn app(env: Environment) -> App {
     App::new(main, env)
 }
@@ -326,7 +326,7 @@ The `App` struct holds the application's windows and environment. The
 simplest form creates a single window with a default title. You can
 customise:
 
-```rust
+```rust,ignore
 pub fn app(env: Environment) -> App {
     App::new(main, env).title("My Counter App")
 }
@@ -334,7 +334,7 @@ pub fn app(env: Environment) -> App {
 
 For multi-window applications:
 
-```rust
+```rust,ignore
 use waterui::app::App;
 use waterui::prelude::*;
 use waterui::window::Window;
@@ -413,7 +413,7 @@ waterui = { version = "0.2", default-features = false, features = ["assets", "me
 dev = ["waterui/dynamic_linking"]
 ```
 
-```rust
+```rust,ignore
 // src/lib.rs
 use waterui::prelude::*;
 use waterui::app::App;

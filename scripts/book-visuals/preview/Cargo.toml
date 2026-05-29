@@ -1,0 +1,17 @@
+[package]
+name = "waterui-book-visuals"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["lib"]
+
+[features]
+dev = ["waterui/dynamic_linking"]
+
+[dependencies]
+fastrand = "2.3"
+waterui = { path = "../../../waterui", default-features = false, features = ["std", "barcode", "particle"] }
+waterui-canvas = { path = "../../../waterui/components/visual/canvas" }
+wgpu = "27"

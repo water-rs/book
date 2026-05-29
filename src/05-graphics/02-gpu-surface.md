@@ -11,11 +11,15 @@
 
 If `Canvas` is a paintbrush, `GpuSurface` is the bare canvas frame and a tube of pigment.
 
+![GPU surface preview rendering a colored triangle](../assets/visuals/05-graphics/gpu-surface-triangle.png)
+
+*A custom GpuView rendered through water preview.*
+
 ## Architecture
 
 `GpuSurface` is a *raw view*. The native backend allocates the wgpu surface and swapchain for it, and calls your renderer for every frame.
 
-```
+```text
 your code (impl GpuView) <-> GpuSurface <-> Native backend (Swift / Kotlin / Hydrolysis)
                                                     |
                                               wgpu device + queue
@@ -29,7 +33,7 @@ A `GpuSurface` owns exactly one `GpuView` instance for its lifetime. `GpuView::s
 
 `GpuSurface` stretches to fill its parent on both axes (the same default as `Color`). Use `.size(w, h)` (from `ViewExt`) when you want a fixed footprint:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::graphics::GpuSurface;
 
@@ -39,7 +43,7 @@ GpuSurface::new(MyRenderer::default()).size(400.0, 300.0) // fixed
 
 ## The GpuView trait
 
-```rust
+```rust,ignore
 use waterui::Environment;
 use waterui::graphics::{GpuContext, GpuFrame};
 
@@ -72,7 +76,7 @@ There is no separate `needs_redraw` callback. Frames advance because either the 
 
 `GpuContext` is the setup-time payload:
 
-```rust
+```rust,ignore
 pub struct GpuContext<'a> {
     pub adapter: Option<&'a wgpu::Adapter>,
     pub device: &'a wgpu::Device,
@@ -91,7 +95,7 @@ pub struct GpuContext<'a> {
 
 ## GpuFrame
 
-```rust
+```rust,ignore
 pub struct GpuFrame<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
@@ -115,7 +119,7 @@ pub struct GpuFrame<'a> {
 
 Here is a complete "hello triangle" implementation. The shader lives in its own file, as required for anything beyond a couple of lines.
 
-```rust
+```rust,ignore
 // triangle.rs
 use waterui::{Environment, prelude::*};
 use waterui::graphics::{GpuContext, GpuFrame, GpuSurface, GpuView, impl_gpu_subview, wgpu};
@@ -215,7 +219,7 @@ The macro `impl_gpu_subview!` provides the layout hooks (`StretchAxis::Both`, de
 
 Pointer and gesture state arrive on every frame. There is nothing to subscribe to -- just read it.
 
-```rust
+```rust,ignore
 fn render(&mut self, frame: &mut GpuFrame) {
     if let Some((nx, ny)) = frame.pointer_normalized() {
         self.update_hover(nx, ny);
@@ -236,7 +240,7 @@ fn render(&mut self, frame: &mut GpuFrame) {
 
 For animations that depend on something other than the frame loop -- a timer, a `Binding`, an incoming network message -- clone `ctx.redraw_handle` during `setup` and call `request_redraw()` from anywhere:
 
-```rust
+```rust,ignore
 async fn setup(
     &mut self,
     ctx: &GpuContext<'_>,
@@ -254,7 +258,7 @@ This pattern is exactly how `MeshGradient` reacts to its color signal without th
 
 `GpuSurface` ships with offscreen rendering for visual tests and CI snapshots. Always render to GPU here -- never read back the swapchain texture in a runtime path.
 
-```rust
+```rust,ignore
 use std::num::NonZeroU32;
 use waterui::graphics::{GpuSurface, OffscreenRenderConfig, OffscreenSize, wgpu};
 
@@ -271,7 +275,7 @@ output.save_png("snapshot.png")?;
 
 For HDR snapshots, swap the format and the entry point:
 
-```rust
+```rust,ignore
 let config = OffscreenRenderConfig::new(size)
     .format(wgpu::TextureFormat::Rgba16Float);
 
@@ -287,7 +291,7 @@ output.save_sdr_png("sdr_snapshot.png")?; // tone-mapped SDR fallback
 
 `OffscreenRenderConfig` lets you simulate input for hover/gesture tests:
 
-```rust
+```rust,ignore
 use waterui::layout::Point;
 use waterui::graphics::{GestureState, PointerState};
 
@@ -303,7 +307,7 @@ let config = OffscreenRenderConfig::new(size)
 
 ## MSAA configuration
 
-```rust
+```rust,ignore
 use std::num::NonZeroU32;
 
 GpuSurface::new(MyRenderer::default())
@@ -316,7 +320,7 @@ Globally: set `WATERUI_GPU_MSAA=4` (accepts 1, 2, 4, 8, or 16). The backend clam
 
 WaterUI defaults to HDR (`Rgba16Float`) when the platform offers it. To opt out for a single surface:
 
-```rust
+```rust,ignore
 GpuSurface::new(MyRenderer::default()).prefer_sdr_surface();
 ```
 

@@ -1,0 +1,6 @@
+waterui_path = "../../../waterui"
+
+[package]
+type = "playground"
+name = "WaterUI Book Visuals"
+bundle_identifier = "dev.waterui.book.visuals"

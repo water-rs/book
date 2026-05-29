@@ -13,7 +13,7 @@
 
 The fastest way to get a shader on screen is the `shader!` macro:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::graphics::shader;
 
@@ -24,11 +24,15 @@ fn my_effect() -> impl View {
 
 `shader!` loads the WGSL source at compile time, registers it for pre-warming, and creates a `ShaderSurface` with the file path as a label so the GPU pipeline cache can deduplicate.
 
+![ShaderSurface preview with a plasma fragment shader](../assets/visuals/05-graphics/shader-plasma.png)
+
+*A WGSL fragment shader rendered through ShaderSurface.*
+
 ## Creating a ShaderSurface manually
 
 `shader!` is sugar over two more explicit constructors. Reach for them when you need to wire something the macro does not cover (computed paths, generated shader source, and so on).
 
-```rust
+```rust,ignore
 use waterui::graphics::ShaderSurface;
 
 // from a static string -- no cache key
@@ -167,7 +171,7 @@ WaterUI provides two compile-time macros, both returning a `ShaderSource` (alias
 
 Loads a complete WGSL shader with both vertex and fragment stages. Use this when you write your own vertex stage:
 
-```rust
+```rust,ignore
 use waterui::graphics::{include_shader, prewarm::ShaderSource};
 
 static MY_SHADER: ShaderSource = include_shader!("shaders/my_effect.wgsl");
@@ -177,7 +181,7 @@ static MY_SHADER: ShaderSource = include_shader!("shaders/my_effect.wgsl");
 
 Loads a fragment-only shader. The `ShaderSurface` prelude (uniforms + full-screen quad vertex shader) is prepended at runtime:
 
-```rust
+```rust,ignore
 use waterui::graphics::{include_fragment_shader, prewarm::ShaderSource, ShaderSurface};
 
 static MY_FRAGMENT: ShaderSource = include_fragment_shader!("shaders/my_fragment.wgsl");
@@ -189,7 +193,7 @@ ShaderSurface::with_label(MY_FRAGMENT.label, MY_FRAGMENT.source)
 
 `shader!("path.wgsl")` expands to roughly:
 
-```rust
+```rust,ignore
 {
     static SHADER: ShaderSource = include_fragment_shader!("path.wgsl");
     ShaderSurface::with_label(SHADER.label, SHADER.source)
@@ -211,7 +215,7 @@ Under the hood, `ShaderSurface` wraps a `GpuSurface` with an internal `ShaderRen
 
 If you need the underlying `GpuSurface` (to apply a per-surface MSAA cap, or stack with other GPU views), unwrap it:
 
-```rust
+```rust,ignore
 let surface = ShaderSurface::new(my_shader).into_inner();
 ```
 
@@ -259,7 +263,7 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 
 Use it in your app:
 
-```rust
+```rust,ignore
 fn plasma_background() -> impl View {
     shader!("shaders/plasma.wgsl").size(400.0, 300.0)
 }

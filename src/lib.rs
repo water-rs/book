@@ -8,8 +8,8 @@
 /// update the source here and the chapter together.
 pub mod examples {
     use waterui::SignalExt;
+    use waterui::State;
     use waterui::component::button;
-    use waterui::extract::State;
     use waterui::layout::stack::{hstack, vstack};
     use waterui::prelude::ViewExt;
     use waterui::reactive::binding;
@@ -26,11 +26,11 @@ pub mod examples {
             text!("Doubled: {doubled}"),
             hstack((
                 button("Increment")
-                    .state(&count)
-                    .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1)),
+                    .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1))
+                    .state(&count),
                 button("Reset")
-                    .state(&count)
-                    .action(|State(c): State<Binding<i32>>| c.set(0)),
+                    .action(|State(c): State<Binding<i32>>| c.set(0))
+                    .state(&count),
             )),
         ))
     }
@@ -45,7 +45,6 @@ pub mod examples {
 #[cfg(test)]
 mod tests {
     use super::examples;
-    use waterui::Signal;
     use waterui::reactive::binding;
 
     #[test]

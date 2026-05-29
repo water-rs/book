@@ -9,14 +9,18 @@
 `Canvas` is WaterUI's 2D vector graphics view, powered by [Vello](https://github.com/linebender/vello). If you have used the HTML5 Canvas API, the drawing interface will feel familiar -- but every command runs on the GPU through wgpu.
 
 > **Checkpoint status:** in the pinned WaterUI commit, `waterui-canvas` exists
-> as a workspace crate but is not re-exported by the top-level `waterui`
-> facade. The examples in this chapter describe that crate-level API and are
-> marked `rust,ignore` until the facade exposes a public `waterui::canvas`
-> module.
+> at `components/visual/canvas` as a workspace crate but is not re-exported by
+> the top-level `waterui` facade. The examples in this chapter describe that
+> crate-level API and are marked `rust,ignore` until the facade exposes a
+> public `waterui::canvas` module.
 
 ## Overview
 
 `Canvas` is a callback-based drawing surface. You provide a closure that receives a `DrawingContext`, and WaterUI invokes it whenever the scene needs to repaint. Internally, the canvas drives a Vello scene that is built into a `GpuSurface`, so your drawing commands compile into GPU-friendly scene data.
+
+![Canvas drawing with rectangles circles curves and text](../assets/visuals/05-graphics/canvas-shapes.png)
+
+*A WaterUI Canvas preview showing vector drawing primitives.*
 
 ```rust,ignore
 use waterui::prelude::*;

@@ -12,7 +12,7 @@ Think about the screens in a typical app: a loading spinner while data fetches, 
 
 `when` takes a reactive boolean condition and a builder closure that returns the view to show when the condition is `true`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -27,7 +27,7 @@ When `show_message` is `false`, nothing is rendered. The UI updates automaticall
 
 Use `.otherwise()` to provide an alternative view when the condition is `false`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -43,7 +43,7 @@ This is the reactive equivalent of an `if`/`else` expression — but it responds
 
 For multi-branch logic (analogous to `if`/`else if`/`else`), chain `.or()` calls. Each `.or()` adds another conditional branch; the chain must end with `.otherwise()`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -68,7 +68,7 @@ The first matching condition wins — subsequent branches are not evaluated.
 
 The simplest case — a boolean binding directly:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -81,7 +81,7 @@ fn visible(show: &Binding<bool>) -> impl View {
 
 `Binding<bool>` implements `Not`, which produces a new signal:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -95,7 +95,7 @@ fn hidden(show: &Binding<bool>) -> impl View {
 
 Any `Computed<bool>` works as a condition. Build one with `SignalExt::map`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -109,7 +109,7 @@ fn positive_indicator(count: &Binding<i32>) -> impl View {
 
 `SignalExt` ships with comparison helpers that produce `Computed<bool>` directly. They are the most readable way to turn a value into a condition:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -121,7 +121,7 @@ fn name_status(name: &Binding<Str>) -> impl View {
 
 ### `.equal_to()` for value comparison
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -136,7 +136,7 @@ fn tab_content(selected_tab: &Binding<i32>) -> impl View {
 
 Plain `bool` values also work. When all conditions in a chain are static booleans, the framework picks the matching branch at construction time, so the unused branches never cost anything at runtime:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -152,7 +152,7 @@ fn debug_only() -> impl View {
 
 `when().or().otherwise()` chains are great for two or three branches. For richer matching — especially when each arm constructs a different concrete view type — destructure the value with `match` and erase each arm with `.anyview()`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -184,7 +184,7 @@ Each branch closure runs **every time** the condition switches into that branch,
 
 ### Show / hide with a toggle
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -209,7 +209,7 @@ fn settings_panel() -> impl View {
 
 ### Loading states
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -222,7 +222,7 @@ fn data_view(loading: &Binding<bool>, data: &Binding<Str>) -> impl View {
 
 ### Multi-state status indicator
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 

@@ -16,7 +16,7 @@ Buttons are the most common interactive element. WaterUI buttons support multipl
 
 The simplest button takes a label and a closure with no arguments:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn dismiss() -> impl View {
@@ -30,7 +30,7 @@ fn dismiss() -> impl View {
 
 Most real buttons need to mutate some reactive state — for example, increment a counter. The pattern is two-sided: pass the binding into the action through `State<T>` extractors, then attach the binding to the button's environment with `.state()`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn increment(counter: &Binding<i32>) -> impl View {
@@ -44,7 +44,7 @@ fn increment(counter: &Binding<i32>) -> impl View {
 
 Chain several `.state()` calls when an action needs more than one binding. They line up positionally with the `State<T>` parameters in the action closure:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn reset(x: &Binding<i32>, y: &Binding<i32>) -> impl View {
@@ -67,7 +67,7 @@ fn reset(x: &Binding<i32>, y: &Binding<i32>) -> impl View {
 
 Any value already present in the environment can be extracted directly — no `State` wrapper needed. For example, the navigation controller is injected by `NavigationStack`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::navigation::NavigationController;
 
@@ -82,7 +82,7 @@ You can mix `State<T>` parameters with environment extractors in the same action
 
 Use `action_async` when the handler needs to await something. The future is spawned on the local executor, so it can `await` network calls or file I/O:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 async fn fetch_from_server() -> String { unimplemented!() }
@@ -112,7 +112,7 @@ fn fetch_button(result: &Binding<String>) -> impl View {
 
 Apply with `.style()` or convenience methods:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn cta_row() -> impl View {
@@ -133,7 +133,7 @@ fn cta_row() -> impl View {
 
 `button(...)` accepts any value that converts into a semantic `Label`, including raw strings. For richer content — an icon plus text, for instance — build a `Label`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::icon::system_icon;
 
@@ -148,7 +148,7 @@ Buttons inside a `Menu` must use a semantic label or set `accessibility_label`, 
 
 `Toggle` is a boolean switch backed by a `Binding<bool>`. It is the natural choice for any on/off setting — Wi-Fi, dark mode, or notification preferences:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn settings(is_enabled: &Binding<bool>, dark_mode: &Binding<bool>) -> impl View {
@@ -163,7 +163,7 @@ fn settings(is_enabled: &Binding<bool>, dark_mode: &Binding<bool>) -> impl View 
 
 ### Toggle styles
 
-```rust
+```rust,ignore
 pub enum ToggleStyle {
     Automatic, // platform default
     Switch,    // sliding pill
@@ -173,7 +173,7 @@ pub enum ToggleStyle {
 
 Apply with `.style()`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn dark_mode_switch(dark: &Binding<bool>) -> impl View {
@@ -191,7 +191,7 @@ With a label, `Toggle` expands horizontally to fill available space, placing the
 
 `Slider` lets users select a value from a continuous range by dragging a thumb. The constructor takes the binding directly; the range defaults to `0.0..=1.0` and is overridden with `.range(...)`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn volume_slider(volume: &Binding<f64>) -> impl View {
@@ -201,7 +201,7 @@ fn volume_slider(volume: &Binding<f64>) -> impl View {
 
 ### Labels
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn brightness_slider(brightness: &Binding<f64>) -> impl View {
@@ -216,7 +216,7 @@ fn brightness_slider(brightness: &Binding<f64>) -> impl View {
 
 Slider expands horizontally to fill available space but has a fixed height. In an `hstack`, it takes up all remaining width after other views are sized:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn volume_row(volume: &Binding<f64>) -> impl View {
@@ -231,7 +231,7 @@ fn volume_row(volume: &Binding<f64>) -> impl View {
 
 `Stepper` provides +/- buttons for incrementing or decrementing an `i32` value. Use it for precise, discrete adjustments — picking a quantity, setting a timer:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn quantity_stepper(quantity: &Binding<i32>) -> impl View {
@@ -241,7 +241,7 @@ fn quantity_stepper(quantity: &Binding<i32>) -> impl View {
 
 ### Configuration
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn item_stepper(count: &Binding<i32>) -> impl View {
@@ -254,7 +254,7 @@ fn item_stepper(count: &Binding<i32>) -> impl View {
 
 By default, the stepper displays the current value as its label. Use `.label(...)` to replace it with custom content, or `.value_formatter(...)` to customise how the value is rendered:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn temperature_stepper(temperature: &Binding<i32>) -> impl View {
@@ -273,7 +273,7 @@ With a label, `Stepper` expands horizontally. The label sits on the leading edge
 
 `TextField` is a single-line text input field backed by a `Binding<Str>`. You will use it for usernames, search queries, email addresses, and any short text input:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn username_field(username: &Binding<Str>) -> impl View {
@@ -290,7 +290,7 @@ fn username_field(username: &Binding<Str>) -> impl View {
 
 For rich text editing, bind to a `StyledStr` directly:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 use waterui::text::styled::StyledStr;
 
@@ -303,7 +303,7 @@ fn rich_field(value: &Binding<StyledStr>) -> impl View {
 
 `TextField` defaults to a single line. Set a higher line limit, or disable it entirely, for paragraph-style entry:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn notes(notes: &Binding<Str>) -> impl View {
@@ -319,7 +319,7 @@ fn unbounded(notes: &Binding<Str>) -> impl View {
 
 `.selection_menu(...)` adds custom actions to the text selection context menu. It accepts any `MenuView` — most commonly a tuple of buttons or `Menu` instances:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn field_with_menu(value: &Binding<Str>) -> impl View {
@@ -337,7 +337,7 @@ fn field_with_menu(value: &Binding<Str>) -> impl View {
 
 `Menu` displays a popup of commands when its label is tapped. The items argument is any `MenuView` — most commonly a tuple of `Button`, nested `Menu`, or `Divider`:
 
-```rust
+```rust,ignore
 use waterui::prelude::*;
 
 fn options_menu(selected: &Binding<String>) -> impl View {

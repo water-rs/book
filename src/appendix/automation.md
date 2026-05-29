@@ -89,6 +89,21 @@ This builds the project as a dylib, loads it into a preview host, and captures
 the rendered output. Use the same command in CI to regenerate "current"
 snapshots before diffing them against your committed reference images.
 
+### Book visual assets
+
+This book keeps generated illustrations in `src/assets/visuals/`. Each image
+is listed in `scripts/book-visuals/manifest.tsv` and rendered from the pinned
+WaterUI submodule through a small preview project:
+
+```bash
+scripts/render-book-visuals
+```
+
+Use `--check` when you want to prove the committed PNGs match a fresh
+`water preview` render. The renderer requires `oxipng` so committed assets stay
+small without changing pixels. The normal book validation uses `--check-links`
+only, so Cloudflare Pages can keep deploying with a plain `mdbook build`.
+
 ## CI/CD Integration Patterns
 
 ### GitHub Actions

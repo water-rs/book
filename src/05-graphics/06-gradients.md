@@ -8,6 +8,10 @@
 
 Think of an app store hero banner, or a login screen where colors drift and blend like liquid paint. Animated gradients are one of the easiest ways to add visual richness, and WaterUI ships several GPU-accelerated gradient components -- from simple static fills to flowing, palette-driven mesh gradients.
 
+![Static mesh gradient rendered by WaterUI graphics](../assets/visuals/05-graphics/gradient-mesh.png)
+
+*A mesh gradient rendered with waterui::graphics::Gradient.*
+
 ## Where Gradient Types Live
 
 WaterUI exposes two complementary gradient layers:

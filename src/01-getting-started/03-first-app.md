@@ -39,7 +39,7 @@ you will replace it with your own code, building it up step by step.
 
 Replace the contents of `src/lib.rs` with the simplest possible WaterUI app:
 
-```rust
+```rust,ignore
 use waterui::app::App;
 use waterui::prelude::*;
 
@@ -89,7 +89,7 @@ control over styling and reactive interpolation. Use `text()` for static
 strings and `text!` whenever the displayed value depends on a reactive
 binding.
 
-```rust
+```rust,ignore
 fn main() -> impl View {
     text("Hello, WaterUI!").bold().title()
 }
@@ -115,7 +115,7 @@ views:
 
 Children are passed as a **tuple**:
 
-```rust
+```rust,ignore
 fn main() -> impl View {
     vstack((
         text("Counter App").bold().title(),
@@ -138,7 +138,7 @@ automatically -- no manual refresh calls, no diffing.
 
 Create a binding with one of the typed `Binding` constructors:
 
-```rust
+```rust,ignore
 fn main() -> impl View {
     let counter = Binding::i32(0);
 
@@ -173,7 +173,7 @@ buttons.
 
 A counter needs buttons. The `button()` function creates a `Button` view:
 
-```rust
+```rust,ignore
 pub fn main() -> impl View {
     let counter = Binding::i32(0);
 
@@ -182,11 +182,11 @@ pub fn main() -> impl View {
         text!("Count: {counter}"),
         hstack((
             button("Decrement")
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1))
+                .state(&counter),
             button("Increment")
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1))
+                .state(&counter),
         )),
     ))
 }
@@ -196,13 +196,13 @@ Breaking down the button pattern:
 
 1. **`button("Increment")`** creates a button with a text label. The label
    can be any `View`, not just a string.
-2. **`.state(&counter)`** injects the `counter` binding into the button's
+2. **`.action(|State(c): State<Binding<i32>>| ...)`** runs when the button is
+   clicked. Each `State<T>` parameter extracts the matching injected value
+   from the environment, in the order it was injected.
+3. **`.state(&counter)`** injects the `counter` binding into the button's
    environment. Chain multiple `.state(...)` calls to inject multiple values --
    each becomes available to the action closure through a `State<T>`
    parameter.
-3. **`.action(|State(c): State<Binding<i32>>| ...)`** runs when the button is
-   clicked. Each `State<T>` parameter extracts the matching injected value
-   from the environment, in the order it was injected.
 
 Inside the action, `c.get()` reads the current value and `c.set(...)` writes
 a new one. The write triggers the reactive system, which updates the
@@ -215,7 +215,7 @@ count change in real time.
 
 Buttons support several visual styles:
 
-```rust
+```rust,ignore
 // Primary action (filled background)
 button("Submit").bordered_prominent().action(|| { /* ... */ });
 
@@ -236,7 +236,7 @@ button("Skip").plain().action(|| { /* ... */ });
 
 For actions that need to perform asynchronous work, use `action_async`:
 
-```rust
+```rust,ignore
 button("Fetch Data")
     .action_async(|| async {
         let data = fetch_from_server().await;
@@ -248,7 +248,7 @@ button("Fetch Data")
 
 Use `spacer()` to push views apart within a stack:
 
-```rust
+```rust,ignore
 pub fn main() -> impl View {
     let counter = Binding::i32(0);
 
@@ -260,13 +260,13 @@ pub fn main() -> impl View {
         hstack((
             button("Decrement")
                 .bordered()
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1))
+                .state(&counter),
             spacer(),
             button("Increment")
                 .bordered_prominent()
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1))
+                .state(&counter),
         )),
     ))
 }
@@ -283,7 +283,7 @@ layout:
 
 Here is the full `src/lib.rs`:
 
-```rust
+```rust,ignore
 use waterui::app::App;
 use waterui::prelude::*;
 
@@ -298,13 +298,13 @@ pub fn main() -> impl View {
         hstack((
             button("Decrement")
                 .bordered()
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() - 1))
+                .state(&counter),
             spacer(),
             button("Increment")
                 .bordered_prominent()
-                .state(&counter)
-                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1)),
+                .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1))
+                .state(&counter),
         )),
     ))
     .padding()
