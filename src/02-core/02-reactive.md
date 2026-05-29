@@ -618,13 +618,13 @@ for item in &items {
 
 ```rust
 // Watch the entire collection
-let _guard = items.watch(.., |ctx| {
+let all_items_guard = items.watch(.., |ctx| {
     let current = ctx.into_value();
     tracing::debug!("Items: {current:?}");
 });
 
 // Watch a specific range
-let _guard = items.watch(1..4, |ctx| {
+let visible_items_guard = items.watch(1..4, |ctx| {
     tracing::debug!("Items 1..4: {:?}", ctx.into_value());
 });
 ```

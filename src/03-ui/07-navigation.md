@@ -130,7 +130,7 @@ enum Route {
     Settings,
 }
 
-fn detail_screen(_id: i32) -> impl View { text("Detail") }
+fn detail_screen(id: i32) -> impl View { text!("Detail {id}") }
 fn settings_screen() -> impl View { text("Settings") }
 fn home_screen() -> impl View { text("Home") }
 
@@ -189,7 +189,10 @@ fn back_to_root() -> impl View {
 ```rust
 use waterui::prelude::*;
 # #[derive(Clone, PartialEq, Eq)] enum Route { Detail(i32), Settings }
-let _path = NavigationPath::from(vec![Route::Settings, Route::Detail(1)]);
+fn prepopulated_stack() -> impl View {
+    let path = NavigationPath::from(vec![Route::Settings, Route::Detail(1)]);
+    NavigationStack::with(path, text("Home"))
+}
 ```
 
 ## Navigation transitions

@@ -136,7 +136,7 @@ use waterui::webview::{WebViewController, WebViewEvent};
 fn eventful_webview() -> impl View {
     use_env(|controller: WebViewController| {
         let webview = controller.open();
-        let _events = webview.event(); // impl Signal<Output = WebViewEvent>
+        let events = webview.event(); // impl Signal<Output = WebViewEvent>
         webview
     })
 }

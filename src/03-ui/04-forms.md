@@ -149,11 +149,11 @@ struct LoginForm {
 impl FormBuilder for LoginForm {
     type View = waterui::layout::stack::VStack<((waterui::component::TextField, waterui::form::SecureField),)>;
 
-    fn view<L: IntoLabel>(binding: &Binding<Self>, _label: L, _placeholder: Str) -> Self::View {
+    fn view<L: IntoLabel>(binding: &Binding<Self>, label: L, placeholder: Str) -> Self::View {
         // Project the struct binding into per-field bindings.
         let projected = binding.project();
         vstack((
-            <String as FormBuilder>::view(&projected.username, "Username", Str::from("")),
+            <String as FormBuilder>::view(&projected.username, label, placeholder),
             secure("Password", &projected.password),
         ))
     }
@@ -288,8 +288,11 @@ fn registration_form() -> impl View {
         button("Register")
             .bordered_prominent()
             .action(|State(data): State<Binding<Registration>>| {
-                let _reg = data.get();
-                // Submit registration...
+                let registration = data.get();
+                waterui::log::info!(
+                    username = %registration.username.as_str(),
+                    "registration submitted"
+                );
             })
             .state(&form_data),
     ))
@@ -307,13 +310,20 @@ use regex::Regex;
 
 fn build_validators() {
     // Range validator (note: `Range<T>`, exclusive end)
-    let _age_validator = 18i32..100;
+    let age_validator = 18i32..100;
+    assert!(age_validator.validate(42).is_ok());
 
     // Regex validator (validates `&str` and `String`).
-    let _email_validator = Regex::new(r"^[^@]+@[^@]+\.[^@]+$").unwrap();
+    let email_validator = Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
+        .expect("email validator regex must compile");
+    assert!(email_validator.validate("reader@waterui.dev").is_ok());
 
     // Combine validators with `.and()` and `.or()`.
-    let _required_email = Required.and(Regex::new(r"^[^@]+@[^@]+\.[^@]+$").unwrap());
+    let required_email = Required.and(
+        Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
+            .expect("email validator regex must compile"),
+    );
+    assert!(required_email.validate("").is_err());
 }
 ```
 
