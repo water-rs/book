@@ -31,13 +31,16 @@ the upstream `dev` branch (`https://github.com/water-rs/waterui.git`).
   (`waterui_layout::stack::vstack`) unless the chapter is specifically teaching
   the workspace topology.
 
-### Submodule pin = book version
+### Submodule pin = book version (the commit-pointer sync workflow)
 
-The committed submodule SHA is the book's *de facto* version stamp. Any chapter
-checked into the same commit as the submodule pin must describe that pinned
-waterui truthfully. When you bump the submodule, you take responsibility for
-re-auditing every chapter that touches APIs that changed between the old and
-new pin.
+The book and the source code are synchronized through git commits: the book
+repository stores a pointer (the committed submodule SHA) to the exact waterui
+commit the prose targets. That SHA is the book's *de facto* version stamp. Any
+chapter checked into the same book commit as the submodule pin must describe
+that pinned waterui truthfully — no chapter may document an API that does not
+exist at the pinned commit, and no pin may be advanced without re-auditing the
+chapters it invalidates. To see what changed between two book states, diff the
+pinned waterui SHAs (`cd waterui && git log OLD..NEW`), not the prose alone.
 
 The book renders the pinned SHA into chapter content automatically through the
 mdBook preprocessor at `scripts/mdbook-waterui-version`. The following
@@ -256,9 +259,6 @@ stale, or when a reader reports a broken sample.
 - **Multi-line embedded text belongs in a separate file**, included via
   `include_str!`. Do not paste shaders, large markdown, or template strings
   inline in `.rs` examples.
-- **Begin every response with a respectful greeting to the user**, in the tone
-  of a loyal servant addressing their master. This canary signals that
-  context is intact.
 
 ---
 

@@ -1,32 +1,21 @@
 # Resolvers and hooks
 
 > **In this chapter, you will:**
-> - Understand how the `Resolvable` trait turns design tokens into reactive signals
-> - Implement your own resolvable types for custom theming
-> - Use `AnyResolvable<T>` for type-erased resolution
-> - Transform resolved values with the `Map` combinator
-> - Intercept view rendering with `Hook<C>` for cross-cutting concerns
-> - Bridge reactive signals to views with `Dynamic::watch` and `watch`
+> - Understand how a design token like `theme_color::Accent` becomes a reactive signal
+> - Implement `Resolvable` for your own token and install its signal
+> - Erase and transform resolvables with `AnyResolvable<T>` and `Map`
+> - Intercept a component before it renders with `Hook<C>`
+> - Know when a signal still needs `Dynamic` — and when it does not
 
-You have built views, handled errors, localized text, and organized code with
-plugins. There is a deeper pattern underneath all of it: **resolvers**. When
-you write `.foreground(Accent)`, how does WaterUI know what color "Accent" is?
-The answer is that `Accent` is a *token* — a lightweight value that knows how
-to look itself up in the `Environment` at runtime. The lookup returns a
-reactive signal, so when the OS toggles dark mode, every view that read that
-token updates without rebuilding the tree.
-
-This chapter covers the `Resolvable` trait, the `AnyResolvable<T>` type-erased
-wrapper, the `Map` combinator, the `Hook<C>` system for intercepting view
-configurations, and `Dynamic::watch` for bridging signals to views.
+When you write `.foreground(theme_color::Accent)`, nothing in that expression holds a color. `Accent` is a *token*: a zero-sized value that knows how to find its color in the `Environment` and hand back a **signal**. When the system switches to dark mode the signal fires and the affected views update — no rebuild, no diff.
 
 ![WaterUI custom color token preview with accent success highlight and foreground swatches](../assets/visuals/06-advanced/theme-color-resolver-sample.png)
 
 *A Hydrolysis preview of custom color tokens resolved through the environment. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
-## The Resolvable trait
+> **Crate note:** `Resolvable`, `AnyResolvable`, and `Map` live in `waterui-core` and are not re-exported through the `waterui` facade. A crate that implements its own tokens needs `waterui-core = "0.2"` as a direct dependency. Everything else in this chapter is reachable through `waterui`.
 
-The core abstraction is `waterui_core::resolve::Resolvable`:
+## The Resolvable trait
 
 ```rust,ignore
 pub trait Resolvable: Debug + Clone {
@@ -36,59 +25,53 @@ pub trait Resolvable: Debug + Clone {
 }
 ```
 
-A `Resolvable` does not hold its final value. It holds enough information to
-**find** the value in an `Environment` and return a reactive signal.
+The return type is the whole design. `resolve` does not produce a value, it produces a signal, so three things follow:
 
-### The flow
-
-End-to-end, from the native platform all the way to your view:
+1. A native backend can inject a `Computed<ResolvedColor>` that tracks the system appearance.
+2. Every view that read the token subscribes to that signal and updates on its own.
+3. There is no rebuild step, so a theme change costs one signal emission per affected leaf.
 
 ```text
-Native Backend         Environment              View
-(iOS/Android)
-     |                     |                      |
-     | 1. Create reactive  |                      |
-     |    Computed signal  |                      |
-     |-------------------->|                      |
-     |                     |                      |
-     | 2. Install into env |                      |
-     |    via Theme        |                      |
-     |-------------------->|                      |
-     |                     | 3. View resolves     |
-     |                     |    Accent.resolve(env)
-     |                     |<---------------------|
-     |                     |                      |
-     |                     | 4. Returns signal    |
-     |                     |--------------------->|
-     |                     |                      |
-     | 5. System event     |                      |
-     |    (dark mode)      |                      |
-     |-------------------->| 6. Signal updates    |
-     |                     |--------------------->|
-     |                     |    View re-renders   |
+Native backend            Environment                 View
+     |                        |                        |
+     | 1. Computed signal     |                        |
+     |----------------------->|                        |
+     | 2. Theme::install      |                        |
+     |----------------------->|                        |
+     |                        | 3. Accent.resolve(env) |
+     |                        |<-----------------------|
+     |                        | 4. signal              |
+     |                        |----------------------->|
+     | 5. dark mode toggled   |                        |
+     |----------------------->| 6. signal fires        |
+     |                        |----------------------->|
 ```
 
-### Why signals?
+## The built-in color tokens
 
-The key point is that `resolve()` returns an `impl Signal`, not a plain value.
-This means:
+`waterui::theme::color` defines eleven tokens, each a unit struct implementing `Resolvable<Resolved = ResolvedColor>`: `Background`, `Surface`, `SurfaceVariant`, `Border`, `Foreground`, `MutedForeground`, `Accent`, `AccentContainer`, `AccentForeground`, `Tertiary`, and `TertiaryContainer`. The prelude imports the module as `theme_color`.
 
-1. **Native backends inject reactive signals.** The iOS or Android runtime
-   pushes a `Computed<ResolvedColor>` that updates when the user toggles dark
-   mode.
-2. **Views automatically re-render.** When the signal updates, every view that
-   read the resolved value updates without any manual code.
-3. **No rebuild required.** Theme changes propagate instantly through the
-   existing view tree.
+`Theme::install` — `Theme` is a `Plugin` — stores a signal per slot through `theme::install_color_signal::<Token>`, which also mirrors the signal into the matching `waterui_graphics` slot so GPU-drawn primitives track the same value.
 
-## Implementing Resolvable
+Resolution **fast-fails**: a token whose slot was never installed panics with
 
-A token is typically a zero-sized type that knows where to look in the
-environment. The lookup uses `Environment::query::<K, V>()` so the token type
-itself can act as the phantom key:
+```text
+WaterUI color token `waterui::theme::color::Accent` is not installed in the environment
+```
+
+rather than silently resolving transparent. The same applies to `current_color_scheme(env)`. When you need to ask without committing, use the non-panicking companions `theme::installed_color_signal::<Token>(env)` and `theme::installed_color_scheme(env)`.
+
+Practical consequence: a bare `Environment::new()` cannot render themed views. Install a backend or a `Theme` first.
+
+## Implementing your own token
+
+A token is a unit struct plus a lookup. Because `install_color_signal` and `installed_color_signal` are generic over the slot type, your token uses exactly the mechanism the built-in ones do:
 
 ```rust,ignore
-use waterui_core::{Computed, Environment, Signal, resolve::Resolvable};
+use waterui::color::ResolvedColor;
+use waterui::prelude::*;
+use waterui::theme;
+use waterui_core::{Environment, Signal, resolve::Resolvable};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BrandColor;
@@ -97,106 +80,87 @@ impl Resolvable for BrandColor {
     type Resolved = ResolvedColor;
 
     fn resolve(&self, env: &Environment) -> impl Signal<Output = Self::Resolved> {
-        env.query::<Self, Computed<ResolvedColor>>()
-            .cloned()
-            .unwrap_or_else(|| Computed::constant(ResolvedColor::default()))
+        theme::installed_color_signal::<Self>(env)
+            .expect("BrandColor is not installed in the environment")
     }
 }
 ```
 
-`env.query::<Self, Computed<T>>()` reads the `Store<Self, Computed<T>>` slot.
-The theme system installs these signals during environment setup (see
-`waterui::theme::install_color_signal`).
+Install the signal in a plugin, alongside the rest of your app chrome:
 
-### How themes use resolvers
+```rust,ignore
+use waterui::color::{ResolvedColor, Srgb};
+use waterui::prelude::*;
+use waterui::{Environment, Plugin, theme};
 
-The theme pipeline works like this:
+pub struct BrandPlugin;
 
-1. The native backend creates `Computed<ResolvedColor>` signals from the
-   system palette. These signals are reactive — they fire whenever the OS
-   switches between light and dark mode.
-2. `Theme::install` (a `Plugin`) stores those signals in the environment,
-   keyed by token type (for example `color::Foreground`, `color::Accent`).
-3. Token types implement `Resolvable` to query the environment for their
-   signal.
-4. When you write `text("Hello").foreground(Accent)`, the `Accent` token is
-   resolved into a signal that the renderer subscribes to.
+impl Plugin for BrandPlugin {
+    fn install(self, env: &mut Environment) {
+        let signal = Computed::constant(ResolvedColor::from_srgb(Srgb::new_u8(0, 122, 255)));
+        theme::install_color_signal::<BrandColor>(env, signal);
+    }
+}
+```
 
-> **Note:** This is why theme changes feel instant — there is no rebuild step.
-> The existing view tree simply reacts to the signal update.
+A constant signal is the simplest case. Feed it a `Computed` derived from the installed color scheme instead and the brand color follows dark mode with no further work.
+
+Any `Resolvable<Resolved = ResolvedColor>` converts into `Color`, and every modifier that takes a color takes `impl Into<Color>`, so the token drops straight into view code:
+
+```rust,ignore
+text("Water").foreground(BrandColor)
+```
+
+### Fonts use a public keyed slot
+
+Font slots are stored as `Store<Token, Computed<ResolvedFont>>`, so they are readable with the generic keyed lookup:
+
+```rust,ignore
+use waterui::text::font::ResolvedFont;
+
+env.query::<MyFontToken, Computed<ResolvedFont>>()   // Option<&Computed<ResolvedFont>>
+```
+
+That is the same `store` / `query` mechanism the [Plugins](07-plugins.md) chapter uses for phantom keys — useful whenever your own resolvable needs a slot the theme system does not already define.
 
 ## AnyResolvable\<T\>
 
-Several resolvable types can produce the same output type. A `Color`, for
-example, might come from a hex literal, a theme token, or a derived
-expression. `AnyResolvable<T>` provides type erasure so all of them coexist
-behind one interface:
+Many types resolve to the same output. A color can come from an sRGB literal, a theme token, or a derived expression; `AnyResolvable<T>` erases the difference:
 
 ```rust,ignore
+use waterui::color::Srgb;
+use waterui::prelude::*;
 use waterui_core::resolve::AnyResolvable;
-use waterui::theme;
 
-let from_hex = AnyResolvable::new(Color::srgb(255, 0, 0));
-let from_token = AnyResolvable::new(theme::color::Accent);
+let from_srgb = AnyResolvable::new(Srgb::new_u8(255, 0, 0));
+let from_token = AnyResolvable::new(theme_color::Accent);
 ```
 
-`AnyResolvable<T>` itself implements `Resolvable<Resolved = T>`, so it can be
-used wherever a `Resolvable` is expected. Internally it stores a
-`Box<dyn ResolvableImpl<T>>` for dynamic dispatch.
-
-### Constructing and resolving
-
-```rust,ignore
-pub fn new(value: impl Resolvable<Resolved = T> + 'static) -> Self;
-pub fn resolve(&self, env: &Environment) -> Computed<T>;
-```
-
-`AnyResolvable::resolve` returns a concrete `Computed<T>` (not `impl Signal`),
-which is the type you store, clone, and feed into other reactive APIs.
+`AnyResolvable<T>` implements `Resolvable<Resolved = T>` itself, so it composes anywhere a resolvable is expected, and its `resolve` returns a concrete `Computed<T>` rather than `impl Signal` — the type you can store, clone, and pass on. `Color` is built exactly this way: it is a newtype over `AnyResolvable<ResolvedColor>`.
 
 ## The Map combinator
 
-When you want a variation of an existing token — a lighter accent, a scaled
-font size — `Map<R, F>` transforms a resolvable's output without losing
-reactivity. WaterUI's own `Color::lighten` is implemented on top of `Map`:
+`Map<R, F>` derives a variation of a token without losing reactivity:
 
 ```rust,ignore
+use waterui::color::ResolvedColor;
+use waterui::prelude::*;
 use waterui_core::resolve::Map;
-use waterui::theme::color::Accent;
 
-let lighter_accent = Map::new(Accent, |color| color.lighten(0.2));
+let translucent_accent = Map::new(theme_color::Accent, |color: ResolvedColor| {
+    color.with_opacity(0.5)
+});
 ```
 
-The closure runs lazily on each emission, so when the underlying `Accent`
-signal updates, the derived signal emits a new lightened value automatically.
+The closure runs on each emission, so when `Accent` changes the derived value changes with it. `Map` implements `Resolvable` — its `resolve` is `self.resolvable.resolve(env).map(func)` — which is how `Color::lighten`, `Color::darken`, and `Color::saturate` are built. Reach for `Map` when you want a derived token; reach for those methods when you just want a lighter color.
 
-`Map` itself implements `Resolvable`:
+Note that the closure receives `ResolvedColor`, the concrete linear-sRGB struct, not a `Color`. Its API is `to_oklch`, `to_srgb`, `with_opacity`, `with_headroom`, and friends.
 
-```rust,ignore
-impl<R, F, T, U> Resolvable for Map<R, F>
-where
-    R: Resolvable<Resolved = T>,
-    F: Fn(T) -> U + Clone + 'static,
-    T: 'static,
-    U: 'static,
-{
-    type Resolved = U;
+## Hooks: intercepting a component
 
-    fn resolve(&self, env: &Environment) -> impl Signal<Output = U> {
-        let func = self.func.clone();
-        self.resolvable.resolve(env).map(func)
-    }
-}
-```
+Resolvers handle values. Hooks handle views.
 
-This composes with the standard signal `.map()` operator, so the derived
-signal re-evaluates whenever the source changes.
-
-## Hooks: intercepting view configuration
-
-Resolvers handle *values* — colors, fonts, strings. Hooks handle *views*.
-Some views implement `ConfigurableView`, which separates the view into a
-*configuration* and a *renderer*:
+A view that implements `ConfigurableView` splits into a configuration and a renderer:
 
 ```rust,ignore
 pub trait ConfigurableView: View {
@@ -210,68 +174,15 @@ pub trait ViewConfiguration: 'static {
 }
 ```
 
-A `ConfigurableView` can be intercepted by a `Hook<Config>` stored in the
-environment. When the view body runs, it checks the environment for a
-matching hook. If one exists, the hook receives the configuration, the
-environment (with the hook removed to prevent recursion), and returns a
-modified view. Otherwise, the configuration renders normally through
-`config.render()`.
+When such a view's body runs, it looks for a `Hook<Config>` in the environment. If one is present, the hook receives the configuration and an environment **with that hook removed**, and returns a view; otherwise the configuration renders normally through `config.render()`. Removing the hook is what lets your closure end with `config.render()` without recursing forever.
 
-### The Hook type
+### Installing one
 
 ```rust,ignore
-pub struct Hook<C>(/* boxed Fn(&Environment, C) -> AnyView */);
-```
-
-A `Hook<C>` is a function from `(&Environment, C)` to `AnyView`, where `C` is
-the view's `ViewConfiguration` type.
-
-### Installing a hook
-
-Use `Environment::insert_hook`:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::button::ButtonConfig;
-use waterui::Environment;
-
-let mut env = Environment::new();
-env.insert_hook(|env, config: ButtonConfig| {
-    tracing::debug!(?config, "button rendered");
-    config.render()
-});
-```
-
-`insert_hook` wraps the closure in a `Hook<C>` and stores it under that
-configuration's type. Before calling your closure, the framework removes the
-hook from the cloned environment passed in, which is how recursion is
-prevented when your closure ends with `config.render()`.
-
-### How hooks execute
-
-For a `ConfigurableView` body:
-
-1. It produces its `Config`.
-2. It checks the environment for `Hook<Config>`.
-3. If a hook is present, the hook receives the config plus the environment
-   (with this hook removed) and returns a view.
-4. If no hook is present, the config renders normally via `config.render()`.
-
-This mechanism enables powerful cross-cutting concerns:
-
-- **Theming** — wrap every button with a consistent style.
-- **A/B testing** — modify certain configurations based on experiment flags.
-- **Logging** — record every view configuration for debugging.
-
-### Hooks in plugins
-
-A plugin's `install` body is the natural place to register a hook. Here is a
-plugin that switches every button in its subtree to the bordered style:
-
-```rust,ignore
-use waterui::prelude::*;
 use waterui::component::button::{ButtonConfig, ButtonStyle};
-use waterui_core::{Environment, plugin::Plugin};
+use waterui::prelude::*;
+use waterui::view::ViewConfiguration;
+use waterui::{Environment, Plugin};
 
 pub struct BorderedButtonsPlugin;
 
@@ -285,186 +196,58 @@ impl Plugin for BorderedButtonsPlugin {
 }
 ```
 
-> **Try it yourself:** Build a `LoggingPlugin` that installs hooks for several
-> view configurations and logs each one with `tracing::debug!`.
+Install it with `env.install(BorderedButtonsPlugin)` for the app or `.install(BorderedButtonsPlugin)` on a subtree, and every button underneath changes style without a single call site changing.
 
-## Dynamic views
+`ButtonConfig` exposes `label: Label`, `action`, `style`, and `disabled: Computed<bool>` — the last already resolved against any enclosing `.disabled(...)` scope, so a hook sees the effective state rather than the literal one. The `Label` stays typed, so a hook can restyle or wrap the label but cannot strip the semantic text that assistive technology reads.
 
-The final piece is how a resolved signal becomes visible on screen. Most of
-the time you do not write this glue yourself — a `Computed<V>` whose value
-type is itself a `View` automatically renders through `Dynamic::watch`.
-For the cases where you do need it, two entry points exist.
+Hooks are the right tool for consistent styling, experiment flags, and instrumentation. They are the wrong tool for anything a modifier or a theme token already expresses.
 
-### Dynamic::watch
+## When a signal still needs Dynamic
 
-`Dynamic::watch` bridges any `Signal` to the view system. It calls your
-closure on each emission and swaps the rendered subtree:
+Most of the time a resolved signal never touches `Dynamic`. A `Computed<T>` feeds directly into a signal-taking input, and `text!` maps over any signal in scope:
 
 ```rust,ignore
+use waterui::env::useenv;
 use waterui::prelude::*;
-use waterui_core::dynamic::Dynamic;
+use waterui_core::{Environment, Signal, resolve::Resolvable};
 
-let theme_name = Binding::container(String::from("Default"));
-
-let view = Dynamic::watch(theme_name, |name: String| {
-    let name = Binding::container(name);
-    text!("Current theme: {name}")
-});
-```
-
-Internally, `Dynamic::watch`:
-
-1. Allocates a `Dynamic` view and its `DynamicHandler`.
-2. Renders the initial value with `handler.set(f(value.get()))`.
-3. Subscribes to the signal with `value.watch(...)`.
-4. On each update, calls `handler.set(f(new_value))` to replace the subtree.
-5. Retains the watcher guard and the source signal through `Metadata<Retain>`
-   so they live as long as the view does.
-
-### The Dynamic type
-
-`Dynamic` is the low-level updatable view. You should prefer reactive
-bindings, `text!`, and `Computed<V>` over raw `Dynamic` usage. When you do
-need to swap an entire subtree on demand, `Dynamic::new` returns the handler
-and the view together:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui_core::dynamic::Dynamic;
-
-let (handler, view) = Dynamic::new();
-
-handler.set(text("Initial content"));
-
-// Later, replace the content:
-handler.set(text("Updated content"));
-```
-
-The handler is `Clone` and can be moved into closures or async tasks.
-
-### Computed\<V\> as View
-
-Any `Computed<V>` where `V: View` automatically implements `View`. The
-implementation is just `Dynamic::watch(self, |view| view)`:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::AnyView;
-
-let show_detail = Binding::bool(false);
-
-let view = show_detail.map(|show| {
-    if show {
-        AnyView::new(text("Detail view"))
-    } else {
-        AnyView::new(text("Summary view"))
-    }
-});
-
-// `view` is a Computed<AnyView> and renders as a View directly.
-```
-
-### The `watch` function
-
-`watch` is a thin wrapper around `Dynamic::watch`:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui_core::dynamic::watch;
-
-let count = Binding::i32(0);
-
-let view = watch(count, |n: i32| {
-    let n = Binding::container(n);
-    text!("Count: {n}")
-});
-```
-
-## Putting it all together
-
-A complete example combining a resolver, a plugin that installs it, and a
-view that consumes it:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::app::App;
-use waterui_core::{
-    Computed,
-    Environment,
-    Signal,
-    env::Store,
-    plugin::Plugin,
-    resolve::Resolvable,
-};
-
-// 1. Define a resolvable token.
 #[derive(Debug, Clone, Copy)]
-pub struct AppTitle;
+struct AppTitle;
 
 impl Resolvable for AppTitle {
-    type Resolved = String;
+    type Resolved = Str;
 
-    fn resolve(&self, env: &Environment) -> impl Signal<Output = String> {
-        env.query::<Self, Computed<String>>()
+    fn resolve(&self, env: &Environment) -> impl Signal<Output = Self::Resolved> {
+        env.query::<Self, Computed<Str>>()
             .cloned()
-            .unwrap_or_else(|| Computed::constant("My App".to_string()))
+            .expect("AppTitle is not installed in the environment")
     }
 }
 
-// 2. Plugin that installs a signal under the AppTitle key.
-pub struct AppTitlePlugin {
-    title: String,
-}
-
-impl Plugin for AppTitlePlugin {
-    fn install(self, env: &mut Environment) {
-        env.insert(Store::<AppTitle, Computed<String>>::new(
-            Computed::constant(self.title),
-        ));
-    }
-}
-
-// 3. Use the resolver in a view.
 fn title_bar() -> impl View {
-    use_env(|env: Environment| {
-        let signal = AppTitle.resolve(&env);
-        Dynamic::watch(signal, |title: String| {
-            let title = Binding::container(title);
-            text!("{title}").headline()
-        })
+    useenv(|env: Environment| {
+        let title = AppTitle.resolve(&env).computed();   // Computed<Str>
+        text!("{title}").headline()
     })
-}
-
-// 4. Wire it up.
-pub fn app(env: Environment) -> App {
-    let mut env = env;
-    env.install(AppTitlePlugin {
-        title: "WaterUI Tutorial".to_string(),
-    });
-    App::new(title_bar, env)
 }
 ```
 
-## Summary
+Install it with `env = env.store::<AppTitle, _>(Computed::constant(Str::from("WaterUI")));`.
 
-| API | Purpose |
-|---|---|
-| `Resolvable` trait | Look up a value from the environment as a signal |
-| `Resolvable::resolve(env)` | Returns `impl Signal<Output = Resolved>` |
-| `AnyResolvable<T>` | Type-erased resolvable wrapper |
-| `AnyResolvable::new(r)` | Wrap any resolvable |
-| `AnyResolvable::resolve(env)` | Returns `Computed<T>` |
-| `Map::new(r, f)` | Transform a resolvable's output |
-| `ViewConfiguration` trait | View config that hooks can intercept |
-| `Hook<C>` | Intercepts a view configuration |
-| `Environment::insert_hook(f)` | Install a hook in the environment |
-| `Dynamic::new()` | Low-level updatable view |
-| `Dynamic::watch(signal, f)` | Bridge a signal to a subtree |
-| `watch(signal, f)` | Convenience wrapper for `Dynamic::watch` |
-| `Computed<V>: View` | Reactive view from computed signals |
+That is a precise update: the text node re-renders, nothing else does.
 
-## Next
+`Dynamic` is for the remaining case, where the *shape* of the subtree depends on the value. `Dynamic::new()` gives you a handler and a view to drive manually; `watch` (in the prelude) wraps a signal:
 
-You have reached the end of the advanced topics. From here you can revisit any
-chapter to deepen your understanding, or build your own resolvable tokens and
-plugins to bend WaterUI to your application's shape.
+```rust,ignore
+use waterui::prelude::*;
+
+let (handler, view) = Dynamic::new();
+handler.set(text("Initial content"));
+handler.set(text("Updated content"));   // replaces the subtree
+```
+
+Every replacement discards the state the previous subtree owned. A `Computed<V>` is *not* itself a view even when `V: View` — if you really do have a signal of views, hand it to `watch(signal, |view| view)` deliberately. A changing set of rows is a different problem and belongs in `ForEach` / `List`, which diffs by id instead of replacing everything.
+
+---
+
+That is the bottom of the stack: tokens resolve to signals, hooks rewrite configurations, and everything above is built from those two ideas. Good next steps are implementing a token set for your own design system, or reading [Plugins](07-plugins.md) again now that you know what `install` can register.

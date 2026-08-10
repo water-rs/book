@@ -1,12 +1,13 @@
 # Lists and collections
 
 > **In this chapter, you will:**
-> - Display dynamic collections with `List::for_each` and the `Identifiable` trait
-> - Use `waterui::reactive::collection::List` for reactive, fine-grained collection updates
-> - Group rows with the new `ListSection` semantic marker
-> - Build a complete contacts list with add and remove operations
+> - Render dynamic collections lazily with `List::for_each` and `#[derive(Identifiable)]`
+> - Compose static, heterogeneous, sectioned lists with `List::content` and `Section`
+> - Drive fine-grained updates with `waterui::reactive::collection::List`
+> - Jump to any row programmatically with a `ScrollController<usize>`
+> - Animate items in and out with `collection_transition`
 
-Every app needs a way to show lists of data — a chat thread, a to-do list, a feed of posts, a directory of contacts. Unlike a fixed set of views you write by hand, these collections grow and shrink at runtime as data changes. WaterUI provides `List<V>` as the native list surface, `for_each` to map collections to views, and the new `ListSection` marker to group rows under semantic headers.
+A collection grows and shrinks at runtime, so it cannot be written as a fixed tuple of views. WaterUI splits the job in two: `List::for_each` renders an identity-keyed collection lazily, and `List::content` composes a known set of rows with section chrome. Both produce the platform's native list surface — an inset-grouped `UITableView` on iOS, an `NSTableView` with group rows on macOS, a Material list on Android.
 
 ![WaterUI list preview with section headers rows detail rows and footer](../assets/visuals/03-ui/lists-sections-sample.png)
 
@@ -14,26 +15,22 @@ Every app needs a way to show lists of data — a chat thread, a to-do list, a f
 
 ## A first dynamic list
 
-`List::for_each` is the bridge between a data collection and the rows on screen. You give it a collection and a generator that returns one `ListItem` per element:
+`List::for_each` takes a collection and a generator returning one `ListItem` per element:
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::Identifiable;
 use waterui::component::list::{List, ListItem};
 
-#[derive(Clone)]
+#[derive(Clone, Identifiable)]
 struct TodoItem {
+    #[id]
     id: i32,
     title: String,
     done: bool,
 }
 
-impl Identifiable for TodoItem {
-    type Id = i32;
-    fn id(&self) -> i32 { self.id }
-}
-
-fn todo_list(items: Vec<TodoItem>) -> impl View {
+fn todo_list(items: [TodoItem; 3]) -> impl View {
     List::for_each(items, |item| {
         ListItem::new(hstack((
             text(item.title),
@@ -44,11 +41,16 @@ fn todo_list(items: Vec<TodoItem>) -> impl View {
 }
 ```
 
-`List` is a native, scrolling, platform-styled surface. On iOS it renders as an inset-grouped `UITableView`; on macOS as an `NSTableView` with group rows; on Material backends as a list with section dividers.
+The list renders **lazily**: only rows inside the viewport are materialized, and that stays true after a programmatic jump into the middle of a hundred-thousand-row collection. The generator runs once per row that actually becomes visible, so keep it cheap — push expensive work into a `Computed` or an async task.
 
-### The `Identifiable` trait
+> **Prefer arrays for fixed collections.** A known set of items is `[a, b, c]`;
+> pass it straight into any API that accepts `Collection` or `IntoIterator`.
+> Reach for `vec!` only when the length is decided at runtime, when the
+> collection needs mutation, or when the API specifically requires a `Vec`.
 
-Every item in a `for_each` generator must implement `Identifiable`. The trait provides a stable identity for each element so the framework can efficiently diff, insert, and remove rows when the collection changes:
+## Identity
+
+`for_each` requires `C::Item: Identifiable` so the framework can diff membership by id instead of rebuilding every row:
 
 ```rust,ignore
 # use core::hash::Hash;
@@ -58,18 +60,38 @@ pub trait Identifiable {
 }
 ```
 
-Common `Id` types are integers, UUIDs, and string keys.
+The derive marks exactly one field with `#[id]`:
 
-> **Warning:** The identity must be **stable** — the same data item should
-> always return the same id. Changing an item's id forces the framework to
-> treat it as a removal followed by an insertion, which is more expensive
-> than an in-place update.
+```rust,ignore
+use waterui::Identifiable;
 
-## Reactive collections with `waterui::reactive::collection::List`
+#[derive(Clone, Identifiable)]
+struct Contact {
+    #[id]
+    id: u64,
+    name: &'static str,
+}
 
-A plain `Vec` works for static data, but lists usually change at runtime. The
-`List<T>` type from `waterui::reactive::collection` is a reactive collection:
-every mutation emits a fine-grained change notification that the UI observes:
+#[derive(Clone, Identifiable)]
+struct Article<Key> {
+    #[id]
+    slug: Key,
+    title: &'static str,
+}
+
+#[derive(Clone, Copy, Identifiable)]
+struct ContactId(#[id] u64);
+```
+
+Structs only — enums and unions are rejected. Exactly one field must carry `#[id]`; zero or two is a compile error, and so is putting `#[id]` on the type. The generated `id()` clones the field, so its type must be `Hash + Ord + Clone`; the derive adds that bound for you.
+
+> **Warning:** Identity must be **stable**. Changing an item's id makes the
+> framework treat it as a removal followed by an insertion, discarding that
+> row's view state instead of updating it in place.
+
+## Reactive collections
+
+A plain array or `Vec` describes data that never changes. For data that does, use `waterui::reactive::collection::List`: every mutation emits a fine-grained change notification, and the rendered rows patch by id rather than rebuilding.
 
 ```rust,ignore
 use waterui::reactive::collection::List as ReactiveList;
@@ -79,68 +101,59 @@ fn seed() {
     let items: ReactiveList<TodoItem> = ReactiveList::new();
 
     items.push(TodoItem { id: 1, title: "Buy milk".into(), done: false });
-    items.push(TodoItem { id: 2, title: "Write docs".into(), done: false });
+    items.insert(0, TodoItem { id: 2, title: "Urgent".into(), done: false });
+    items.remove(0);
 
-    let _ = items.pop();
-    items.insert(0, TodoItem { id: 3, title: "Urgent".into(), done: false });
+    // One diffed update instead of N individual mutations.
+    items.replace(vec![
+        TodoItem { id: 3, title: "Write docs".into(), done: false },
+    ]);
 }
 ```
 
-> **Note:** Both the rendering surface and the data backend are called
-> `List`. To keep them apart in code, alias one of them — this chapter
-> uses `ReactiveList` for the data type and the bare `List` for the view.
+`replace(Vec<T>)` swaps the whole contents in a single diffed update and returns the old contents; `snapshot()` reads the current contents as a `Vec` without subscribing. `sort()`, `pop()`, `clear()`, and `iter()` behave as you would expect.
 
-Initialise from a `Vec`:
+> **Note:** The rendering surface and the data structure are both called
+> `List`. This chapter aliases the data type as `ReactiveList` and keeps the
+> bare `List` for the view.
 
-```rust,ignore
-# use waterui::reactive::collection::List as ReactiveList;
-# #[derive(Clone)] struct TodoItem { id: i32, title: String, done: bool }
-fn from_seed(item1: TodoItem, item2: TodoItem) {
-    let _ = ReactiveList::from(vec![item1, item2]);
-}
-```
+Never watch a signal that holds a `Vec` and rebuild a stack from it. `watch` replaces the entire watched subtree and discards its state on every change; a reactive collection plus `for_each` patches only the rows that actually moved.
 
-## Sectioned lists
+## Sectioned and heterogeneous lists
 
-The pinned waterui adds a `ListSection` semantic marker so a single `List` can express multiple logical groups. Mark the first row of a section with `.section(ListSection::new("Header"))` and subsequent items belong to that section until another marker is encountered:
+`List::for_each` is homogeneous and section-free by design — that is what makes viewport-only rendering possible. When rows carry section headers, or when the rows are a fixed heterogeneous set, use `List::content` with `Section`:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::Identifiable;
-use waterui::component::list::{List, ListItem, ListSection};
+use waterui::component::list::{List, Section, detail_row, row};
 
-#[derive(Clone)]
-struct ContactRow {
-    id: i32,
-    name: String,
-    section: Option<&'static str>,
-}
-
-impl Identifiable for ContactRow {
-    type Id = i32;
-    fn id(&self) -> i32 { self.id }
-}
-
-fn directory(contacts: Vec<ContactRow>) -> impl View {
-    List::for_each(contacts, |contact| {
-        let mut row = ListItem::new(text(contact.name.clone()));
-        if let Some(section) = contact.section {
-            row = row.section(ListSection::new(section));
-        }
-        row
-    })
+fn settings(status: &Binding<Str>, endpoint: &Binding<Str>) -> impl View {
+    List::content((
+        Section::new("Connection").content((
+            row("Status", status.clone()),
+            row("Endpoint", endpoint.clone()),
+        )),
+        Section::new("Activity")
+            .footer("Updated every poll")
+            .content((
+                row("Polls", "128"),
+                detail_row("Last error", "connection reset by peer"),
+            )),
+    ))
 }
 ```
 
-`ListSection` carries an optional header label and footer. Use `ListSection::unlabeled()` for a visual divider with no header, and `.footer(...)` to append a caption-style note below the section. The visual treatment is delegated to the platform — iOS renders inset-grouped sections, macOS uses `NSTableView` group rows, and Material backends translate the marker into section dividers.
+`ListContent` is a closed trait: it accepts `ListItem`, `Row`, `Section<C>`, tuples up to 15 elements, arrays, `Vec<T>`, `Option<T>`, and closures returning a `ListItem`. Nothing else can leak into a list row by accident.
 
-> **Tip:** Reach for `ListSection` whenever a list contains more than one
-> kind of row. Grouping rows by topic is exactly the use case the upstream
-> dev branch added the marker for.
+`row(label, value)` builds a single-line `label ……… value` row; `detail_row(label, value)` stacks the value under the label at full width. `Row` exposes `.detail()`, `.inline()`, `.value_color(token)`, and `.deletable(false)`. Labels go through `IntoLabel` and values through `IntoText`, so both participate in localization and the accessibility tree.
+
+`Section::new(header)` labels a group, `Section::unlabeled()` produces group chrome with no header, and `.footer(text)` appends a caption below it. A section that produces no items is dropped silently.
+
+Under the hood a section is a marker on the first `ListItem` of the group (`ListItem::section(ListSection)`); backends translate it into `UITableView` section headers, `NSTableView` group rows, or Material dividers without any extra FFI surface.
 
 ## Editing: delete and reorder
 
-`List` exposes `editing(...)`, `on_delete(...)`, and `on_move(...)` builders. The handlers pull `ListDelete` (a row index) and `ListMove` (from/to indices) from the environment so you can dispatch on them just like any other extractor:
+`editing`, `on_delete`, and `on_move` turn a list into an editable one. The handlers receive `ListDelete` and `ListMove` as extractor parameters, alongside any `State<T>` you attach:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -148,48 +161,113 @@ use waterui::Identifiable;
 use waterui::component::list::{List, ListDelete, ListItem, ListMove};
 use waterui::reactive::collection::List as ReactiveList;
 
-# #[derive(Clone)] struct Contact { id: i32 }
-# impl Identifiable for Contact { type Id = i32; fn id(&self) -> i32 { self.id } }
+# #[derive(Clone, Identifiable)] struct Contact { #[id] id: i32 }
 fn editable(items: ReactiveList<Contact>) -> impl View {
     let editing = Binding::bool(false);
+
     List::for_each(items.clone(), |item| ListItem::new(text(item.id.to_string())))
         .editing(editing.clone())
-        .on_delete(
-            move |State(items): State<ReactiveList<Contact>>, ListDelete(index): ListDelete| {
-                items.remove(index);
-            },
-        )
-        .on_move(
-            move |State(items): State<ReactiveList<Contact>>, ListMove(movement): ListMove| {
-                let _ = (items, movement);
-                // perform reorder on the reactive list
-            },
-        )
+        .on_delete(|State(items): State<ReactiveList<Contact>>, ListDelete(index): ListDelete| {
+            items.remove(index);
+        })
+        .on_move(|State(items): State<ReactiveList<Contact>>, ListMove(movement): ListMove| {
+            let item = items.remove(movement.from());
+            items.insert(movement.to(), item);
+        })
         .state(&items)
 }
 ```
 
-Per-row controls — `ListItem::deletable(false)`, for instance — refine the behavior on a row-by-row basis.
+`Move` exposes `.from()` and `.to()`. Per-row refinement goes on the item: `ListItem::new(view).deletable(false)` opts a single row out of swipe-to-delete.
 
-## Static lists from iterators
+## Programmatic scrolling
 
-When the data is genuinely static, you can collect any iterator of views into a `VStack`:
+A `ScrollController<usize>` targets **item indices** and pairs with `List`; a `ScrollController<Point>` targets **coordinates** and pairs with `ScrollView`. Both are plain values you own and can hold anywhere:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::component::list::{List, ListItem};
+use waterui::component::scroll::ScrollController;
+
+# use waterui::Identifiable;
+# #[derive(Clone, Identifiable)] struct Entry { #[id] id: usize }
+fn jump_list(entries: waterui::reactive::collection::List<Entry>) -> impl View {
+    let scroll_to = ScrollController::<usize>::new(0);
+
+    vstack((
+        button("Jump to 50,000").action({
+            let scroll_to = scroll_to.clone();
+            move || scroll_to.scroll_to(50_000)
+        }),
+        List::for_each(entries, |entry| ListItem::new(text!("Row {id}", id = entry.id)))
+            .scroll_controller(&scroll_to),
+    ))
+}
+```
+
+Because `for_each` is lazy, a jump of fifty thousand rows materializes only the rows that land in the viewport. The controller tracks a monotonically increasing generation alongside the target, so requesting the same index twice still scrolls after the user has moved away.
+
+For coordinate scrolling, hand a `ScrollController<Point>` to `scroll(...)`:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::component::scroll::ScrollController;
+
+fn scrolled_content(body: impl View) -> impl View {
+    let viewport = ScrollController::<Point>::new(Point::zero());
+    scroll(body).scroll_controller(&viewport)
+}
+```
+
+## Animating membership changes
+
+`collection_transition(content, animation)` scopes a request into the environment: every reactive collection inside `content` fades and grows items in as they appear, and fades and collapses them out as they leave. Backends without support ignore it and render the collection normally.
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::animation::Animation;
+use waterui::component::list::{List, ListItem};
+use core::time::Duration;
+
+# use waterui::Identifiable;
+# #[derive(Clone, Identifiable)] struct Contact { #[id] id: i32, name: String }
+fn animated(contacts: waterui::reactive::collection::List<Contact>) -> impl View {
+    collection_transition(
+        List::for_each(contacts, |c| ListItem::new(text(c.name))),
+        Animation::ease_in(Duration::from_millis(200)),
+    )
+}
+```
+
+## Lazy stacks without list chrome
+
+`List` gives you platform list chrome. When you want a lazy scrolling stack with none of it, `Lazy` wraps a `LazyContainer` in a scroll view:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::component::lazy::Lazy;
+
+# use waterui::Identifiable;
+# #[derive(Clone, Identifiable)] struct Photo { #[id] id: u64, caption: String }
+fn gallery(photos: [Photo; 4]) -> impl View {
+    Lazy::for_each(photos, |photo| text(photo.caption))
+}
+```
+
+`Lazy::vstack`, `Lazy::hstack`, and the spaced variants `Lazy::vstack_spaced` / `Lazy::hstack_spaced` take any `Views` implementation directly.
+
+For a genuinely static, small set of views, collecting an iterator into a stack is enough — but there is no virtualization, so every item is laid out at once:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn fruit_list() -> impl View {
-    let names = ["Apple", "Banana", "Cherry"];
-    let stack: VStack<_> = names.into_iter().map(text).collect();
+    let stack: VStack<_> = ["Apple", "Banana", "Cherry"].into_iter().map(text).collect();
     stack
 }
 ```
 
-This produces a `VStack` with default 10pt spacing. There is no virtualization here — every item is laid out at once — so prefer `List::for_each` plus a reactive collection for anything that might grow.
-
 ## Building a complete list
-
-Here is a contacts screen with a reactive list, a typed `Contact` model, and an add button:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -197,16 +275,15 @@ use waterui::Identifiable;
 use waterui::component::list::{List, ListItem};
 use waterui::reactive::collection::List as ReactiveList;
 
-#[derive(Clone)]
-struct Contact { id: i32, name: String }
-
-impl Identifiable for Contact {
-    type Id = i32;
-    fn id(&self) -> i32 { self.id }
+#[derive(Clone, Identifiable)]
+struct Contact {
+    #[id]
+    id: i32,
+    name: String,
 }
 
 fn contacts_screen() -> impl View {
-    let contacts: ReactiveList<Contact> = ReactiveList::from(vec![
+    let contacts = ReactiveList::from(vec![
         Contact { id: 1, name: "Alice".into() },
         Contact { id: 2, name: "Bob".into() },
     ]);
@@ -214,43 +291,34 @@ fn contacts_screen() -> impl View {
 
     vstack((
         text("Contacts").title(),
-
-        // Add button: capture both bindings via State<T>.
         button("Add Contact")
             .action(
                 |State(contacts): State<ReactiveList<Contact>>,
                  State(next_id): State<Binding<i32>>| {
                     let id = next_id.get();
                     contacts.push(Contact { id, name: format!("Contact {id}") });
-                    next_id.set(id + 1);
+                    *next_id.get_mut() += 1;
                 },
             )
             .state(&contacts)
             .state(&next_id),
-
-        // The list itself.
         List::for_each(contacts, |contact| ListItem::new(text(contact.name))),
     ))
 }
 ```
 
-> **Tip:** Try extending this example by adding a delete button next to each
-> contact. You can either use the `on_delete` handler shown above, or attach
-> a per-row button that captures the contact's id and removes it manually.
+> **Exercise:** add deletion. Attach `.on_delete(...)` as shown above, then
+> compare it with a per-row button that captures the contact's id — the first
+> gets platform swipe gestures for free, the second works in a plain
+> `Lazy::for_each` stack too.
 
-## Performance considerations
+## Choosing between the surfaces
 
-1. **Use `waterui::reactive::collection::List<T>` for mutable collections.** It emits fine-grained
-   change notifications. A plain `Vec` is suitable only for static data.
-2. **Keep `Identifiable::id()` stable.** Changing an item's id forces a
-   removal + insertion instead of an in-place update.
-3. **Wrap with a `List` for backend virtualization.** `List::for_each`
-   produces a native list surface that can lazily realise rows.
-4. **Avoid expensive closures in the generator.** It is invoked for each
-   visible row. Push expensive computation into async tasks or cached
-   `Computed` values.
-5. **Group with `ListSection`, not extra stacks.** A single `List` with
-   sections gives the platform full control over chrome and scroll
-   performance; nested stacks defeat virtualization.
+| You have | Use |
+|---|---|
+| An identity-keyed collection that changes at runtime | `List::for_each` over a `ReactiveList` |
+| A fixed set of rows with headers, footers, or mixed shapes | `List::content` with `Section` / `row` |
+| A large collection with no list chrome | `Lazy::for_each` |
+| A handful of views that never change | `vstack` / `collect()` |
 
-You can now display any dynamic data set. But what if you need to show *different* views depending on a condition — a loading spinner while data loads, or a login prompt when the user is not authenticated? That is the topic of the [next chapter](06-conditional.md).
+Lists show data. Showing *different* views depending on a condition — a spinner while data loads, a login prompt when the user is signed out — is the [next chapter](06-conditional.md).

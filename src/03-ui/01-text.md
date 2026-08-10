@@ -1,64 +1,54 @@
 # Text and typography
 
 > **In this chapter, you will:**
-> - Display text using `text()` for static content and `text!` for reactive, localized strings
-> - Style text with semantic fonts, weights, colors, and decorations
-> - Build rich text with `StyledStr`, including Markdown and concatenation
-> - Add syntax highlighting for source code
+> - Display text with `text()` and `text!`, and know which one consults the translation catalog
+> - Style text through theme font tokens, weights, colors, and decorations
+> - Compose rich text with `StyledStr` and add syntax highlighting
+> - Render Markdown three ways: inline, block, and streaming
 
-Text is the most fundamental building block in any user interface. Whether you are showing a headline, a label beside a toggle, or a paragraph of help text, you reach for the `Text` component first. WaterUI gives you a small two-function API: `text()` for plain content that does not change, and the `text!` macro for reactive strings that interpolate captured bindings and (optionally) consult a translation catalog.
+The text API is two entry points. `text()` converts a value into a `Text`; the `text!` macro interpolates named bindings and looks the format string up in the translation catalog. Fonts, colors, and decorations are builder methods on the `Text` you get back.
 
 ![WaterUI typography preview with title headline caption and styled text](../assets/visuals/03-ui/text-typography-sample.png)
 
 *A Hydrolysis preview of WaterUI text rendered with semantic typography and colors. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
-## Static text with `text()`
+## What `text()` localizes
 
-The simplest way to display text is the `text()` function. It accepts anything that converts into `Text` — a `&'static str` becomes localized through the catalog, while `String` and `Str` are used verbatim:
+`text()` accepts anything implementing `IntoText`, and that conversion decides whether the content is translated:
 
-```rust,ignore
-use waterui::prelude::*;
-
-fn greeting() -> impl View {
-    text("Hello, World!")
-}
-```
-
-`Text` sizes itself to fit its content and never stretches to fill extra space. When the available width is limited, it wraps to multiple lines automatically.
-
-### Layout behavior
-
-Here is what you need to know about how `Text` participates in layout:
-
-- **Sizing:** fits its content naturally, like a label.
-- **In stacks:** takes only the space it needs, leaving room for siblings.
-- **Wrapping:** wraps when width is constrained — for example by a parent `Frame`.
+| Input | Behavior |
+|---|---|
+| `&'static str` | Looked up in the translation catalog (`Text::localized`) |
+| `String`, `Str` | Rendered verbatim, never translated (`Text::verbatim`) |
+| `StyledStr` | Rendered verbatim, keeping its per-chunk styling |
+| `Computed<T>` / `Binding<T>` where `T: IntoText` | Reactive; re-resolves when the signal changes *and* when the locale changes |
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn row() -> impl View {
-    // Push two labels apart in a row.
-    hstack((text("Name"), spacer(), text("Value")))
+fn greeting(name: &Binding<String>) -> impl View {
+    vstack((
+        text("Hello, World!"), // catalog key
+        text(name.clone()),    // reactive, verbatim
+    ))
 }
 ```
 
-> **Tip:** Because `Text` never stretches on its own, you can safely place it in any stack without worrying about it gobbling up space from sibling views.
+`Text` sizes itself to its content and never stretches, so it takes only the space it needs inside a stack. When a parent constrains its width, it wraps to multiple lines.
 
 ## Reactive text with `text!`
 
-Static strings are fine for fixed labels, but most apps need text that updates in response to state. The `text!` macro captures any named placeholder from the surrounding scope and re-evaluates whenever those bindings change. When a `i18n/<locale>.toml` catalog is present, the same call site also resolves the matching translation:
+`text!` captures named placeholders from the surrounding scope and re-evaluates when the captured signals change:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn counter_label(count: &Binding<i32>) -> impl View {
-    // Captures `count` from scope; the rendered text updates on every change.
     text!("Count: {count}")
 }
 ```
 
-The macro only accepts named placeholders. Either name a binding directly (`{count}`), or alias an expression with `name = expr`:
+Only named placeholders are accepted. Name a binding directly (`{count}`) or alias an expression with `name = expr`:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -69,26 +59,13 @@ fn welcome(get_name: impl Fn() -> String) -> impl View {
 ```
 
 > **Warning:** `text!` does **not** accept positional `{}` placeholders.
-> Writing `text!("Count: {}", count)` will not compile. Use a named
-> placeholder (`{count}`) and capture the binding from scope, or pass an
-> explicit alias (`name = expr`).
+> `text!("Count: {}", count)` will not compile.
 
-### Why not `.get()` and `format!`?
+Format specs work as in `format!` — `text!("Value: {value:.2}")` rounds to two decimals and stays reactive. Reaching for `.get()` and `format!` instead reads the value once at construction time and freezes the output; the whole point of `text!` is that the framework records the dependency for you.
 
-Calling `.get()` on a binding inside a view body reads the current value once and never re-runs. The text would freeze at construction time. Always express formatting through `text!` so the framework tracks the dependency:
+## Displaying and formatting values
 
-```rust,ignore
-use waterui::prelude::*;
-
-fn show(value: &Binding<f64>) -> impl View {
-    // Reactive: updates whenever `value` changes.
-    text!("Value: {value:.2}")
-}
-```
-
-## Displaying arbitrary values
-
-Any signal whose output type implements `Display` can be rendered with `Text::display`:
+`Text::display` renders any signal whose output implements `Display`:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -98,26 +75,22 @@ fn show_price(price: &Binding<f64>) -> impl View {
 }
 ```
 
-`Text::display` maps the signal through `to_string()` internally, so the text updates whenever the signal does.
-
-## Locale-aware formatting
-
-For specialised formatting — locale-specific dates or numbers — use `Text::format`:
+For presentation that depends on the active locale — dates, currency, measurement units — implement the `Formatter<T>` trait and pass it to `Text::format`:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::text::locale::Formatter;
+use waterui::text::Formatter;
 
-fn formatted<T: 'static + Clone>(value: &Binding<T>, fmt: impl Formatter<T> + 'static) -> impl View {
+fn formatted<T: Clone + 'static>(value: &Binding<T>, fmt: impl Formatter<T> + 'static) -> impl View {
     Text::format(value.clone(), fmt)
 }
 ```
 
-Implement the `Formatter<T>` trait for any type whose presentation depends on the active locale.
+`Formatter` has one method, `fn format(&self, value: &T) -> Str`.
 
-## Translation files for `text!`
+## Translation catalogs
 
-If your app supports multiple languages, place TOML files under `i18n/` in the crate root:
+Place TOML files under `i18n/` in the crate root. The keys are the exact format strings you passed to `text()` or `text!`:
 
 ```toml
 # i18n/en.toml
@@ -127,26 +100,13 @@ If your app supports multiple languages, place TOML files under `i18n/` in the c
 "Count: {count}" = "计数：{count}"
 ```
 
-The macro picks the right translation based on the active `Locale` in the environment. Missing translation files are not an error — `text!` falls back to the format string itself.
+The active `Locale` in the environment selects the file. A missing catalog or a missing key is not an error — the format string itself is used as the fallback.
 
-> **Note:** Plural forms use `{#count}` syntax in the format string and a TOML
-> table with `one`/`other` keys. See `waterui/macros/src/locale.rs` for the
-> full grammar.
+Plural placeholders are written `{#count}` and resolve against a TOML table keyed by the CLDR categories `zero`, `one`, `two`, `few`, `many`, and `other`. Only `other` is required. Two plural placeholders in the same key form a *dual plural*, whose table keys combine both categories (`one_other`, `other_other`, …). The full grammar lives in `waterui/macros/src/locale.rs`.
 
-## Font system
+## Font tokens
 
-WaterUI provides a semantic font system with six built-in presets. Each preset resolves to a platform-appropriate size and weight through the environment, so a "Larger Text" accessibility setting cascades into your screen automatically:
-
-| Preset        | Default Size | Default Weight |
-|---------------|-------------|----------------|
-| `Body`        | 16pt        | Normal         |
-| `Title`       | 24pt        | SemiBold       |
-| `Headline`    | 32pt        | Bold           |
-| `Subheadline` | 20pt        | SemiBold       |
-| `Caption`     | 12pt        | Normal         |
-| `Footnote`    | 10pt        | Light          |
-
-Use the convenience methods on `Text`. They work on values produced by both `text()` and `text!`:
+Six semantic font tokens are available as builder methods on `Text`, and as values (`Body`, `Title`, `Headline`, `Subheadline`, `Caption`, `Footnote`) you can pass to `.font()`:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -163,9 +123,32 @@ fn typography() -> impl View {
 }
 ```
 
-### Custom font configuration
+Each token resolves through the environment, so a platform "Larger Text" accessibility setting cascades into your screen without per-call ceremony.
 
-For fine-grained control, build a `Font` value and pass it to `.font()`:
+> **Important:** Font tokens carry no built-in sizes. The active theme installs
+> them, and resolving a token that was never installed panics with
+> `"<Token> font token is not installed in the environment"`. Backends and
+> `Theme::install` do this for you; a bare `Environment::new()` does not. If
+> you render text against a hand-built environment, install a theme first.
+
+Install your own metrics through `FontSettings`, which takes a `ResolvedFont` (or a signal of one) per token:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::text::font::{FontWeight, ResolvedFont};
+
+fn compact_fonts() -> FontSettings {
+    FontSettings::new()
+        .body(ResolvedFont::new(15.0, FontWeight::Normal))
+        .title(ResolvedFont::new(22.0, FontWeight::SemiBold))
+}
+```
+
+`ResolvedFont::with_typography_metrics(line_height, letter_spacing)` sets absolute line height and tracking; leaving `line_height` as `None` uses the font's own preferred metrics.
+
+### Direct font overrides
+
+For fixed layouts — posters, splash screens, hero headlines — build a `Font` and pass it to `.font()`. Direct overrides escape theme-driven scaling, which is exactly why they exist and exactly why product UI should prefer the tokens:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -176,69 +159,81 @@ fn custom() -> impl View {
         Font::default()
             .size(18.0)
             .weight(FontWeight::Medium)
-            .family("monospace"),
+            .family("monospace")
+            .line_height(24.0)
+            .letter_spacing(0.5),
     )
 }
 ```
 
-### Font weights
+`FontWeight` covers the nine standard weights from `Thin` (100) through `Black` (900), with `Normal` (400) as the default.
 
-The `FontWeight` enum provides nine standard weights:
-
-```rust,ignore
-pub enum FontWeight {
-    Thin,       // 100
-    UltraLight, // 200
-    Light,      // 300
-    Normal,     // 400 (default)
-    Medium,     // 500
-    SemiBold,   // 600
-    Bold,       // 700
-    UltraBold,  // 800
-    Black,      // 900
-}
-```
-
-### Size, weight, italic shortcuts
-
-You do not always need to construct a `Font`. `Text` provides direct shortcuts. `.size()` and `.weight()` accept signals, so they can react:
+`.size()`, `.weight()`, `.italic()`, and `.font()` all accept signals as well as constants, so any of them can react:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn highlight(emphasised: &Binding<bool>) -> impl View {
+fn highlight(emphasized: &Binding<bool>) -> impl View {
     vstack((
         text("Large bold text").size(28.0).bold(),
-        // Italic toggles reactively from the binding.
-        text("May be italic").italic(emphasised.clone()),
+        text("May be italic").italic(emphasized.clone()),
     ))
 }
 ```
 
-## Color
+## Color and alignment
 
-Colors are zero-sized marker types you can pass into `.color()` or `.foreground()`. The built-in palette includes `Red`, `Blue`, `Green`, `Orange`, `Purple`, `Cyan`, `Yellow`, `Pink`, and `Grey`:
+`Text::color` and `Text::background_color` take `impl IntoSignal<Color>`, so pass a `Color` value — a palette constructor, a hex/sRGB value, or a signal of one:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn status() -> impl View {
+fn status(highlight: &Binding<Color>) -> impl View {
     vstack((
-        text("Error message").color(Red),
-        text("Success").color(Green),
-        text("Highlighted").background_color(Yellow),
+        text("Error message").color(Color::red()),
+        text("Success").color(Color::green()),
+        text("Highlighted").background_color(Color::yellow()),
+        text("Themed").color(highlight.clone()),
     ))
 }
 ```
 
-> **Note:** `.color()` on `Text` sets an explicit foreground color for that
-> specific text view. The more general `.foreground()` modifier from `ViewExt`
-> sets the inherited foreground for an entire view subtree, so children
-> respect the cascade.
+The palette constructors follow the Material color names: `red`, `pink`, `purple`, `deep_purple`, `indigo`, `blue`, `light_blue`, `cyan`, `teal`, `green`, `light_green`, `lime`, `yellow`, `amber`, `orange`, `deep_orange`, `brown`, `grey`, `blue_grey`. Each resolves from the environment when the theme overrides it and falls back to its built-in sRGB value otherwise.
 
-## Text decorations
+Theme tokens are constant signals, so they can be passed to `.color()` directly — and they are what product UI should use, because they track light/dark and any installed palette:
 
-### Underline
+```rust,ignore
+use waterui::prelude::*;
+use waterui::theme::color::{Accent, MutedForeground};
+
+fn labelled(caption: &str) -> impl View {
+    vstack((
+        text("Continue").color(Accent),
+        text(caption.to_string()).color(MutedForeground).caption(),
+    ))
+}
+```
+
+> **Note:** `.color()` sets the foreground for that one text view. The
+> `.foreground()` modifier from `ViewExt` sets the inherited foreground for a
+> whole subtree, so children pick it up through the cascade. `.foreground()`
+> takes `impl Into<Color>` rather than a signal, which is why the bare palette
+> markers (`Red`, `Grey`) work there but need `Color::red()` in `.color()`.
+
+`.text_align()` controls paragraph alignment for multi-line text and also takes a signal:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::layout::HorizontalAlignment;
+
+fn centred_paragraph(body: &Binding<String>) -> impl View {
+    text(body.clone()).text_align(HorizontalAlignment::Center)
+}
+```
+
+## Decorations
+
+`.underline()` accepts any `IntoSignal<bool>`, so the decoration can toggle at runtime:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -248,11 +243,7 @@ fn link_label(highlighted: &Binding<bool>) -> impl View {
 }
 ```
 
-`.underline()` accepts any `IntoSignal<bool>`, so the decoration can toggle reactively.
-
-### Strikethrough
-
-Strikethrough lives on `StyledStr`, not on `Text`:
+Strikethrough is a `StyledStr` attribute rather than a `Text` builder:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -263,23 +254,21 @@ fn deprecated() -> impl View {
 }
 ```
 
-## Concatenating text
+## Concatenating and composing
 
-Sometimes you need mixed styles within a single line. `Text` implements `Add` and `AddAssign`, so styled fragments compose with `+`:
+`Text` implements `Add` and `AddAssign`, and each side keeps its own styling:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn name_row() -> impl View {
-    text("Name: ").bold() + text("Alice")
+fn name_row(name: &Binding<String>) -> impl View {
+    text("Name: ").bold() + text(name.clone())
 }
 ```
 
-The resulting `Text` preserves the styling of each fragment.
+The right-hand side takes anything that implements `IntoText`, including reactive signals and catalog keys, so a concatenation stays reactive and localized.
 
-## Rich text with `StyledStr`
-
-For full control over rich text, build a `StyledStr` directly. Each chunk carries its own `Style`, which includes font, foreground color, background color, italic, underline, and strikethrough:
+For finer control, build a `StyledStr` chunk by chunk. Each chunk carries a `Style` holding font, foreground, background, italic, underline, and strikethrough:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -293,22 +282,65 @@ fn intro() -> impl View {
 }
 ```
 
-### Markdown shorthand
+## Markdown, three ways
 
-`StyledStr::from_markdown` parses a small subset of Markdown — headings, bold, italic, strikethrough, inline code, and paragraphs — into a styled string in one step:
+The right tool depends on whether you need inline styling, a full document, or a document that is still arriving.
+
+### Inline: `StyledStr::from_markdown`
+
+Parses emphasis, strong, strikethrough, inline code, and headings into a single styled run. Block structure collapses into text with blank lines; there is no layout involved, so it fits anywhere a `Text` fits — a label, a table cell, a list row:
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::text::styled::StyledStr;
 
-fn release_notes() -> impl View {
+fn release_note() -> impl View {
     text(StyledStr::from_markdown("**Bold** and *italic* with `code`"))
 }
 ```
 
+### Block: `RichText`
+
+`RichText::from_markdown` parses a document into a tree of `RichTextElement` values — paragraphs, lists, quotes, images, links, code blocks, and tables — and lays them out as real views. Tables get proper per-column alignment and shared column origins across rows, so they render as aligned grids rather than ragged stacks:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::widget::RichText;
+
+fn changelog(source: &str) -> impl View {
+    RichText::from_markdown(source)
+}
+```
+
+For Markdown that ships with your binary, `include_markdown!` reads the file at compile time and produces the same `RichText`:
+
+```rust,ignore
+use waterui::prelude::*;
+
+fn about() -> impl View {
+    include_markdown!("../docs/about.md")
+}
+```
+
+### Streaming: `flow_markdown`
+
+When Markdown arrives token by token — an LLM response, a log tail — `flow_markdown` renders it as a reactive list of blocks, patching only the block that changed instead of rebuilding the document. It takes any `IntoComputed<Str>` and lives behind the `flow-markdown` feature, which is on by default:
+
+```rust,ignore
+use waterui::prelude::*;
+
+fn assistant_reply(source: &Binding<Str>) -> impl View {
+    flow_markdown(source.clone())
+        .preset(FlowAnimationPreset::AssistantDefault)
+        .stream(FlowStreamMode::AppendOnly)
+}
+```
+
+`FlowAnimationPreset` offers `AssistantDefault`, `Minimal`, and `None`. `.override_animation(kind, policy)` swaps the policy for one `FlowElementKind` — heading, list item, code block, table — where `FlowAnimationPolicy` is `None`, `Fade(Animation)`, or a `Typewriter` reveal. `.max_pending_bytes`, `.table_policy`, and `.token_fade_in` tune buffering and entry timing. The same builders exist on `FlowMarkdownConfig`, and `.configuration(signal)` swaps the whole configuration reactively.
+
 ## Syntax highlighting
 
-If your app displays source code, WaterUI ships a `syntect`-backed highlighter. `highlight_text` is synchronous: it consumes a borrowed source string and a mutable highlighter, and returns a fully styled `StyledStr`:
+`highlight_text` turns source code into a `StyledStr` using a `syntect`-backed highlighter:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -320,29 +352,35 @@ fn code_view(source: &str) -> impl View {
 }
 ```
 
-The `Language` enum covers Rust, Swift, Python, TypeScript, and many others. Each chunk in the resulting `StyledStr` carries the appropriate syntax color.
+`Language` covers 39 languages including Rust, Swift, Kotlin, Python, TypeScript, and Zig, and implements `FromStr` (with aliases such as `c++`, `objc`, `shell`, `yml`) so a fenced-code-block info string maps straight onto it.
+
+For a finished code block — highlighting, a language caption, and a copy button that reports through the window's snackbar — use the `code` widget instead:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::text::highlight::Language;
+use waterui::widget::code;
+
+fn snippet() -> impl View {
+    code(Language::Rust, "fn main() {}")
+}
+```
+
+Clipboard access is a no-op on `espidf` targets; everywhere else the copy button writes to the system clipboard.
 
 ## Quick reference
 
-| Method / Function       | Purpose                                       |
-|------------------------|-----------------------------------------------|
-| `text("...")`          | Static text, localized for `&'static str`     |
-| `text!("Count: {n}")`  | Reactive, localized text capturing `n`         |
-| `Text::display(sig)`   | Render any `Signal<Output: Display>`          |
-| `Text::format(v, fmt)` | Locale-aware formatted text                    |
-| `.title()`             | Apply the `Title` font preset                  |
-| `.headline()`          | Apply the `Headline` font preset               |
-| `.sub_headline()`      | Apply the `Subheadline` font preset            |
-| `.body()`              | Apply the `Body` font preset                   |
-| `.caption()`           | Apply the `Caption` font preset                |
-| `.footnote()`          | Apply the `Footnote` font preset               |
-| `.size(f64)`           | Set a custom font size (accepts signals)       |
-| `.bold()`              | Set font weight to `Bold`                      |
-| `.weight(w)`           | Set a specific font weight (accepts signals)   |
-| `.italic(sig)`         | Toggle italic styling reactively               |
-| `.color(c)`            | Set the text foreground color                  |
-| `.background_color(c)` | Set the text background color                  |
-| `.underline(sig)`      | Toggle underline reactively                    |
-| `.font(f)`             | Apply a fully custom `Font`                    |
+| Method / Function | Purpose |
+|---|---|
+| `text("...")` | Static text; `&'static str` is localized |
+| `text!("Count: {n}")` | Reactive, localized text capturing `n` |
+| `Text::display(sig)` | Render any `Signal<Output: Display>` |
+| `Text::format(v, fmt)` | Locale-aware formatted text |
+| `.title()` / `.headline()` / `.sub_headline()` / `.body()` / `.caption()` / `.footnote()` | Apply a theme font token |
+| `.font(f)` | Apply a `Font` (accepts signals) |
+| `.size(s)` / `.weight(w)` / `.bold()` | Direct font overrides (accept signals) |
+| `.italic(sig)` / `.underline(sig)` | Toggle decorations reactively |
+| `.color(c)` / `.background_color(c)` | Text foreground / background (accept signals) |
+| `.text_align(a)` | Paragraph alignment for multi-line text |
 
-Now that you can display and style text, it is time to learn how to arrange views on screen. In the [next chapter](02-layout.md), you will explore stacks, frames, grids, and the rest of the layout system.
+Now that you can display and style text, it is time to arrange views on screen. The [next chapter](02-layout.md) covers stacks, frames, grids, and the rest of the layout system.

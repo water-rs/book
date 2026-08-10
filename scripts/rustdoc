@@ -1,29 +1,49 @@
 #!/bin/bash
 set -euo pipefail
 shopt -s nullglob
-echo "[custom rustdoc] invoked" >&2
+
+# rustdoc wrapper for `mdbook test`.
+#
+# mdbook invokes `rustdoc <chapter>.md --test` for every chapter containing a
+# Rust fence. Compiled (non-`ignore`) fences reference the `waterui` facade, so
+# this wrapper maps each facade crate built by the book package (Cargo.toml at
+# the repo root — its features decide what exists) to an `--extern` flag.
+#
+# Version probes must not trigger any build work.
+for arg in "$@"; do
+  case "$arg" in
+    -V|--version|--print=*)
+      exec "$(rustup which rustdoc)" "$@"
+      ;;
+  esac
+done
+
 repo_dir=$(cd "$(dirname "$0")/.." && pwd)
 actual_rustdoc=$(rustup which rustdoc)
-search_dirs=("$repo_dir/target/debug/deps" "$repo_dir/waterui/target/debug/deps")
-for dir in "${search_dirs[@]}"; do
-  mkdir -p "$dir"
-done
+deps_dir="$repo_dir/target/debug/deps"
 
 find_artifact() {
   local crate="$1"
   local base="lib${crate//-/_}-*"
-  local file=""
-  for dir in "${search_dirs[@]}"; do
-    for candidate in "$dir"/${base}.rlib \
-                     "$dir"/${base}.so \
-                     "$dir"/${base}.dll \
-                     "$dir"/${base}.dylib; do
-      file="$candidate"
-      break 2
-    done
+  for candidate in "$deps_dir"/${base}.rlib \
+                   "$deps_dir"/${base}.so \
+                   "$deps_dir"/${base}.dll \
+                   "$deps_dir"/${base}.dylib; do
+    echo "$candidate"
+    return
   done
-  echo "$file"
+  echo ""
 }
+
+# The facade must exist; build the book package (not the waterui workspace)
+# to populate the shared target directory with the book's feature set.
+if [ -z "$(find_artifact waterui)" ]; then
+  (cd "$repo_dir" && cargo build >/dev/null)
+fi
+if [ -z "$(find_artifact waterui)" ]; then
+  echo "missing artifact for waterui after cargo build" >&2
+  exit 1
+fi
 
 need_edition=1
 skip_next=0
@@ -44,21 +64,15 @@ for arg in "$@"; do
   esac
 done
 
-built_waterui=false
-build_waterui_artifacts() {
-  if [ "$built_waterui" = false ]; then
-    (cd "$repo_dir/waterui" && cargo build >/dev/null)
-    built_waterui=true
-  fi
-}
-
 extra_flags=()
 if [ "$need_edition" -eq 1 ]; then
-  extra_flags+=("--edition=2021")
+  extra_flags+=("--edition=2024")
 fi
-for dir in "${search_dirs[@]}"; do
-  extra_flags+=("-L" "dependency=$dir")
-done
+extra_flags+=("-L" "dependency=$deps_dir")
+
+# Crates not built under the book's features (e.g. `waterui-webview`) are
+# skipped: a compiled fence that needs one fails loudly in rustdoc with a
+# missing-crate error, which is the honest signal to add the feature.
 crates=(
   waterui
   waterui-core
@@ -80,15 +94,9 @@ crates=(
 )
 for crate in "${crates[@]}"; do
   file=$(find_artifact "$crate")
-  if [ -z "$file" ]; then
-    build_waterui_artifacts
-    file=$(find_artifact "$crate")
+  if [ -n "$file" ]; then
+    extra_flags+=("--extern" "${crate//-/_}=$file")
   fi
-  if [ -z "$file" ]; then
-    echo "missing artifact for $crate" >&2
-    exit 1
-  fi
-  extra_flags+=("--extern" "${crate//-/_}=$file")
 done
 
 exec "$actual_rustdoc" "$@" "${extra_flags[@]}"

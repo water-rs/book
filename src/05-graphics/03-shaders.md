@@ -2,16 +2,14 @@
 
 > **In this chapter, you will:**
 > - Write WGSL fragment shaders and display them with `ShaderSurface`
-> - Use built-in uniforms for time, resolution, and aspect-ratio correction
-> - Load shaders at compile time with the `shader!` macro
-> - Build animated effects like plasma, noise, and pulsing shapes
+> - Use the built-in uniforms for time, resolution, and aspect-ratio correction
+> - Load shader files at compile time with the `shader!` macro
+> - Build animated effects like plasma and procedural noise
 > - Know when to graduate from `ShaderSurface` to `GpuView`
 
-`ShaderSurface` is the shortest path from "I have a WGSL fragment shader" to "it is on screen." You supply the fragment, and WaterUI handles pipeline creation, the uniform buffer, and the render loop.
+`ShaderSurface` is the shortest path from "I have a WGSL fragment shader" to "it is on screen." You supply the fragment; WaterUI supplies the vertex stage, the uniform buffer, the pipeline, and the render loop.
 
 ## Quick start
-
-The fastest way to get a shader on screen is the `shader!` macro:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -22,100 +20,66 @@ fn my_effect() -> impl View {
 }
 ```
 
-`shader!` loads the WGSL source at compile time, registers it for pre-warming, and creates a `ShaderSurface` with the file path as a label so the GPU pipeline cache can deduplicate.
+`shader!` reads the WGSL source at compile time with `include_str!` and builds a `ShaderSurface` labeled with the path. **The path is resolved against your crate's `src/` directory, not against the file that calls the macro** — `shader!("shaders/plasma.wgsl")` loads `<your-crate>/src/shaders/plasma.wgsl`.
 
 ![ShaderSurface preview with a plasma fragment shader](../assets/visuals/05-graphics/shader-plasma.png)
 
 *A WGSL fragment shader rendered through ShaderSurface. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
-## Creating a ShaderSurface manually
+## Creating a ShaderSurface from a string
 
-`shader!` is sugar over two more explicit constructors. Reach for them when you need to wire something the macro does not cover (computed paths, generated shader source, and so on).
+When the source is not a fixed file path — generated WGSL, a shader assembled at runtime — construct the surface directly:
 
 ```rust,ignore
 use waterui::graphics::ShaderSurface;
 
-// from a static string -- no cache key
-fn gradient_effect() -> impl View {
-    ShaderSurface::new(include_str!("shaders/gradient.wgsl"))
-}
-
-// with a label for the pipeline cache
-fn labeled_effect() -> impl View {
-    ShaderSurface::with_label(
-        "shaders/gradient.wgsl",
-        include_str!("shaders/gradient.wgsl"),
-    )
+fn gradient_effect(source: String) -> impl View {
+    ShaderSurface::new(source)
 }
 ```
 
-WaterUI keeps a long shader inline in a string literal off-limits in production code -- always pull from a `.wgsl` file with `include_str!` (or `include_fragment_shader!`).
+`ShaderSurface::new` accepts anything convertible into `Cow<'static, str>`, so a `&'static str` from `include_str!` works too. Prefer `shader!` when you have a file: it keeps the path in one place and labels the shader for graphics diagnostics.
+
+`include_fragment_shader!("shaders/plasma.wgsl")` gives you the same compile-time load as a value — a `ShaderSource { label, source }` — when you want to hold the source before deciding what to do with it.
 
 ## Built-in uniforms
 
-Every `ShaderSurface` shader receives a standard uniform buffer automatically. You do not declare this struct yourself -- it is prepended by the `ShaderSurface` prelude:
+Every `ShaderSurface` shader is prefixed with a fixed prelude, so you never declare this yourself:
 
 ```wgsl
 struct Uniforms {
-    time: f32,           // Elapsed time in seconds since creation
-    resolution: vec2<f32>, // Surface size in pixels (width, height)
-    padding: f32,
+    time: f32,             // seconds since the surface was set up
+    resolution: vec2<f32>, // surface size in pixels
+    _padding: f32,
 }
 
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 ```
 
-A full-screen quad vertex shader is also provided automatically. Your shader only needs to define a fragment function named `main`:
+The prelude also declares a `VertexOutput` struct and a `vs_main` vertex shader that emits a six-vertex full-screen quad. Your file only defines the fragment stage, and the entry point must be named `main`:
 
 ```wgsl
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    // uv: normalized coordinates (0,0) at bottom-left, (1,1) at top-right
-    let t = uniforms.time;
-    let res = uniforms.resolution;
-    return vec4<f32>(uv.x, uv.y, sin(t) * 0.5 + 0.5, 1.0);
+    // uv: (0,0) at bottom-left, (1,1) at top-right
+    return vec4<f32>(uv.x, uv.y, sin(uniforms.time) * 0.5 + 0.5, 1.0);
 }
 ```
 
-### The prelude
+The exact prelude text is available as the `waterui::graphics::shader_surface::PRELUDE` constant if you need to reproduce the environment in a standalone WGSL tool.
 
-The `ShaderSurface` prelude that is auto-prepended to your shader includes:
-
-1. The `Uniforms` struct and binding declaration
-2. A `VertexOutput` struct with `position` and `uv` fields
-3. A `vs_main` vertex shader that draws a full-screen quad (6 vertices, 2 triangles)
-
-Your fragment function should be named `main` (not `fs_main`) and accept `@location(0) uv: vec2<f32>`.
-
-## Writing WGSL shaders
-
-Now for the fun part. The patterns below progress from a static gradient to time-warped procedural noise.
-
-### Basic color pattern
-
-```wgsl
-@fragment
-fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    // Horizontal gradient from red to blue
-    let r = uv.x;
-    let b = 1.0 - uv.x;
-    return vec4<f32>(r, 0.0, b, 1.0);
-}
-```
+## Writing WGSL
 
 ### Time-based animation
 
-This is where shaders start to feel alive. The `uniforms.time` value ticks up continuously, letting you create pulsing, rotating, and morphing effects:
+`uniforms.time` ticks up continuously, which is all you need for pulsing, rotating, and morphing:
 
 ```wgsl
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let t = uniforms.time;
-
-    // Pulsing circle
-    let center = vec2<f32>(0.5, 0.5);
-    let dist = distance(uv, center);
+    let dist = distance(uv, vec2<f32>(0.5, 0.5));
     let radius = 0.3 + 0.1 * sin(t * 2.0);
     let circle = smoothstep(radius + 0.01, radius - 0.01, dist);
 
@@ -123,9 +87,9 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 ```
 
-### Resolution-aware rendering
+### Aspect-ratio correction
 
-When your effect needs correct aspect ratio:
+`uv` is normalized to the surface, so circles turn into ellipses on a non-square surface unless you correct with `uniforms.resolution`:
 
 ```wgsl
 @fragment
@@ -133,19 +97,16 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let res = max(uniforms.resolution, vec2<f32>(1.0));
     let aspect = res.x / res.y;
 
-    // Correct for aspect ratio
-    var p = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
-
-    let dist = length(p);
-    let ring = smoothstep(0.01, 0.0, abs(dist - 0.3));
+    let p = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
+    let ring = smoothstep(0.01, 0.0, abs(length(p) - 0.3));
 
     return vec4<f32>(ring, ring, ring, 1.0);
 }
 ```
 
-### Noise and procedural patterns
+### Procedural noise
 
-Here is a simple hash-based noise pattern -- the building block for fire, clouds, terrain, and countless other effects:
+A hash-based value noise, the building block for fire, clouds, and terrain:
 
 ```wgsl
 fn hash21(p: vec2<f32>) -> f32 {
@@ -154,98 +115,60 @@ fn hash21(p: vec2<f32>) -> f32 {
 
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let t = uniforms.time;
-    let scale = 10.0;
-    let cell = floor(uv * scale);
-    let n = hash21(cell + vec2<f32>(t * 0.1, 0.0));
+    let cell = floor(uv * 10.0);
+    let n = hash21(cell + vec2<f32>(uniforms.time * 0.1, 0.0));
 
     return vec4<f32>(n, n, n, 1.0);
 }
 ```
 
-## Shader loading macros
+## How ShaderSurface behaves
 
-WaterUI provides two compile-time macros, both returning a `ShaderSource` (alias `PrewarmedShader`):
+`ShaderSurface` wraps a `GpuSurface` around an internal `GpuView`:
 
-### `include_shader!`
+1. **Setup** concatenates the prelude with your fragment, compiles it into a `wgpu::ShaderModule`, and builds a 24-byte uniform buffer, a bind group, and a render pipeline against the current surface format. Blending is `REPLACE` on SDR surfaces and disabled on HDR ones.
+2. **Render** rewrites the uniform buffer with the latest time and resolution, clears to transparent, and draws the six-vertex quad.
+3. **Every frame requests the next one.** `ShaderSurface` is unconditionally animated — there is no static mode. If your effect does not use `uniforms.time`, you are paying for frames you do not need; write a `GpuView` that only requests redraws when something changes.
+4. **The surface format is fixed at setup.** If it changes afterwards (an HDR toggle, for instance) the renderer panics rather than silently rendering into a mismatched target.
 
-Loads a complete WGSL shader with both vertex and fragment stages. Use this when you write your own vertex stage:
+### Compile time vs. run time
 
-```rust,ignore
-use waterui::graphics::{include_shader, prewarm::ShaderSource};
+WaterUI's own built-in shaders — the mesh gradients, the image generator, the scene blit — are compiled ahead of time during `cargo build` and shipped in the binary as `shaderloom::CompiledShader` constants under `waterui::graphics::shaders`. That replaced the previous approach of compiling lazily on first use and hiding the stall behind a disk-persisted pipeline cache; the pre-warm module and the cache are both gone.
 
-static MY_SHADER: ShaderSource = include_shader!("shaders/my_effect.wgsl");
-```
-
-### `include_fragment_shader!`
-
-Loads a fragment-only shader. The `ShaderSurface` prelude (uniforms + full-screen quad vertex shader) is prepended at runtime:
-
-```rust,ignore
-use waterui::graphics::{include_fragment_shader, prewarm::ShaderSource, ShaderSurface};
-
-static MY_FRAGMENT: ShaderSource = include_fragment_shader!("shaders/my_fragment.wgsl");
-
-ShaderSurface::with_label(MY_FRAGMENT.label, MY_FRAGMENT.source)
-```
-
-### The `shader!` convenience macro
-
-`shader!("path.wgsl")` expands to roughly:
-
-```rust,ignore
-{
-    static SHADER: ShaderSource = include_fragment_shader!("path.wgsl");
-    ShaderSurface::with_label(SHADER.label, SHADER.source)
-}
-```
-
-Reach for it whenever you would otherwise inline a shader path twice.
-
-## How ShaderSurface works internally
-
-Under the hood, `ShaderSurface` wraps a `GpuSurface` with an internal `ShaderRenderer` (a `GpuView`):
-
-1. **Setup**: the full WGSL source (prelude + your fragment) is compiled into a `wgpu::ShaderModule`. A 24-byte uniform buffer, bind group, and render pipeline are created against the current surface format.
-2. **Render**: each frame the uniform buffer is rewritten with the latest time and resolution, then a 6-vertex full-screen quad is drawn with your shader.
-3. **Continuous animation**: `ShaderRenderer` calls `frame.request_redraw()` so time-based animations advance every frame.
-4. **Format safety**: if the surface format changes between setup and render (HDR toggle, for instance) the pipeline is invalidated and rebuilt.
+Shaders *you* author through `shader!` or `ShaderSurface::new` are still compiled when the surface sets up. That is a one-time cost per surface, and it is why the format is captured at setup rather than re-checked per frame.
 
 ## Accessing the inner GpuSurface
 
-If you need the underlying `GpuSurface` (to apply a per-surface MSAA cap, or stack with other GPU views), unwrap it:
+`into_inner()` returns the `GpuSurface`, so you can apply per-surface settings like the MSAA cap or the HDR preference:
 
 ```rust,ignore
-let surface = ShaderSurface::new(my_shader).into_inner();
+use core::num::NonZeroU32;
+
+let surface = shader!("shaders/plasma.wgsl")
+    .into_inner()
+    .msaa_max_samples(NonZeroU32::new(4).unwrap());
 ```
 
-## Going beyond: custom uniforms
+## When to drop down to GpuView
 
-`ShaderSurface` provides only the standard uniforms (time, resolution). If you need extra uniforms, samplers, textures, or storage buffers, write your own `GpuView` and wrap it in a `GpuSurface`. See [GPU rendering with GpuSurface](02-gpu-surface.md). The shipped `AnimatedMeshGradient` is a good example -- it carries a 4x4 palette array uniform, which is exactly the kind of thing `ShaderSurface` will not give you.
+`ShaderSurface` binds exactly one uniform buffer with time and resolution in it. The moment you need extra uniforms, textures, samplers, storage buffers, or a compute pass, write a `GpuView` and wrap it in a `GpuSurface` — see [GPU rendering with GpuSurface](02-gpu-surface.md). `AnimatedMeshGradient` is the shipped example: it carries a 16-entry color palette as a uniform, which `ShaderSurface` has no way to express.
 
-## Performance tips
+Two smaller notes for shader authors:
 
-- **Shader compilation**: WGSL is compiled at setup time. Use `shader!` or `with_label` so the backend can cache compiled pipelines via the pre-warm system.
-- **Avoid branching**: GPUs prefer uniform control flow. Replace branches with `select()`, `step()`, and `smoothstep()` where possible.
-- **Texture reads**: `ShaderSurface` does not expose texture bindings. If you need to sample images, drop down to `GpuView`.
-- **Precision**: WGSL is 32-bit float by default. For pixel-precise work, multiply UVs by `uniforms.resolution`.
-- **Pipeline cache**: WaterUI threads a `PipelineCache` through setup; the `shader!` and `with_label` paths automatically take advantage of it.
+- GPUs prefer uniform control flow. Reach for `select()`, `step()`, and `smoothstep()` before `if`.
+- WGSL floats are 32-bit. For pixel-precise work, multiply `uv` by `uniforms.resolution` rather than chasing precision in normalized space.
 
 ## Example: a plasma effect
 
-Let's put it all together with a classic plasma shader -- the kind of swirling, colorful effect that has mesmerized programmers since the demoscene era:
-
 ```wgsl
-// shaders/plasma.wgsl
+// src/shaders/plasma.wgsl
 
 const PI: f32 = 3.14159265359;
 
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let t = uniforms.time * 0.5;
-    let res = max(uniforms.resolution, vec2<f32>(1.0));
-
-    var p = uv * 10.0;
+    let p = uv * 10.0;
 
     var v = 0.0;
     v += sin(p.x + t);
@@ -261,8 +184,6 @@ fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 }
 ```
 
-Use it in your app:
-
 ```rust,ignore
 fn plasma_background() -> impl View {
     shader!("shaders/plasma.wgsl").size(400.0, 300.0)
@@ -271,4 +192,4 @@ fn plasma_background() -> impl View {
 
 ## Next
 
-Shaders compose visual effects from scratch. To transform views you already have, continue to [Filters and visual effects](04-filters.md).
+Shaders compose visual content from scratch. To transform views you already have, continue to [Filters and visual effects](04-filters.md).

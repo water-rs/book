@@ -1,108 +1,78 @@
 # Project structure and Water.toml
 
 > **In this chapter, you will:**
-> - Understand how playground and app projects are laid out on disk
-> - Learn every section of the `Water.toml` manifest
-> - Discover how assets, fonts, and permissions are managed
-> - Know when to switch from playground to app project mode
+> - Compare the playground and app project layouts
+> - Configure every section of the `Water.toml` manifest
+> - Add assets and custom fonts
+> - Decide when to switch from playground to app mode
 
-Every WaterUI project follows a consistent layout. Understanding this
-structure early will save you time when you need to add assets, configure
-permissions, or prepare for production. This chapter covers both project
-modes, the `Water.toml` and `Cargo.toml` manifests, and the asset system.
+## Playground layout
 
-## Playground project layout
-
-When you create a project with `--mode playground`, the on-disk layout is
-minimal. This is the mode you have been using throughout this tutorial:
+`water create --mode playground` writes four files and initialises a git
+repository if you are not already inside one:
 
 ```text
 my-app/
-  Cargo.toml           # Rust crate configuration
+  Cargo.toml           # Rust crate manifest
   Water.toml           # WaterUI project manifest
-  src/
-    lib.rs             # Your application code
-  assets/
-    raw/               # Arbitrary files (JSON, fonts, data)
-    images/            # Image resources
+  src/lib.rs           # Your application code
+  .gitignore
 ```
 
-The generated native backend projects live **outside** your project tree, in
-the global managed cache at:
+Generated native projects live outside your tree, in the global managed cache:
 
 ```text
 ~/.water/build_cache/<absolute-project-path>/managed_backends/
-  apple/               # Generated Apple backend (Swift Package)
-  android/             # Generated Android backend (Gradle project)
-  ffi/                 # Generated FFI companion crate
-  preview_ffi/         # Generated preview wrapper crate
+  apple/               # Swift package
+  android/             # Gradle project
+  gtk4/                # GTK4 backend crate
+  hydrolysis/          # Hydrolysis backend crate
+  esp32/               # ESP32 firmware crate
+  ffi/                 # FFI companion crate
+  preview_ffi/         # Preview companion crate
 ```
 
-Key characteristics:
+Only the backends a command actually needs are generated. Every `water run`
+re-scaffolds the templates, so `Water.toml` changes -- permissions, theme
+colours, the web engine -- reach the native projects without a manual step;
+build outputs inside the cache survive that regeneration.
 
-- **You only edit Rust files and assets.** The native backend projects in
-  the global cache are generated and managed by the CLI.
-- **The cache is rebuilt on every `water run`.** Changes to `Water.toml`
-  (such as adding permissions) flow into the native projects automatically.
-- **Backend configuration is not allowed in `Water.toml`.** The `[backends]`
-  section must be absent for playground projects.
-- **Permissions are configured in `Water.toml`.** The `[permissions]`
-  section is only available in playground mode.
+Two rules follow from the split: a playground manifest must have **no**
+`[backends]` section, and `[permissions]` is available **only** in playground
+mode.
 
-> **Tip:** Playground mode is ideal for learning, prototyping, and following
-> this book's examples. You do not need to think about native build systems
-> at all. To reclaim disk space across abandoned playgrounds, run
+> **Tip:** To reclaim disk space across abandoned playgrounds, run
 > `water gc build-cache` or `water clean --global-cache --yes`.
 
-## App project layout
+## App layout
 
-When you need more control -- custom Xcode settings, platform-specific
-native code, or CI/CD integration -- create a project with explicit
-`--backends`. The native projects live inside your repository under a
-`backends/` directory:
+App mode checks the native projects into your repository, so you can edit
+Xcode settings, add Swift or Kotlin sources, and wire them into CI:
 
 ```text
 my-app/
   Cargo.toml
   Water.toml
-  src/
-    lib.rs
-  assets/
-    raw/
-    images/
+  src/lib.rs
+  .gitignore
   backends/
-    apple/             # Swift Package (checked in)
+    apple/             # Swift package (checked in)
       Package.swift
       Sources/
-      ...
     android/           # Gradle project (checked in)
       app/
       build.gradle.kts
-      ...
-    gtk4/              # GTK4 backend crate (checked in)
     ffi/               # FFI companion crate (checked in)
 ```
 
-Key characteristics:
-
-- **Backend directories are version-controlled.** You can customise native
-  build settings, add platform-specific code, and manage backend
-  dependencies.
-- **The `[backends]` section in `Water.toml`** tracks which backends are
-  configured and their per-backend settings.
-- **Permissions are managed in native projects directly** (`Info.plist` for
-  Apple, `AndroidManifest.xml` for Android).
-
-Now let's look at the configuration files that tie everything together.
+Only the backends you passed to `--backends` (or added later with
+`water backend add`) appear. `[backends]` in `Water.toml` tracks them, and
+permissions move to the native files -- `Info.plist` and
+`AndroidManifest.xml`.
 
 ## Water.toml
 
-The `Water.toml` file is the central configuration for a WaterUI project. It
-is a TOML file with the following sections.
-
 ### `[package]`
-
-The `[package]` section defines the application identity:
 
 ```toml
 [package]
@@ -111,109 +81,129 @@ name = "My Application"
 bundle_identifier = "dev.waterui.myapp"
 ```
 
-**Fields:**
-
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | `"playground"` or `"app"` | Project mode. Playground auto-manages backends; app requires explicit backend directories. |
-| `name` | string | Human-readable application name displayed in the OS. |
-| `bundle_identifier` | string | Unique identifier (reverse domain notation). Used for iOS bundle ID and Android application ID. |
-| `assets_path` | string | Path to the assets directory relative to project root. Defaults to `"assets"`. Omitted from the file when it equals the default. |
-| `accessory` | boolean | When `true`, builds a headless (accessory) app on macOS -- no dock icon, no menu bar. Defaults to `false`. Omitted from the file when `false`. |
+| `type` | `"playground"` or `"app"` | Project mode. |
+| `name` | string | Display name shown by the OS. |
+| `bundle_identifier` | string | Reverse-domain identifier: iOS bundle ID and Android application ID. |
+| `assets_path` | string | Assets directory relative to the project root. Defaults to `"assets"`; omitted from the file at the default. |
+| `accessory` | boolean | Build a headless macOS accessory app: no dock icon, no menu bar. Defaults to `false`. |
 
 ### `[backends]`
 
-The `[backends]` section is only present in app (`type = "app"`) projects.
-It is populated when you run `water create` with `--backends`, or when you
-add a backend to an existing project with `water backend add <name>`.
+App projects only. Populated by `water create --backends` and
+`water backend add`:
 
 ```toml
 [backends]
-path = "backends"            # Base path for backend directories (relative to project root)
+path = "backends"            # base directory, relative to the project root
 
 [backends.apple]
-# Apple backend configuration (auto-generated)
-
 [backends.android]
-# Android backend configuration (auto-generated)
-
 [backends.gtk4]
-# GTK4 backend configuration (auto-generated)
+[backends.hydrolysis]
+
+[backends.esp32]
+chip = "esp32c3"
+panel_width = 240
+panel_height = 240
+band_height = 16
 ```
 
-For playground projects, this section must be absent. The CLI stores backend
-data in the global build cache instead.
+The ESP32 entry is the single source of truth for the selected chip; the CLI
+derives the target triple and QEMU machine from it.
 
-> **Warning:** Adding a `[backends]` section to a playground project or a
-> `[permissions]` section to an app project causes the CLI to reject the
-> manifest with an error. Each mode has its own configuration approach.
+> **Warning:** `[backends]` in a playground manifest, or `[permissions]` in an
+> app manifest, makes the CLI reject the project outright. Each mode has one
+> configuration path.
+
+### `webview_backend`
+
+Selects the engine behind the `WebView` component:
+
+```toml
+webview_backend = "default"   # default | system | wpe | cef
+```
+
+- `default` -- bundled WPE on Linux, the system engine elsewhere.
+- `system` -- the platform web view (WebKitGTK on Linux).
+- `wpe` -- WaterUI's bundled WPE WebKit runtime (Linux).
+- `cef` -- WaterUI's bundled Chromium Embedded Framework runtime (macOS,
+  Linux, Windows), independent of the rendering backend. The Dew backend
+  excludes CEF.
+
+Setting this alone never adds a runtime: the CLI links an engine only if your
+app actually depends on `waterui-webview`.
 
 ### `waterui_path`
-
-For framework developers who work on WaterUI itself, the `waterui_path`
-field points to a local checkout of the WaterUI repository:
 
 ```toml
 waterui_path = "../waterui"
 ```
 
-When set, all backends use this local path instead of published crate
-versions. The CLI sets this automatically when you create a project with
-`--waterui-path`.
+Points every generated backend at a local WaterUI checkout instead of published
+crates. `water create --waterui-path` sets it for you, and a CLI built from a
+local checkout sets it automatically.
 
 ### `[permissions]`
 
-The `[permissions]` section is **only available in playground mode**. It
-provides a declarative way to request native platform permissions without
-editing native project files:
+Playground mode only. Declare a permission once and the CLI writes the matching
+`Info.plist` key and `AndroidManifest.xml` entry on the next `water run`:
 
 ```toml
 [permissions.camera]
 enable = true
-description = "Required for barcode scanning"
+description = "Scan barcodes on product labels"
 
 [permissions.location]
 enable = true
-description = "Used to show nearby stores"
+description = "Show stores near you on the map"
 
 [permissions.microphone]
 enable = true
-description = "Needed for voice recording"
+description = "Record voice notes"
 ```
 
-Each permission entry has two fields:
+Each entry takes `enable` (boolean) and `description` (the text the system
+dialog shows the user; vague wording gets apps rejected from stores).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `enable` | boolean | Whether to request this permission. |
-| `description` | string | A user-facing explanation of why the permission is needed. This text appears in the system permission dialog. |
+The permission keys are a closed set: `internet`, `camera`, `microphone`,
+`location`, `coarse_location`, `storage`, `write_storage`, `photo_library`,
+`contacts`, `calendars`, `bluetooth`, `bluetooth_admin`, `vibrate`, and
+`wake_lock`.
 
-When `water run` rebuilds a playground project, it reads these permissions and
-injects the appropriate entries into `Info.plist` (Apple) and
-`AndroidManifest.xml` (Android) automatically.
+### `[theme]`
 
-For app projects (`type = "app"`), permissions are managed directly in the
-native project files. Attempting to use `[permissions]` in an app project
-causes the CLI to reject the manifest with an error.
+Optional cross-platform colour slots, used to seed native launch screens and
+backend defaults:
 
-> **Note:** Always write clear, user-facing descriptions for permissions.
-> Vague descriptions like "We need this" will get your app rejected from
-> app stores. Explain *why* the permission is needed in terms the user
-> understands.
+```toml
+[theme]
+background = "#101014"
+surface = "#1B1B20"
+foreground = "#F2F2F7"
+accent = "#3B82F6"
+```
+
+The available slots are `background`, `surface`, `surface_variant`, `border`,
+`foreground`, `muted_foreground`, `accent`, and `accent_foreground`.
+
+### `[app.crates]`
+
+App mode only. Overrides the generated crate names when the defaults collide
+with something in your workspace:
+
+```toml
+[app.crates]
+ffi = "myapp_ffi"
+gtk = "myapp_gtk"
+hydrolysis = "myapp_hydrolysis"
+```
 
 ## Cargo.toml
 
-The `Cargo.toml` file is a standard Rust crate manifest. When `water create`
-scaffolds a project, it generates a `Cargo.toml` that:
-
-- Defines a plain library crate (`crate-type = ["lib"]`). The CLI generates
-  a separate FFI companion crate that handles `staticlib`/`cdylib` exports,
-  so your user crate stays a normal Rust library.
-- Depends on `waterui` with the `assets`, `media`, `webview`, and
-  `flow-markdown` features enabled on native targets.
-- Uses Rust edition 2024.
-
-A minimal generated `Cargo.toml` looks like:
+`water create` generates a plain library crate. The FFI companion owns the
+`staticlib`/`cdylib` output, so your crate stays a normal Rust library:
 
 ```toml
 [package]
@@ -228,80 +218,80 @@ crate-type = ["lib"]
 waterui = { version = "0.2", default-features = false }
 
 [target."cfg(not(target_arch = \"wasm32\"))".dependencies]
-waterui = { version = "0.2", default-features = false, features = ["assets", "media", "webview", "flow-markdown"] }
+waterui = { version = "0.2", default-features = false, features = ["assets", "media", "flow-markdown"] }
 
 [features]
 dev = ["waterui/dynamic_linking"]
 ```
 
-### Font management
+The scaffold sets `default-features = false` and names features explicitly, so
+non-wasm targets get `assets`, `media` (which implies `video`), and
+`flow-markdown`. The `waterui` crate's own defaults are
+`["gpu", "assets", "media", "flow-markdown"]`; add `"gpu"` to the list when you
+want GPU-backed drawing, filters, or SVG. Opt-in features include `webview`,
+`chart`, `barcode`, `map`, `particle`, and `navigation-restoration`.
 
-Custom fonts are declared in `Cargo.toml` metadata so the build system can
-bundle them into native projects:
+### Custom fonts
+
+Fonts are declared in Cargo metadata so the CLI can bundle them for every
+backend:
 
 ```toml
 [[package.metadata.waterui.assets.font]]
 name = "Inter"
-local_path = "assets/raw/Inter-Variable.ttf"
 
 [[package.metadata.waterui.assets.font]]
-name = "JetBrainsMono"
-local_path = "assets/raw/JetBrainsMono-Regular.ttf"
+name = "MyBrandFont"
+local_path = "assets/fonts/MyBrandFont.ttf"
+
+[[package.metadata.waterui.assets.font]]
+name = "lucide"
+remote_path = "https://github.com/lucide-icons/lucide/releases/download/0.562.0/lucide-font-0.562.0.zip"
+required-feature = "webfont"
 ```
 
-Each entry declares a font family name and either a `local_path` (relative
-to the crate root) or a `remote_path` URL the CLI downloads on demand. The
-Water CLI reads this metadata during packaging and copies the font files
-into the appropriate locations for each native backend. Built-in font names
-such as `Inter`, `Roboto`, `JetBrainsMono`, `FiraCode`, and `SourceCodePro`
-resolve from the registry automatically when neither path is provided.
+Give a `local_path` (relative to the crate root), a `remote_path` the CLI
+downloads on demand, or neither -- names in the built-in registry (`Inter`,
+`Roboto`, `JetBrainsMono`, `FiraCode`, `SourceCodePro`, and the Noto Sans CJK
+families) resolve automatically. `required-feature` skips the font unless that
+feature is enabled on the declaring package, which is how icon-set crates ship
+their fonts without forcing them on every consumer.
 
-> **Tip:** Place local font files in `assets/raw/` and declare them here.
-> WaterUI handles bundling them into every platform's app package
-> automatically -- no need to configure Xcode or Gradle font resources
-> manually.
+The CLI scans your dependencies' metadata too, so a font declared by a library
+crate is bundled without any change to your manifest.
 
-## Asset Directory Layout
+## Assets
 
-WaterUI enforces a **strict asset layout** to ensure cross-platform
-compatibility. All assets live under the directory specified by
-`package.assets_path` (default: `assets/`).
+Create the assets directory yourself; `water create` does not. Everything under
+`assets/` (or whatever `package.assets_path` names) is discovered recursively
+and classified by file extension:
 
 ```text
 assets/
-  raw/             # Arbitrary files: JSON, fonts, data files, etc.
-    data.json
-    Inter-Variable.ttf
-  images/          # Image resources
-    logo.png
-    icon@2x.png
+  Icon.png             # app icon
+  logo.png             # ImageAsset
+  intro.mp4            # VideoAsset
+  theme.ttf            # FontAsset
+  config.json          # DataAsset
+  model.onnx           # LargeFileAsset (memory-mapped)
+  icons/
+    settings.png       # nested directories become nested modules
 ```
 
-### `assets/raw/`
+Extensions map to types: images (`.png`, `.jpg`, `.webp`, `.avif`, …), video,
+audio, fonts, large binaries (`.onnx`, `.safetensors`, `.gguf`, …), and
+everything else as data. Directory structure becomes module structure in the
+generated asset code, reached through the `asset!` macro.
 
-Files placed here are bundled as-is into the application package. Use this for:
+A file named `Icon.<image ext>` at the top level of the assets root is the
+application icon. Declaring two of them, or pointing the name at a non-image,
+fails the build rather than silently picking one.
 
-- Custom fonts (`.ttf`, `.otf`)
-- Data files (`.json`, `.csv`, `.toml`)
-- Shaders (`.wgsl`, `.metal`)
-- Any other non-image resource
+## The application entry point
 
-### `assets/images/`
+Every WaterUI crate needs two functions.
 
-Image files placed here are processed by the asset pipeline. The pipeline
-handles:
-
-- Resolution variants (`@2x`, `@3x` suffixes)
-- Format conversion as needed per platform
-
-## The Application Entry Point
-
-Every WaterUI application requires three things in `src/lib.rs`. You have seen
-all three in the previous chapter, but let's formalise them here.
-
-### 1. The Root View Function
-
-A function that returns `impl View`:
+**A root view** returning `impl View`:
 
 ```rust,ignore
 fn main() -> impl View {
@@ -309,12 +299,9 @@ fn main() -> impl View {
 }
 ```
 
-The name `main` is a convention, not a requirement. You can name it anything.
+The name `main` is a convention; anything works.
 
-### 2. The App Constructor
-
-A public function named `app` that takes an `Environment` and returns an
-`App`:
+**A public `app` constructor**:
 
 ```rust,ignore
 pub fn app(env: Environment) -> App {
@@ -322,65 +309,58 @@ pub fn app(env: Environment) -> App {
 }
 ```
 
-The `App` struct holds the application's windows and environment. The
-simplest form creates a single window with a default title. You can
-customise:
+`App::new` opens one window immediately. Give it a title, or install
+environment values before handing it off:
 
 ```rust,ignore
-pub fn app(env: Environment) -> App {
+pub fn app(mut env: Environment) -> App {
+    env.install(Theme::new().color_scheme(ColorScheme::Dark));
     App::new(main, env).title("My Counter App")
 }
 ```
 
-For multi-window applications:
+For several windows, build them yourself. The first window is the main one:
 
 ```rust,ignore
 use waterui::app::App;
 use waterui::prelude::*;
-use waterui::window::Window;
-use waterui::window::WindowState;
+use waterui::window::{Window, WindowState};
 
-# fn main_view() -> impl View { text("Main") }
-# fn settings_view() -> impl View { text("Settings") }
+fn main_view() -> impl View { text("Main") }
+fn settings_view() -> impl View { text("Settings") }
+
 pub fn app(env: Environment) -> App {
     App::new_with_windows(
         [
             Window::new("Main", Binding::container(WindowState::Normal), main_view),
-            Window::new("Settings", Binding::container(WindowState::Normal), settings_view),
+            Window::new("Settings", Binding::container(WindowState::Closed), settings_view),
         ],
         env,
     )
 }
 ```
 
-### 3. The generated FFI companion
+A window's `WindowState` binding controls whether it is open, so a window
+created as `Closed` appears when you flip its state to `Normal`.
 
-Your user crate stops at `app(env)`. The CLI generates a separate FFI
-companion crate in the managed backend cache for playground projects, or in
-`backends/ffi/` for app projects. That companion depends on your crate and
-`waterui-ffi`, calls the export macro, and exposes the C-ABI functions native
-backends load.
+There is no third piece. The FFI companion crate is generated and maintained by
+the CLI; `waterui_ffi::export!()` does not belong in your source.
 
-Do not add `waterui_ffi::export!()` to `src/lib.rs`; it belongs in the
-generated companion crate, not in your application crate.
-
-## Putting It All Together
-
-A complete, well-structured project looks like this:
+## A worked example
 
 ```text
 my-app/
   Cargo.toml
   Water.toml
   src/
-    lib.rs             # Entry point: main(), app(), export!()
+    lib.rs             # main() and app()
     views/
-      mod.rs           # View module declarations
-      home.rs          # Home screen view
-      settings.rs      # Settings screen view
+      mod.rs
+      home.rs
+      settings.rs
   assets/
-    raw/
-      config.json
+    Icon.png
+    config.json
     images/
       logo.png
 ```
@@ -393,30 +373,10 @@ name = "My App"
 bundle_identifier = "dev.waterui.myapp"
 ```
 
-```toml
-# Cargo.toml
-[package]
-name = "my-app"
-version = "0.1.0"
-edition = "2024"
-
-[lib]
-crate-type = ["lib"]
-
-[dependencies]
-waterui = { version = "0.2", default-features = false }
-
-[target."cfg(not(target_arch = \"wasm32\"))".dependencies]
-waterui = { version = "0.2", default-features = false, features = ["assets", "media", "webview", "flow-markdown"] }
-
-[features]
-dev = ["waterui/dynamic_linking"]
-```
-
 ```rust,ignore
 // src/lib.rs
-use waterui::prelude::*;
 use waterui::app::App;
+use waterui::prelude::*;
 
 mod views;
 
@@ -429,36 +389,23 @@ pub fn app(env: Environment) -> App {
 }
 ```
 
-## Playground vs Full: When to Switch
+## When to switch modes
 
-Start with **playground mode** for:
-- Learning and experimentation
-- Prototyping ideas
-- Small personal projects
-- Following this book's examples
+Stay in **playground mode** for learning, prototypes, and small projects --
+anything where native build settings are not the point.
 
-Switch to **full project mode** when you need:
-- Custom native build settings
-- Platform-specific native code (Swift/Kotlin extensions)
-- CI/CD integration with native build tools
-- App Store or Play Store submission
-- Fine-grained control over backend dependencies
+Move to **app mode** when you need custom native build settings, Swift or
+Kotlin code of your own, CI that drives Xcode or Gradle directly, store
+submission, or per-backend dependency control.
 
-To move from playground to app mode, create a fresh app project with the
-backends you want and move your `src/`, `assets/`, and manifest settings over.
-If you intentionally want to keep generated native projects, copy them from the
-managed cache at
+To migrate, create a fresh app project with the backends you want and move
+`src/`, your assets, and your manifest settings across. If you want to keep the
+generated native projects, copy them from
 `~/.water/build_cache/<absolute-project-path>/managed_backends/`, set
-`type = "app"`, and add a matching `[backends]` section.
+`type = "app"`, and add the matching `[backends]` section.
 
-> **Tip:** There is no rush to switch. Many developers stay in playground mode
-> well into development and only convert when they are ready to customise
-> native settings for release.
+## Next steps
 
-## What's Next
-
-With a solid understanding of how WaterUI projects are structured, you are
-ready to dive into the framework's core concepts. In
-[The View System](../02-core/01-view.md), you will learn how the `View`
-trait works, how views compose, and how the framework turns your Rust types
-into platform-native UI.
+Continue to [The View System](../02-core/01-view.md) to learn how the `View`
+trait works, how views compose, and how the framework turns Rust types into
+platform-native UI.

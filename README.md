@@ -24,7 +24,7 @@ mdbook serve --open
 - **Core Concepts**: Master views, reactive state management, and the environment system
 - **Basic Components**: Work with layouts, text, forms, media, and navigation
 - **Advanced Topics**: Animations, suspense, error handling, plugins, accessibility, i18n, canvas, and shaders
-- **Internals**: Deep dive into WaterUI's rendering engine, hot reload, and layout system
+- **Internals**: Deep dive into WaterUI's rendering engine, the preview pipeline, and layout system
 
 ## 📋 Prerequisites
 

@@ -1,426 +1,337 @@
-# Maps and Location
+# Maps and location
 
 > **In this chapter, you will:**
-> - Embed interactive maps with annotations and styles
-> - Track and display the user's real-time location
-> - Build a complete location-aware feature with reactive state
-> - Understand cross-platform differences in map rendering
+> - Place a map, set its region, and drop annotations
+> - Drive the camera and the user-location marker from reactive signals
+> - Read the device location through `waterkit-location`, permission first
+> - Configure the GPU vector map that non-Apple platforms render
 
-Picture a ride-sharing app that follows your car in real time, or a travel guide that drops pins on every restaurant nearby. Maps are one of those features that instantly make an app feel polished and professional. WaterUI gives you native map rendering through the `waterui-map` crate and cross-platform location access via `waterkit-location`, all with a declarative, reactive API.
+> **Feature flag:** Maps live behind the `map` feature on `waterui`. Enable it in `Cargo.toml` (`waterui = { version = "...", features = ["map"] }`) so `waterui::map` is available.
 
-> **Feature flag:** Maps live behind the `map` feature on `waterui`. Enable it in `Cargo.toml` (`waterui = { version = "...", features = ["map"] }`) so the prelude re-export `waterui::map` is available.
-
-## Crate Overview
-
-| Crate | Purpose |
-|---|---|
-| `waterui-map` | The `Map` view component, `Coordinate`, `Region`, `Annotation`, map styles |
-| `waterkit-location` | Cross-platform `Location::get()`, permission handling, coordinate data |
-
-The map crate re-exports the location crate for convenience:
+Two crates are involved. `waterui-map` gives you the `Map` view and its geographic types; `waterkit-location` provides device location. The map crate re-exports the location crate, so you rarely need a second dependency:
 
 ```rust,ignore
-use waterui::map::location; // waterkit-location
-use waterui::map::Location; // waterkit_location::Location
+use waterui::map::location;                  // the whole waterkit-location crate
+use waterui::map::{Latitude, Location, Longitude, OutOfRange, Timestamp};
 ```
 
 ---
 
-## Coordinates and Regions
+## Coordinates and regions
 
-Before you can display a map, you need to tell it *where* to look. That starts with two types: `Coordinate` and `Region`.
-
-### `Coordinate`
-
-A geographic point on the globe:
+Latitude and longitude are validated newtypes, not bare `f64`. Build a coordinate from degrees and handle the range error:
 
 ```rust,ignore
-use waterui::map::Coordinate;
+use waterui::map::{Coordinate, OutOfRange};
 
-let san_francisco = Coordinate::new(37.7749, -122.4194);
-let tokyo = Coordinate::new(35.6762, 139.6503);
+fn landmarks() -> Result<(Coordinate, Coordinate), OutOfRange> {
+    let manhattan = Coordinate::from_degrees(40.7580, -73.9855)?;
+    let tokyo = Coordinate::from_degrees(35.6762, 139.6503)?;
+    Ok((manhattan, tokyo))
+}
 ```
 
-`Coordinate` has two fields:
-
-| Field | Type | Range |
-|---|---|---|
-| `latitude` | `f64` | -90.0 to 90.0 |
-| `longitude` | `f64` | -180.0 to 180.0 |
-
-You can convert from a `waterkit_location::Location` directly:
+`Coordinate::new` is the infallible constructor for values that are already `Latitude` and `Longitude` -- which is what a `Location` from the device hands you, so converting one never fails:
 
 ```rust,ignore
-use waterui::map::Coordinate;
-use waterkit_location::Location;
+use waterui::map::{Coordinate, Location};
 
-// From a Location reference
-let coord = Coordinate::from_location(&location);
-
-// Or via Into
-let coord: Coordinate = location.into();
+fn to_coordinate(location: &Location) -> Coordinate {
+    Coordinate::from_location(location)
+}
+// `From<Location>` and `From<&Location>` do the same thing.
 ```
 
-### `Region`
-
-A `Region` describes the visible area of the map -- a center coordinate plus
-a span in degrees:
+A `Region` is a center plus a span in degrees. Smaller deltas mean a tighter zoom:
 
 ```rust,ignore
 use waterui::map::{Coordinate, Region};
 
-// Explicit span
-let bay_area = Region::new(
-    Coordinate::new(37.7749, -122.4194),
-    0.5,  // latitude span in degrees
-    0.5,  // longitude span in degrees
-);
+fn midtown(center: Coordinate) -> Region {
+    Region::new(center, 0.030, 0.050)
+}
 
-// Default zoom from a coordinate
-let zoomed_in = Region::from_coordinate(Coordinate::new(37.7749, -122.4194));
-// Uses 0.05 degree span in both directions
+fn close_up(center: Coordinate) -> Region {
+    Region::from_coordinate(center) // 0.05 x 0.05 degrees
+}
 ```
 
-| Field | Description |
-|---|---|
-| `center` | The `Coordinate` at the center of the visible region |
-| `latitude_delta` | North-to-south span in degrees (smaller = more zoomed in) |
-| `longitude_delta` | East-to-west span in degrees |
-
-`Region` implements `From<Coordinate>`, so you can pass a bare coordinate
-anywhere a region is expected and get a sensible default zoom.
+`Region` implements `From<Coordinate>`, so `coordinate.into()` gives you that default span in one step. `Region::default()` sits at 0,0 with a 0.1-degree span -- useful in examples, useless in an app.
 
 ---
 
-## Displaying a Map
-
-Now let's put a map on screen. You will find it is just as straightforward as placing any other view.
-
-### Basic Map
+## Displaying a map
 
 ```rust,ignore
-use waterui::map::{Map, Coordinate, Region};
+use waterui::View;
+use waterui::map::{Coordinate, Map, Region};
 
 fn city_map() -> impl View {
-    let region = Region::new(
-        Coordinate::new(48.8566, 2.3522), // Paris
-        0.1,
-        0.1,
-    );
+    let paris = Coordinate::from_degrees(48.8566, 2.3522).expect("valid coordinate");
+    Map::new(Region::new(paris, 0.1, 0.1))
+}
+```
+
+`Map` stretches on both axes, so it fills whatever space its parent offers. Constrain it with `.size(width, height)`, `.width(...)`, or `.height(...)`, or let it fill the window under an `absolute` layer.
+
+Every constructor takes `impl IntoComputed<_>`, so a plain value and a signal are both accepted -- pass a `Binding<Region>` and the camera follows it:
+
+| Constructor | Free function | Input |
+|---|---|---|
+| `Map::new(region)` | `map(region)` | `Region` |
+| `Map::centered_on(coordinate)` | `map_centered_on(coordinate)` | `Coordinate`, default zoom |
+| `Map::centered_on_location(location)` | `map_centered_on_location(location)` | `Location`, default zoom |
+
+```rust,ignore
+use waterui::View;
+use waterui::map::{Map, Region};
+use waterui::reactive::binding;
+
+fn zoomable(region: Region) -> impl View {
+    let region = binding(region);
+    // Writing to `region` moves the camera; the map view is never rebuilt.
     Map::new(region)
-}
-```
-
-`Map::new` accepts any `Into<Computed<Region>>`, meaning you can pass:
-- A static `Region` value
-- A reactive `Computed<Region>` signal that updates the visible area over time
-
-### Centering on a Coordinate
-
-If you only have a coordinate and want the default zoom:
-
-```rust,ignore
-use waterui::map::{Map, Coordinate};
-
-fn pin_map() -> impl View {
-    Map::centered_on(Coordinate::new(35.6762, 139.6503))
-}
-```
-
-`Map::centered_on` also accepts `Computed<Coordinate>` for reactive updates.
-
-### Centering on a `Location`
-
-When working directly with the `waterkit-location` crate:
-
-```rust,ignore
-use waterui::map::Map;
-use waterkit_location::Location;
-
-fn location_map(location: Computed<Location>) -> impl View {
-    Map::centered_on_location(location)
 }
 ```
 
 ---
 
-## Annotations (Map Markers)
-
-A map without markers is just a pretty picture. Add pins with `Annotation`:
+## Annotations
 
 ```rust,ignore
-use waterui::map::{Map, Coordinate, Region, Annotation};
+use waterui::View;
+use waterui::map::{Annotation, Coordinate, Map, Region};
 
 fn annotated_map() -> impl View {
-    let sf = Coordinate::new(37.7749, -122.4194);
-    let la = Coordinate::new(34.0522, -118.2437);
+    let sf = Coordinate::from_degrees(37.7749, -122.4194).expect("valid coordinate");
+    let la = Coordinate::from_degrees(34.0522, -118.2437).expect("valid coordinate");
+    let center = Coordinate::from_degrees(36.0, -120.0).expect("valid coordinate");
 
-    Map::new(Region::new(Coordinate::new(36.0, -120.0), 5.0, 5.0))
-        .annotations(vec![
-            Annotation::new(sf, "San Francisco"),
-            Annotation::new(la, "Los Angeles")
-                .subtitle("City of Angels"),
-        ])
+    Map::new(Region::new(center, 5.0, 5.0)).annotations(vec![
+        Annotation::new(sf, "San Francisco"),
+        Annotation::new(la, "Los Angeles").subtitle("City of Angels"),
+    ])
 }
 ```
 
-### `Annotation` API
-
-| Method | Description |
-|---|---|
-| `Annotation::new(coordinate, title)` | Create with a position and title |
-| `.subtitle(text)` | Add optional subtitle text |
-
-Each annotation has these fields:
-
-| Field | Type | Description |
-|---|---|---|
-| `coordinate` | `Coordinate` | Where the pin is placed |
-| `title` | `Str` | Primary label shown on the annotation |
-| `subtitle` | `Option<Str>` | Secondary label (optional) |
-
-### Reactive Annotations
-
-Since `annotations` accepts `Into<Computed<Vec<Annotation>>>`, you can drive
-the marker list from a reactive signal. This is perfect for search results, live tracking, or any data that changes over time:
+An `Annotation` carries a `coordinate`, a `title: Str`, and an optional `subtitle: Option<Str>`. Because `.annotations()` accepts `impl IntoComputed<Vec<Annotation>>`, search results or live vehicle positions can be pushed straight in from a binding:
 
 ```rust,ignore
-use waterui::prelude::*;
-use waterui::map::{Map, Coordinate, Region, Annotation};
+use waterui::map::{Annotation, Map, Region};
+use waterui::{Binding, View};
 
-fn dynamic_markers() -> impl View {
-    let markers = Binding::container(vec![
-        Annotation::new(Coordinate::new(37.7749, -122.4194), "Start"),
-    ]);
-
-    Map::new(Region::default())
-        .annotations(markers.into_computed())
+fn search_results(results: Binding<Vec<Annotation>>) -> impl View {
+    Map::new(Region::default()).annotations(results)
 }
 ```
 
 ---
 
-## Map Styles
-
-Choose between three display modes to match the feel of your app:
+## Map styles
 
 ```rust,ignore
-use waterui::map::{Map, Region, MapStyle};
+use waterui::map::{Map, MapStyle, Region};
+use waterui::View;
 
-fn satellite_view() -> impl View {
-    Map::new(Region::default())
-        .style(MapStyle::Satellite)
+fn satellite_view(region: Region) -> impl View {
+    Map::new(region).style(MapStyle::Satellite)
 }
 ```
 
-| Style | Description |
-|---|---|
-| `MapStyle::Standard` | Road map with labels (default) |
-| `MapStyle::Satellite` | Satellite imagery |
-| `MapStyle::Hybrid` | Satellite imagery with road overlays |
+`MapStyle::Standard` (the default) is a road map, `Satellite` is imagery, and `Hybrid` overlays roads on imagery.
+
+> **Apple only.** `Satellite` and `Hybrid` are honored by the native MapKit realization. The GPU vector realization used on other platforms panics on anything but `Standard`, because raster imagery needs a realization it does not have yet. On those platforms the map's look comes from the MapLibre style you supply -- see [How your map is realized](#how-your-map-is-realized).
 
 ---
 
-## User Location
+## User location
 
-### Showing the User's Position
+Four builders touch the location marker, and they differ in who supplies the coordinates:
 
-Display the familiar blue dot indicating the user's current location:
+| Method | Effect |
+|---|---|
+| `.shows_user_location(true)` | Turns the marker on and lets the platform's own location service feed it |
+| `.user_location(signal)` | Turns the marker on and draws `Location` values from your signal |
+| `.optional_user_location(signal)` | Same, but `None` draws no marker -- the state to use while a permission prompt is pending |
+| `.follows_location(signal)` | Marker on, plus the camera re-centers on every new value |
+
+```rust,ignore
+use waterui::map::{Location, Map, Region};
+use waterui::{Binding, View};
+
+fn tracking_map(location: Binding<Option<Location>>, region: Binding<Region>) -> impl View {
+    Map::new(region).optional_user_location(location)
+}
+```
+
+> **The signal is not optional off Apple.** `shows_user_location(true)` alone leaves the location signal empty. MapKit fills that in from CoreLocation; the GPU realization has no platform location service to fall back on and simply draws nothing. Feed it `user_location` or `optional_user_location` if you want the marker everywhere.
+
+Supplying the signal yourself is also what keeps camera following, the marker, and the horizontal-accuracy circle driven by one source instead of drifting apart.
+
+---
+
+## Interaction and chrome
 
 ```rust,ignore
 use waterui::map::{Map, Region};
+use waterui::View;
 
-fn location_enabled_map() -> impl View {
-    Map::new(Region::default())
-        .shows_user_location(true)
-}
-```
-
-> **Note:** This requires location permission. Use `Location::ask_permission()`
-> or let the platform prompt the user automatically.
-
-### Following the User
-
-`follows_location` both centers the map on a reactive `Location` stream and
-enables the user-location indicator. The map moves as the user moves -- great for navigation or fitness tracking:
-
-```rust,ignore
-use waterui::map::Map;
-use waterkit_location::Location;
-
-fn tracking_map(location: Computed<Location>) -> impl View {
-    Map::new(Region::default())
-        .follows_location(location)
-}
-```
-
-This is equivalent to calling `shows_user_location(true)` plus binding the
-region to the location signal.
-
----
-
-## Map Interaction Controls
-
-Fine-tune the map's interactive behavior. For example, you might want a non-interactive overview map in a list cell:
-
-```rust,ignore
-use waterui::map::{Map, Region};
-
-fn static_overview() -> impl View {
-    Map::new(Region::default())
-        .is_interactive(false)  // Disable pan and zoom
-        .shows_compass(false)   // Hide the compass
-        .shows_scale(true)      // Show the scale bar
-}
-```
-
-| Method | Default | Description |
-|---|---|---|
-| `is_interactive(bool)` | `true` | Enable or disable pan/zoom gestures |
-| `shows_compass(bool)` | `true` | Show the compass indicator |
-| `shows_scale(bool)` | `true` | Show the distance scale bar |
-
----
-
-## Getting the User's Location
-
-The `waterkit-location` crate provides a cross-platform API for accessing device location:
-
-```rust,ignore
-use waterkit_location::{Location, LocationError};
-
-async fn where_am_i() -> Result<(), LocationError> {
-    let location = Location::get().await?;
-
-    tracing::info!("Lat: {}", location.latitude());
-    tracing::info!("Lon: {}", location.longitude());
-
-    if let Some(alt) = location.altitude() {
-        tracing::info!("Altitude: {} meters", alt);
-    }
-
-    tracing::info!("Accuracy: {:?} meters", location.horizontal_accuracy());
-    tracing::info!("Time: {:?}", location.timestamp());
-
-    Ok(())
-}
-```
-
-### `Location` Accessors
-
-| Method | Return Type | Description |
-|---|---|---|
-| `latitude()` | `f64` | Latitude in degrees |
-| `longitude()` | `f64` | Longitude in degrees |
-| `altitude()` | `Option<f64>` | Altitude in meters above sea level |
-| `horizontal_accuracy()` | `Option<f64>` | Horizontal accuracy in meters |
-| `vertical_accuracy()` | `Option<f64>` | Vertical accuracy in meters |
-| `timestamp()` | `Timestamp` | When the location was recorded |
-
-### Error Handling
-
-`Location::get()` returns `Result<Location, LocationError>`:
-
-| Error | Description |
-|---|---|
-| `PermissionDenied` | The user denied location access |
-| `ServiceDisabled` | Location services are turned off on the device |
-| `Timeout` | The location request timed out |
-| `NotAvailable` | Location data could not be determined |
-| `Unknown(String)` | An unexpected platform error |
-
-### Permissions
-
-`Location::get()` calls `Location::ask_permission()` automatically. If you
-want to check permission status before presenting the map, call it explicitly:
-
-```rust,ignore
-use waterkit_location::Location;
-
-async fn ensure_location_access() {
-    if let Err(e) = Location::ask_permission().await {
-        tracing::warn!("Location permission not granted: {e}");
-    }
-}
-```
-
----
-
-## Convenience Function
-
-A free function `map()` is available as a shorthand for `Map::new()`:
-
-```rust,ignore
-use waterui::map::{map, Region};
-
-fn quick_map() -> impl View {
-    map(Region::default())
-}
-```
-
----
-
-## Complete Example
-
-Here is a complete example that fetches the user's location and displays a
-map centered on it with an annotation:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::map::{Annotation, Coordinate, Map, MapStyle, Region};
-use waterkit_location::Location;
-
-fn location_app() -> impl View {
-    let location_binding: Binding<Option<Location>> = Binding::container(None);
-
-    // Reactive map region and annotations derived from the same source signal.
-    let region = location_binding.map(|opt| {
-        opt.map(|loc| Region::from_coordinate(Coordinate::from(loc)))
-            .unwrap_or_default()
-    });
-
-    let annotations = location_binding.map(|opt| {
-        opt.map(|loc| vec![
-            Annotation::new(Coordinate::from(loc), "You are here"),
-        ])
-        .unwrap_or_default()
-    });
-
-    // Fetch the location once when the map appears; the task is cancelled with the view.
-    let loc = location_binding.clone();
+fn thumbnail(region: Region) -> impl View {
     Map::new(region)
-        .annotations(annotations)
-        .style(MapStyle::Standard)
-        .shows_user_location(true)
-        .shows_compass(true)
-        .task(async move {
-            match Location::get().await {
-                Ok(location) => loc.set(Some(location)),
-                Err(e) => tracing::error!("Location error: {e}"),
-            }
-        })
+        .is_interactive(false) // no pan, no zoom -- good for a list cell
+        .shows_compass(false)
+        .shows_scale(false)
 }
 ```
 
----
-
-## Platform Considerations
-
-| Feature | Apple | Android | Desktop |
-|---|---|---|---|
-| Map rendering | MKMapView (MapKit) | Platform map view | WIP |
-| Standard/Satellite/Hybrid | All supported | All supported | -- |
-| User location dot | Native | Native | -- |
-| Annotations | Native pins | Native markers | -- |
-| Location access | CoreLocation | FusedLocationProvider | GeoClue (Linux), WinRT (Windows) |
-
-The `Map` component uses the `configurable!` macro with `StretchAxis::Both`,
-meaning it expands to fill available space in both directions by default. Use
-layout modifiers like `.size(width, height)`, `.width(...)`, or `.height(...)`
-to constrain its size when needed.
+All three default to on. `is_interactive(false)` is respected everywhere: the GPU realization skips installing its drag and magnification gestures entirely. The compass and scale bar are MapKit chrome; the GPU realization draws neither, so treat them as an Apple refinement rather than a guarantee.
 
 ---
 
-## What's Next
+## Reading the device location
 
-You have maps and location covered. Next up: [WebView](03-webview.md), where you will embed web content directly into your app -- complete with JavaScript bridges, cookie management, and navigation controls.
+`Location::get()` does **not** prompt. It assumes the permission is already granted, which means you ask first through `waterkit-permission` (a direct dependency -- `waterui` does not re-export it):
+
+```rust,ignore
+use waterkit_permission::{Permission, request};
+use waterui::map::Location;
+use waterui::map::location::{LocationError, PermissionStatus};
+
+async fn current_location() -> Result<Option<Location>, LocationError> {
+    match request(Permission::Location).await {
+        Ok(PermissionStatus::Granted) => Location::get().await.map(Some),
+        Ok(status) => {
+            tracing::warn!("location permission: {status:?}");
+            Ok(None)
+        }
+        Err(error) => {
+            tracing::error!("permission request failed: {error}");
+            Ok(None)
+        }
+    }
+}
+```
+
+`request` returns `Granted`, `Denied`, `Restricted`, or `NotDetermined` -- on Android the last one persists until the host Activity applies the callback result, so treat "not granted" as a state to render, not an error to swallow.
+
+A `Location` exposes its data through accessors. `latitude()` and `longitude()` return the `Latitude`/`Longitude` newtypes; call `.get()` for the underlying `f64`:
+
+| Accessor | Type |
+|---|---|
+| `latitude()` / `longitude()` | `Latitude` / `Longitude` |
+| `altitude()` | `Option<f64>` meters above sea level |
+| `horizontal_accuracy()` / `vertical_accuracy()` | `Option<f64>` meters |
+| `timestamp()` | `Timestamp` |
+
+`LocationError` is `#[non_exhaustive]` with `PermissionDenied`, `ServiceDisabled`, `Timeout`, `NotAvailable`, `InvalidCoordinate(OutOfRange)`, and `Platform(String)`.
+
+---
+
+## How your map is realized
+
+You do not pick a map backend. `Map` is a semantic view, and whichever backend you build against realizes it:
+
+- **Apple platforms** bridge `MKMapView` from MapKit. Styles, compass, scale, and the CoreLocation-driven blue dot all come from the system.
+- **Self-drawn backends** (Hydrolysis and friends) install a GPU vector-map realization that fetches a MapLibre style and vector tiles and draws them with the same GPU pipeline as the rest of your UI. The backend installs it during bootstrap only when no native map hook is present, so app code neither imports it nor chooses it.
+
+There is one seam you must handle: WaterUI hosts no tile service, so the GPU realization has nowhere to fetch from until you name a provider. Add `waterui-map-gpu` as a dependency -- the `waterui` facade does not re-export it -- and insert `MapGpuOptions` into the app environment with a MapLibre style URL:
+
+```rust,ignore
+use waterui::app::App;
+use waterui::env::Environment;
+use waterui::Url;
+use waterui_map_gpu::MapGpuOptions;
+
+pub fn app(mut env: Environment) -> App {
+    env.insert(MapGpuOptions::new(Url::new(
+        "https://tiles.openfreemap.org/styles/positron",
+    )));
+    App::new(root_view, env)
+}
+```
+
+Realizing a GPU map without `MapGpuOptions` in the environment panics -- fast failure by design, not a blank tile grid you have to debug. Insert it whenever your app targets a platform without a native map; on Apple the value is simply unused.
+
+Beyond the style URL, `MapGpuOptions` is a builder over the resources the realization is allowed to consume: `maximum_style_bytes`, `maximum_tilejson_bytes`, `maximum_tile_bytes`, `tile_cache_bytes`, `maximum_in_flight_tile_requests`, `request_timeout`, `network_retry_policy`, and `camera_animation`. Defaults cover an ordinary app; reach for them when you are on a metered connection or a tight memory budget.
+
+```rust,ignore
+use std::num::NonZeroU64;
+use std::time::Duration;
+use waterui::Url;
+use waterui_map_gpu::MapGpuOptions;
+
+let options = MapGpuOptions::new(Url::new("https://tiles.openfreemap.org/styles/positron"))
+    .tile_cache_bytes(NonZeroU64::new(32 * 1024 * 1024).expect("non-zero"))
+    .request_timeout(Duration::from_secs(10));
+```
+
+`MapNetworkRetryPolicy::new(attempts, initial_delay, maximum_delay)` builds the backoff policy; the default is four attempts starting at 250 ms and capped at 4 s.
+
+---
+
+## Putting it together
+
+A map centered on Manhattan, with a button that requests permission and then moves the camera to the user:
+
+```rust,ignore
+use waterkit_permission::{Permission, request};
+use waterui::map::location::PermissionStatus;
+use waterui::map::{Coordinate, Location, Map, MapStyle, Region};
+use waterui::prelude::*;
+use waterui::reactive::binding;
+
+fn located_map() -> impl View {
+    let region = binding(Region::new(
+        Coordinate::from_degrees(40.7580, -73.9855).expect("valid coordinate"),
+        0.030,
+        0.050,
+    ));
+    let user_location: Binding<Option<Location>> = binding(None);
+    let status = binding(Str::from("Location not requested"));
+
+    let map = Map::new(region.clone())
+        .style(MapStyle::Standard)
+        .optional_user_location(user_location.clone())
+        .shows_compass(true)
+        .shows_scale(true);
+
+    let locate = button("Use my location")
+        .action_async(
+            |State(location): State<Binding<Option<Location>>>,
+             State(region): State<Binding<Region>>,
+             State(status): State<Binding<Str>>| async move {
+                match request(Permission::Location).await {
+                    Ok(PermissionStatus::Granted) => match Location::get().await {
+                        Ok(value) => {
+                            region.set(Region::from_coordinate(Coordinate::from(&value)));
+                            location.set(Some(value));
+                            status.set("Following your location".into());
+                        }
+                        Err(error) => {
+                            tracing::error!("location request failed: {error}");
+                            status.set("Location unavailable".into());
+                        }
+                    },
+                    Ok(other) => status.set(format!("Permission: {other:?}").into()),
+                    Err(error) => {
+                        tracing::error!("permission request failed: {error}");
+                        status.set("Permission request failed".into());
+                    }
+                }
+            },
+        )
+        .state(&user_location)
+        .state(&region)
+        .state(&status);
+
+    vstack((map, locate, text!("{status}").caption()))
+}
+```
+
+Note what does *not* happen here: no `watch`, no rebuild. Writing to `region` moves the camera, writing to `user_location` moves the marker, and the `Map` view itself is constructed once. The repository's `examples/map` is a fuller version of this, with floating zoom controls and a status panel.
+
+---
+
+## What's next
+
+Next up: [WebView](03-webview.md), where you embed web content in your app -- JavaScript bridges, cookie management, and navigation controls included.

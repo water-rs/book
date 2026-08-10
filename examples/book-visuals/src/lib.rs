@@ -1,9 +1,9 @@
 use waterui::app::App;
 use waterui::barcode::Barcode;
 use waterui::component::list::{List, Section, detail_row, row};
+use waterui::component::slider::slider;
 use waterui::graphics::{
-    FilterViewExt, GpuContext, GpuFrame, GpuSurface, GpuView, Gradient, ResolvedColor,
-    ShaderSurface, impl_gpu_subview,
+    FilterViewExt, GpuContext, GpuFrame, GpuSurface, GpuView, Gradient, ResolvedColor, shader,
 };
 use waterui::layout::{Point, Rect, Size};
 use waterui::prelude::*;
@@ -198,7 +198,7 @@ fn controls_input_sample() -> impl View {
             ))
             .spacing(12.0),
             toggle("Live preview", &enabled).switch(),
-            Slider::new("Volume", &volume)
+            slider("Volume", &volume)
                 .min_value_label("0")
                 .max_value_label("100"),
             stepper("Seats", &seats)
@@ -226,7 +226,7 @@ fn forms_data_entry_sample() -> impl View {
             field("Display name", &name).prompt("Required"),
             toggle("Send release notes", &marketing),
             stepper("Team seats", &seats).range(1..=10),
-            Slider::new("Confidence", &confidence),
+            slider("Confidence", &confidence),
             hstack((
                 text("Accent color").foreground(dark_text()),
                 spacer(),
@@ -368,7 +368,7 @@ impl GpuView for TriangleRenderer {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("book triangle layout"),
                 bind_group_layouts: &[],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
         let blend = if context.is_hdr() {
             None
@@ -398,8 +398,8 @@ impl GpuView for TriangleRenderer {
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-                cache: context.pipeline_cache,
+                multiview_mask: None,
+                cache: None,
             },
         ));
     }
@@ -434,6 +434,7 @@ impl GpuView for TriangleRenderer {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(pipeline);
             pass.draw(0..3, 0..1);
@@ -442,8 +443,6 @@ impl GpuView for TriangleRenderer {
     }
 }
 
-impl_gpu_subview!(TriangleRenderer);
-
 #[preview]
 fn gpu_surface_triangle() -> impl View {
     GpuSurface::new(TriangleRenderer::default())
@@ -451,10 +450,7 @@ fn gpu_surface_triangle() -> impl View {
 
 #[preview]
 fn shader_plasma() -> impl View {
-    ShaderSurface::with_label(
-        "book_plasma.wgsl",
-        include_str!("shaders/book_plasma.wgsl"),
-    )
+    shader!("shaders/book_plasma.wgsl")
 }
 
 #[preview]

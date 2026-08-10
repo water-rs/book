@@ -1,24 +1,104 @@
 # Buttons and controls
 
 > **In this chapter, you will:**
+> - Give every control a semantic `Label`, and hide it visually when the design calls for it
 > - Wire button actions to reactive state with `.action()` and the `State<T>` extractor
 > - Use `Toggle`, `Slider`, `Stepper`, and `TextField` for primary user input
-> - Apply button styles to convey hierarchy (primary vs. secondary actions)
-> - Build dropdown menus from labels and nested submenus
+> - Build menus from commands, dividers, and nested submenus
+> - Disable a single control or an entire subtree from a signal
 
-Imagine you are building a settings screen. You need toggles for on/off preferences, a slider for brightness, a text field for a username, and buttons to save or cancel. WaterUI provides a comprehensive set of interactive controls for exactly these scenarios. Each control follows a consistent pattern: you create it with a constructor or convenience function, configure it with builder methods, and wire it to reactive state through bindings.
+Every WaterUI control has the same shape: a constructor that demands a semantic label, builder methods for configuration, and either a reactive binding carrying values in and out or an action closure fired on activation.
 
 ![WaterUI controls preview with buttons toggle slider stepper and progress](../assets/visuals/03-ui/controls-input-sample.png)
 
 *A Hydrolysis preview of WaterUI controls rendered from real bindings. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
+## Labels come first
+
+A control's label is not decoration. Screen readers, voice control, and command palettes all read it to announce and activate the control, so `Label` sits in the constructor signature rather than in a builder method you might forget.
+
+Anything that converts into semantic text is a label — `&str`, `String`, `Str`, `Text`, `StyledStr`, and any `Binding` or `Computed` of those. That is the `IntoLabel` trait, and the convenience constructors accept it directly:
+
+```rust,ignore
+use waterui::prelude::*;
+
+fn save_button() -> impl View {
+    button("Save").action(|| {})
+}
+```
+
+For anything richer, build the label explicitly. The `label(...)` free function creates a semantic text label you can decorate with an icon:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::icon::system_icon;
+
+fn add_button() -> impl View {
+    button(label("Add item").icon(system_icon::plus())).action(|| {})
+}
+```
+
+`Label::new(spoken_text, content)` is the general constructor: it takes arbitrary visual content plus the separate text that assistive technology should announce. Reach for it only when the two genuinely differ.
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::icon::system_icon;
+
+fn account_button() -> impl View {
+    button(Label::new(
+        "Verified account",
+        hstack((text("Account"), system_icon::checkmark())),
+    ))
+    .action(|| {})
+}
+```
+
+The two label kinds are not interchangeable. `.icon()`, `.system_icon()`, `.leading()`, `.trailing()`, `.spacing()`, and `.font()` describe how a *semantic* label arranges its text and icon, so they **panic** on a `Label::new` label. Style arbitrary content inside the view you pass to `Label::new` instead.
+
+> **Platform note:** `system_icon` renders SF Symbols on Apple platforms and is
+> intentionally unsupported on Android, Linux, and Web. For portable icons, pass
+> an icon-pack view to `.icon(...)` from a crate such as `waterui-icons-lucide`
+> or `waterui-icons-material-icon`.
+
+### Hiding a label without losing it
+
+`.hide_label()` collapses the visible chrome to zero size while the semantic text stays in the accessibility tree. Use it for icon-only toolbars and for controls whose meaning is obvious from an adjacent icon:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::component::slider::slider;
+use waterui::icon::system_icon;
+
+fn rating_row(rating: &Binding<f64>) -> impl View {
+    hstack((
+        system_icon::star(),
+        slider("Rating", rating).hide_label(),
+    ))
+}
+```
+
+`LabelDisplayMode` covers the other presentations — `TitleAndIcon`, `TitleOnly`, `IconOnly`, `Hidden` — either per control with `.label_style(...)` or across a whole subtree as an installed plugin:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::icon::system_icon;
+
+fn toolbar() -> impl View {
+    hstack((
+        button(label("Search").icon(system_icon::search())).action(|| {}),
+        button(label("Settings").icon(system_icon::settings())).action(|| {}),
+    ))
+    .install(LabelDisplayMode::IconOnly)
+}
+```
+
+### Two constructors per control
+
+Each control exposes a general constructor and an ergonomic one. `Button::new`, `Slider::new`, and `Stepper::new` take a fully built `Label`; the free functions `button(...)`, `slider(...)`, and `stepper(...)` take any `IntoLabel` and do the conversion for you. Prefer the free functions unless you already hold a `Label`.
+
 ## Button
 
-Buttons are the most common interactive element. WaterUI buttons support multiple action patterns, custom labels, and visual styles.
-
 ### Simple action
-
-The simplest button takes a label and a closure with no arguments:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -32,7 +112,7 @@ fn dismiss() -> impl View {
 
 ### Reactive state via `.state()` and `State<T>`
 
-Most real buttons need to mutate some reactive state — for example, increment a counter. The pattern is two-sided: pass the binding into the action through `State<T>` extractors, then attach the binding to the button's environment with `.state()`:
+An action closure receives its arguments through extraction, not capture. Inject the binding into the button's environment with `.state()`, then pull it back out inside the action with the `State<T>` extractor:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -40,62 +120,61 @@ use waterui::prelude::*;
 fn increment(counter: &Binding<i32>) -> impl View {
     button("Increment")
         .action(|State(count): State<Binding<i32>>| {
-            count.set(count.get() + 1);
+            *count.get_mut() += 1;
         })
         .state(counter)
 }
 ```
 
-Chain several `.state()` calls when an action needs more than one binding. They line up positionally with the `State<T>` parameters in the action closure:
+`get_mut()` returns a guard that writes back on drop, so read-modify-write needs one statement instead of a `get`/`set` pair.
+
+Chain `.state()` once per value the action needs. Each `State<T>` parameter is matched by its type:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn reset(x: &Binding<i32>, y: &Binding<i32>) -> impl View {
-    button("Reset")
-        .action(|State(x): State<Binding<i32>>, State(y): State<Binding<i32>>| {
-            x.set(0);
-            y.set(0);
+fn discard_button(draft: &Binding<Str>, is_dirty: &Binding<bool>) -> impl View {
+    button("Discard")
+        .action(|State(draft): State<Binding<Str>>, State(dirty): State<Binding<bool>>| {
+            draft.set(Str::default());
+            dirty.set(false);
         })
-        .state(x)
-        .state(y)
+        .state(draft)
+        .state(is_dirty)
 }
 ```
 
-> **Note:** `.state()` is a `ViewExt` method that injects the value into the
-> button's local environment. Inside the action, the `State<T>` extractor
-> pulls it back out by type and position. This avoids manual `clone()` dances
-> at every call site and keeps the binding free of accidental capture.
+> **Note:** `.state()` is a `ViewExt` method, so it wraps the button in a plain
+> view. Call it after `.action()` and after any button-specific builder.
 
 ### Environment extraction
 
-Any value already present in the environment can be extracted directly — no `State` wrapper needed. For example, the navigation controller is injected by `NavigationStack`:
+Any value already in the environment can be extracted directly, with no `State` wrapper. The navigation controller injected by `NavigationStack` is the common case:
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::navigation::NavigationController;
 
 fn back_button() -> impl View {
-    button("Go Back").action(|nav: NavigationController| nav.pop())
+    button("Go back").action(|nav: NavigationController| nav.pop())
 }
 ```
 
-You can mix `State<T>` parameters with environment extractors in the same action; the extraction order follows the parameter order.
+Environment extractors and `State<T>` parameters mix freely in one closure.
 
 ### Async actions
 
-Use `action_async` when the handler needs to await something. The future is spawned on the local executor, so it can `await` network calls or file I/O:
+`action_async` spawns the returned future on the local executor, so the handler can await network or file I/O:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-async fn fetch_from_server() -> String { unimplemented!() }
+async fn fetch_from_server() -> Str { unimplemented!() }
 
-fn fetch_button(result: &Binding<String>) -> impl View {
-    button("Fetch Data")
-        .action_async(|State(result): State<Binding<String>>| async move {
-            let data = fetch_from_server().await;
-            result.set(data);
+fn fetch_button(result: &Binding<Str>) -> impl View {
+    button("Fetch data")
+        .action_async(|State(result): State<Binding<Str>>| async move {
+            result.set(fetch_from_server().await);
         })
         .state(result)
 }
@@ -103,278 +182,220 @@ fn fetch_button(result: &Binding<String>) -> impl View {
 
 ### Button styles
 
-`ButtonStyle` controls visual emphasis. Choose the right style to communicate the importance of an action:
+`ButtonStyle` sets visual emphasis, and the platform decides how each style is drawn.
 
-| Style                | Description                                |
-|----------------------|--------------------------------------------|
-| `Automatic`          | Platform default (default)                 |
-| `Plain`              | No background or border                    |
-| `Link`               | Hyperlink appearance                       |
-| `Borderless`         | No visible border, hover/press effects     |
-| `Bordered`           | Subtle border, for secondary actions       |
-| `BorderedProminent`  | Filled background, for primary actions     |
+| Style               | Use for                                    |
+|---------------------|--------------------------------------------|
+| `Automatic`         | Platform default (the default)             |
+| `Plain`             | Low-emphasis actions, toolbar buttons      |
+| `Link`              | Text-based links and URL navigation        |
+| `Borderless`        | No border, but hover and press feedback    |
+| `Bordered`          | Secondary actions                          |
+| `BorderedProminent` | The one primary action on a screen         |
 
-Apply with `.style()` or convenience methods:
+Apply a style with `.style(...)` or one of the convenience methods:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn cta_row() -> impl View {
     hstack((
-        button("Primary").bordered_prominent().action(|| {}),
-        button("Secondary").bordered().action(|| {}),
-        button("Subtle").plain().action(|| {}),
-        button("Learn More").link().action(|| {}),
+        button("Continue").bordered_prominent().action(|| {}),
+        button("Cancel").bordered().action(|| {}),
+        button("Learn more").link().action(|| {}),
     ))
 }
 ```
-
-> **Tip:** Use `bordered_prominent` for the main call-to-action on a screen,
-> and `bordered` or `plain` for secondary actions. This creates a clear
-> visual hierarchy.
-
-### Custom labels
-
-`button(...)` accepts any value that converts into a semantic `Label`, including raw strings. For richer content — an icon plus text, for instance — build a `Label`:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::icon::system_icon;
-
-fn add_button() -> impl View {
-    button(label("Add Item").icon(system_icon::plus())).action(|| {})
-}
-```
-
-Buttons inside a `Menu` must use a semantic label or set `accessibility_label`, otherwise the menu cannot announce them to assistive technology.
 
 ## Toggle
 
-`Toggle` is a boolean switch backed by a `Binding<bool>`. It is the natural choice for any on/off setting — Wi-Fi, dark mode, or notification preferences:
+`Toggle` is a boolean switch backed by a `Binding<bool>`. `Toggle::new` takes only the binding and starts with an empty label, so attach one with `.label(...)` — or use `toggle(...)`, which does both:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn settings(is_enabled: &Binding<bool>, dark_mode: &Binding<bool>) -> impl View {
+fn settings(wifi: &Binding<bool>, dark_mode: &Binding<bool>) -> impl View {
     vstack((
-        // With a label.
-        toggle("Wi-Fi", is_enabled),
-        // Without a label.
-        Toggle::new(dark_mode),
+        toggle("Wi-Fi", wifi),
+        Toggle::new(dark_mode).label("Dark mode").switch(),
     ))
 }
 ```
 
-### Toggle styles
-
-```rust,ignore
-pub enum ToggleStyle {
-    Automatic, // platform default
-    Switch,    // sliding pill
-    Checkbox,  // square with checkmark
-}
-```
-
-Apply with `.style()`:
-
-```rust,ignore
-use waterui::prelude::*;
-
-fn dark_mode_switch(dark: &Binding<bool>) -> impl View {
-    Toggle::new(dark)
-        .label("Dark Mode")
-        .style(ToggleStyle::Switch)
-}
-```
-
-### Layout behavior
-
-With a label, `Toggle` expands horizontally to fill available space, placing the label on the leading edge and the switch on the trailing edge. Without a label, it is content-sized.
+`ToggleStyle` chooses the presentation: `Automatic` (platform default), `Switch` (sliding pill), or `Checkbox`. `.switch()` and `.checkbox()` are shorthands for `.style(...)`.
 
 ## Slider
 
-`Slider` lets users select a value from a continuous range by dragging a thumb. The constructor takes the binding directly; the range defaults to `0.0..=1.0` and is overridden with `.range(...)`:
+`Slider` selects a value from a continuous range. The default range is `0.0..=1.0`; `.range(...)` overrides it. The free function is not in the prelude, so import it directly:
 
 ```rust,ignore
 use waterui::prelude::*;
+use waterui::component::slider::slider;
 
 fn volume_slider(volume: &Binding<f64>) -> impl View {
-    slider(volume).range(0.0..=100.0)
+    slider("Volume", volume).range(0.0..=100.0)
 }
 ```
 
-### Labels
+`.min_value_label(...)` and `.max_value_label(...)` add captions at the ends of the track:
 
 ```rust,ignore
 use waterui::prelude::*;
+use waterui::component::slider::slider;
 
 fn brightness_slider(brightness: &Binding<f64>) -> impl View {
-    slider(brightness)
-        .label("Brightness")
+    slider("Brightness", brightness)
         .min_value_label("Dark")
         .max_value_label("Bright")
 }
 ```
 
-### Layout behavior
-
-Slider expands horizontally to fill available space but has a fixed height. In an `hstack`, it takes up all remaining width after other views are sized:
-
-```rust,ignore
-use waterui::prelude::*;
-
-fn volume_row(volume: &Binding<f64>) -> impl View {
-    hstack((
-        text("Volume"),
-        slider(volume).range(0.0..=100.0),
-    ))
-}
-```
-
 ## Stepper
 
-`Stepper` provides +/- buttons for incrementing or decrementing an `i32` value. Use it for precise, discrete adjustments — picking a quantity, setting a timer:
-
-```rust,ignore
-use waterui::prelude::*;
-
-fn quantity_stepper(quantity: &Binding<i32>) -> impl View {
-    stepper(quantity)
-}
-```
-
-### Configuration
+`Stepper` drives an `i32` with +/- buttons — quantities, seat counts, small numeric adjustments:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn item_stepper(count: &Binding<i32>) -> impl View {
-    stepper(count)
-        .label("Items")
-        .range(1..=10)
-        .step(1)
+    stepper("Items", count).range(1..=10).step(1)
 }
 ```
 
-By default, the stepper displays the current value as its label. Use `.label(...)` to replace it with custom content, or `.value_formatter(...)` to customise how the value is rendered:
+A stepper shows its label and nothing else until you add `.value_formatter(...)`, which renders the formatted current value next to the buttons. The formatter never affects the semantic label:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn temperature_stepper(temperature: &Binding<i32>) -> impl View {
-    stepper(temperature)
+    stepper("Temperature", temperature)
         .value_formatter(|v| format!("{v}°C"))
         .range(-20..=50)
         .step(5)
 }
 ```
 
-### Layout behavior
-
-With a label, `Stepper` expands horizontally. The label sits on the leading edge and the +/- buttons on the trailing edge, with flexible space between.
+`.range(...)` accepts any `RangeBounds<i32>`, so `1..=10`, `1..11`, and `1..` all work.
 
 ## TextField
 
-`TextField` is a single-line text input field backed by a `Binding<Str>`. You will use it for usernames, search queries, email addresses, and any short text input:
+`TextField` is a text input backed by a `Binding<Str>`. `field(...)` attaches the label; `.prompt(...)` sets the placeholder shown while the field is empty:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn username_field(username: &Binding<Str>) -> impl View {
-    vstack((
-        // With a label.
-        field("Username", username),
-        // Without a label, with a placeholder prompt.
-        TextField::new(username).prompt("Enter your name"),
-    ))
+    field("Username", username).prompt("Enter your name")
 }
 ```
 
-### Styled text binding
-
-For rich text editing, bind to a `StyledStr` directly:
+For rich text editing, bind a `StyledStr` directly. `TextField::new` maps a plain `Binding<Str>` internally and panics if a backend writes styled text back into it, so use `TextField::styled` whenever styling is possible:
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::text::styled::StyledStr;
 
 fn rich_field(value: &Binding<StyledStr>) -> impl View {
-    TextField::styled(value)
+    TextField::styled(value).label("Notes")
 }
 ```
 
-### Multi-line input
-
-`TextField` defaults to a single line. Set a higher line limit, or disable it entirely, for paragraph-style entry:
-
-```rust,ignore
-use waterui::prelude::*;
-
-fn notes(notes: &Binding<Str>) -> impl View {
-    TextField::new(notes).line_limit(5)
-}
-
-fn unbounded(notes: &Binding<Str>) -> impl View {
-    TextField::new(notes).disable_line_limit()
-}
-```
-
-### Custom selection menu
-
-`.selection_menu(...)` adds custom actions to the text selection context menu. It accepts any `MenuView` — most commonly a tuple of buttons or `Menu` instances:
+`.selection_menu(...)` adds custom entries to the native text-selection menu. It accepts any `MenuView` — usually a tuple of buttons:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn field_with_menu(value: &Binding<Str>) -> impl View {
-    TextField::new(value).selection_menu((
-        button("Custom Action").action(|| {}),
+    field("Snippet", value).selection_menu((
+        button("Uppercase").action(|| {}),
     ))
 }
 ```
 
-### Layout behavior
-
-`TextField` expands horizontally to fill available space but has a fixed height. This makes it work naturally in forms and `hstack` layouts.
+> **Not yet supported:** `TextField` is single-line today. `.line_limit(...)` and
+> `.disable_line_limit()` exist and record your intent, but every backend
+> currently implements only the single-line case. Multi-line editing is not
+> available at this version.
 
 ## Menu
 
-`Menu` displays a popup of commands when its label is tapped. The items argument is any `MenuView` — most commonly a tuple of `Button`, nested `Menu`, or `Divider`:
+`Menu` shows a popup of commands when its label is activated. The content is any `MenuView`: buttons, `Command` values, `Divider`, and nested `Menu`s, most often written as a tuple.
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn options_menu(selected: &Binding<String>) -> impl View {
+fn options_menu(pinned: &Binding<bool>) -> impl View {
     Menu::new(
         "Options",
         (
             button("Copy").action(|| {}),
-            button("Paste")
-                .action(|State(s): State<Binding<String>>| s.set("Pasted".into()))
-                .state(selected),
+            Command::builder("Paste")
+                .action(|| {})
+                .shortcut(Shortcut::new("v").command()),
+            Command::builder("Pin to top")
+                .action(|State(pinned): State<Binding<bool>>| {
+                    let mut pinned = pinned.get_mut();
+                    *pinned = !*pinned;
+                })
+                .state(pinned)
+                .selected(pinned.clone()),
             Divider,
-            Menu::new(
-                "More",
-                (button("Reset").action(|| {}),),
-            ),
+            Menu::new("More", (button("Reset").action(|| {}),)),
         ),
     )
 }
 ```
 
-The first argument is the menu's semantic label (any `IntoLabel`). Buttons inside a menu convert automatically into `MenuItem::Command`s.
+A plain `Button` converts into a menu command automatically, which is why the first entry works. `Command` is the direct form, and it carries metadata a button cannot: `.shortcut(...)` for a key equivalent, and `.selected(signal)` for a checked item. `Command::state(&value)` injects state for the command's action, mirroring `.state()` on views.
 
-## Control summary
+Native menus draw each entry from its label's semantic text, and only a `SystemIcon` carries through. A custom icon view still renders in the self-drawn popup menus but is dropped by the native ones.
 
-Here is a quick reference of the controls covered in this chapter and how they behave in layout:
+## Disabling controls
 
-| Control     | Binding type        | Stretch     | Purpose                        |
-|-------------|---------------------|-------------|--------------------------------|
-| `Button`    | Action closure      | None        | Trigger actions                |
-| `Toggle`    | `Binding<bool>`     | Horizontal  | On/off switch                  |
-| `Slider`    | `Binding<f64>`      | Horizontal  | Continuous range selection     |
-| `Stepper`   | `Binding<i32>`      | Horizontal  | Discrete value adjustment      |
-| `TextField` | `Binding<Str>` / `Binding<StyledStr>` | Horizontal | Single-line text input |
-| `Menu`      | Action closures     | None        | Popup of commands              |
+`Button`, `Toggle`, and `Slider` each take a reactive `disabled` signal:
 
-These controls are the building blocks, but what if you need to collect several pieces of data at once? In the [next chapter](04-forms.md), you will learn how WaterUI's form system can automatically generate an entire editing UI from a Rust struct.
+```rust,ignore
+use waterui::prelude::*;
+
+fn save_button(is_saving: &Binding<bool>) -> impl View {
+    button("Save").action(|| {}).disabled(is_saving.clone())
+}
+```
+
+The `.disabled(...)` view modifier from `ViewExt` covers whole subtrees. It installs a `Disabled` scope in the environment, stops the subtree from hit-testing, and reports the disabled state to assistive technology. Nested scopes OR-combine, and so does a control's own signal: a control is disabled while *any* enclosing scope or its own signal is `true`.
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::component::slider::slider;
+
+fn audio_panel(locked: &Binding<bool>, muted: &Binding<bool>, volume: &Binding<f64>) -> impl View {
+    vstack((
+        toggle("Mute", muted),
+        slider("Volume", volume),
+    ))
+    .disabled(locked.clone())
+}
+```
+
+Flipping `locked` re-enables the panel without rebuilding it — the combined signal is tracked reactively.
+
+> **Not yet supported:** `Stepper` and `TextField` do not read the `Disabled`
+> scope, so they keep their normal appearance inside a disabled subtree even
+> though the scope still blocks input. `Command::disabled(...)` inside a menu is
+> an independent signal and does not combine with an enclosing scope. Set those
+> explicitly for now.
+
+## Reference
+
+| Control     | Constructor                                       | Value                                | Stretch axis |
+|-------------|---------------------------------------------------|--------------------------------------|--------------|
+| `Button`    | `button(label)` / `Button::new(Label)`            | action closure                       | None       |
+| `Toggle`    | `toggle(label, &b)` / `Toggle::new(&b)`           | `Binding<bool>`                      | Horizontal |
+| `Slider`    | `slider(label, &b)` / `Slider::new(Label, &b)`    | `Binding<f64>`                       | Horizontal |
+| `Stepper`   | `stepper(label, &b)` / `Stepper::new(Label, &b)`  | `Binding<i32>`                       | Horizontal |
+| `TextField` | `field(label, &b)` / `TextField::styled(&b)`      | `Binding<Str>` / `Binding<StyledStr>`| Horizontal |
+| `Menu`      | `Menu::new(label, items)`                         | action closures                      | None       |
+
+A control that stretches horizontally places its label on the leading edge and its interactive part on the trailing edge, with flexible space between. `Button` and `Menu` size themselves to their label.
+
+Selection controls — `Picker`, `DatePicker`, `ColorPicker`, `SecureField` — live in the form crate. The [next chapter](04-forms.md) covers them, along with the `#[form]` derive that generates an entire editing UI from a Rust struct.

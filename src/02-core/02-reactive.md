@@ -1,23 +1,16 @@
 # Reactive state
 
 > **In this chapter, you will:**
-> - Learn how `Binding<T>` gives your views mutable, reactive state
-> - Understand how `Computed<T>` and signal combinators derive new values from existing ones
-> - Use macros like `s!` and `text!` for reactive string formatting and localization
-> - Discover `List<T>` for reactive collections and `#[derive(Project)]` for struct decomposition
-> - Master the "golden rule" of reactivity that prevents subtle bugs
+> - Use `Binding<T>` for mutable state and `Computed<T>` for derived state
+> - Learn the golden rule that keeps your UI updating, and the `map`/`zip` combinators that replace `.get()`
+> - Format reactive text with `s!` and `text!`
+> - Render changing collections with `List<T>`, `ForEach`, and `#[derive(Identifiable)]`
 
-Imagine a counter app. The user taps a button and the number on screen updates instantly -- no manual DOM manipulation, no message passing, no diffing algorithm. You change the data; the UI follows.
+You change the data; the UI follows. WaterUI does that with fine-grained signals: a change to one value updates exactly the labels, colors, and attributes that read it, without rebuilding the surrounding view tree.
 
-WaterUI delivers that through `waterui::reactive`, a fine-grained reactivity
-system re-exported by the top-level `waterui` crate. It provides signals,
-bindings, collections, and combinators so your views update automatically when
-data changes. This chapter walks through every reactive primitive you will use
-day to day.
+The reactivity engine is re-exported as `waterui::reactive`, and its main types (`Binding`, `Computed`, `Signal`, `SignalExt`) are in the prelude.
 
 ## The `Signal` trait
-
-At the foundation of WaterUI reactivity is the `Signal` trait:
 
 ```rust,ignore
 pub trait Signal: Clone + 'static {
@@ -29,17 +22,15 @@ pub trait Signal: Clone + 'static {
 }
 ```
 
-- **`get()`** returns the current value synchronously.
-- **`watch()`** registers a callback that fires whenever the value changes. It returns a guard -- dropping the guard unsubscribes the watcher.
-- **`Context<T>`** wraps the new value along with optional metadata (e.g., animation hints). Call `ctx.into_value()` to extract the raw value.
+- `get()` returns the current value synchronously.
+- `watch()` registers a callback and returns a guard. Dropping the guard unsubscribes.
+- `Context<T>` carries the new value plus metadata such as an animation hint; `ctx.into_value()` unwraps it.
 
-Every reactive type in `waterui::reactive` implements `Signal`. This uniform interface is what makes the combinator system work -- any signal can be mapped, zipped, filtered, or composed with any other signal.
+Everything reactive implements `Signal`, which is what makes the combinators below universal: any signal can be mapped, zipped, or combined with any other.
 
-## `Binding<T>`: mutable reactive state
+## `Binding<T>`: mutable state
 
-`Binding<T>` is the primary mutable state container. It is readable as a `Signal` and writable. Think of it as a reactive variable: read the current value, write a new value, and watchers get notified automatically.
-
-### Creating bindings
+`Binding<T>` is a signal you can also write to.
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -50,7 +41,7 @@ let count = Binding::i32(0);
 let ratio = Binding::f64(3.14);
 let flag = Binding::bool(true);
 
-// Container constructor for complex types
+// container() for everything else
 let name = Binding::container(String::from("Alice"));
 let title = Binding::container(Str::from("Welcome"));
 
@@ -58,228 +49,92 @@ let title = Binding::container(Str::from("Welcome"));
 let items: Binding<Vec<String>> = Binding::default();
 ```
 
-Use the typed constructors (`Binding::i32`, `Binding::u32`, `Binding::i64`, `Binding::u64`, `Binding::isize`, `Binding::usize`, `Binding::f32`, `Binding::f64`, `Binding::bool`) for primitives, and `Binding::container(value)` for everything else (`String`, `Str`, `Vec<T>`, `Option<T>`, your own types).
+The typed constructors exist for `i32`, `i64`, `isize`, `u32`, `u64`, `usize`, `f32`, `f64`, and `bool`. Everything else -- `String`, `Str`, `Vec<T>`, `Option<T>`, your own types -- goes through `Binding::container(value)`. Note the type parameter belongs to `Binding`, not to `container`: write `Binding::<Option<String>>::container(None)`.
 
-### Reading values
-
-```rust,ignore
-use waterui::prelude::*;
-
-let count = Binding::i32(10);
-let current = count.get(); // 10
-```
-
-### Writing values
+### Writing
 
 ```rust,ignore
-use waterui::prelude::*;
-
 let count = Binding::i32(0);
 
-// Direct set
 count.set(42);
 
-// Set with Into conversion
-let name = Binding::container(String::from("Alice"));
-name.set_from("Bob"); // &str -> String automatically
+// Preferred for in-place mutation: the guard writes back when it drops
+*count.get_mut() += 1;
 
-// Arithmetic operations on numeric bindings
-count.add_assign(5);   // count += 5
-count.sub_assign(2);   // count -= 2
-count.mul_assign(3);   // count *= 3
-count.div_assign(2);   // count /= 2
-count.rem_assign(3);   // count %= 3
-
-// Bitwise operations on integer bindings
-count.bitand_assign(0xFF);
+// Arithmetic and bitwise helpers
+count.add_assign(5);
+count.mul_assign(3);
 count.bitor_assign(0x10);
-count.bitxor_assign(0x01);
-count.shl_assign(2);
-count.shr_assign(1);
 
-// Append to a string-like or vec-like binding
-let text = Binding::container(String::from("Hello"));
-text.append(" World"); // "Hello World"
+// Into conversion at the call site
+let name = Binding::container(String::from("Alice"));
+name.set_from("Bob");
+
+// Extend a string-like or vec-like binding
+name.append(" Smith");
 ```
 
-### Mutating In Place
+`*binding.get_mut() += 1` is the house idiom for mutating a binding in a handler. Keep it a one-liner: the guard commits the write and notifies watchers when it drops, so binding it to a variable delays the notification until the end of the scope.
 
-For complex mutations, use `with_mut` or `get_mut`:
+For multi-step edits, `with_mut` is better -- it mutates the container in place and notifies once, without the intermediate clone:
 
 ```rust,ignore
-let items = Binding::container(vec!["a".to_string(), "b".to_string()]);
+let items = Binding::container(vec!["b".to_string(), "a".to_string()]);
 
-// with_mut -- preferred, avoids extra clone for Container bindings
 items.with_mut(|vec| {
     vec.push("c".into());
     vec.sort();
 });
-
-// get_mut -- returns a guard that writes back on drop
-*count.get_mut() += 10; // modify and auto-commit
-
-// IMPORTANT: Do NOT bind get_mut() to `let _`
-// let _ = count.get_mut(); // This keeps the guard alive until scope end!
-// Instead, use the one-liner pattern above.
 ```
 
-> **Warning:** Be careful with `get_mut()`. The returned guard writes the value back when it is dropped. If you accidentally bind it to a variable, the write-back is delayed until the variable goes out of scope, which can cause surprising behavior.
+`take()` moves the value out and leaves `T::default()` behind.
 
-The `with_mut` method is more efficient for `Container`-backed bindings because it avoids an intermediate clone.
+## The golden rule
 
-### take()
+> **Never call `.get()` on a signal inside a view body.**
 
-Extract the value and replace it with the default:
+`.get()` returns a plain value -- a snapshot with no subscription attached. The view renders once with that number and never hears about the next one. This is the single most common cause of "my UI is not updating".
 
 ```rust,ignore
-let name = Binding::container("hello".to_string());
-let taken = name.take(); // taken == "hello", name is now ""
+// BAD: n is a plain i32, the label freezes at its initial value
+fn bad(count: Binding<i32>) -> impl View {
+    let n = count.get();
+    text!("Count: {n}")
+}
+
+// GOOD: text! subscribes to the binding it names
+fn good(count: Binding<i32>) -> impl View {
+    text!("Count: {count}")
+}
+
+// GOOD: derive a new signal and hand it to a signal-aware input
+fn also_good(count: Binding<i32>) -> impl View {
+    let is_high = count.map(|n| n > 10);
+    text!("Count: {count}").opacity(is_high.map(|high| if high { 1.0 } else { 0.5 }))
+}
 ```
 
-Now that you know how to read and write bindings, let's look at the specialized methods available for common types.
+`.get()` is correct everywhere a view body is *not* running: event handlers, watcher closures, async tasks, and tests.
 
-### Boolean Bindings
+## `Computed<T>`: derived, read-only
 
-`Binding<bool>` has specialized methods that make working with toggles and flags ergonomic:
-
-```rust,ignore
-let dark_mode = Binding::bool(false);
-
-dark_mode.toggle();     // false -> true
-let light = dark_mode.reverse(); // Binding<bool> that is always the opposite
-
-// Conditional selection
-let theme = dark_mode.bidirectional_select("dark".to_string(), "light".to_string());
-// theme.get() == "dark" when dark_mode is true
-
-// Produce Option from bool
-let username = dark_mode.then("admin".to_string());
-// Some("admin") when true, None when false
-
-// Logical NOT via operator
-let enabled = !dark_mode; // same as dark_mode.reverse()
-```
-
-### Option Bindings
-
-`Binding<Option<T>>` provides unwrapping helpers so you do not have to manually match on `Some`/`None`:
-
-```rust,ignore
-let maybe_name = Binding::container::<Option<String>>(None);
-
-// Unwrap with default
-let name = maybe_name.unwrap_or("Anonymous".to_string());
-let name = maybe_name.unwrap_or_default();
-let name = maybe_name.unwrap_or_else(|| generate_name());
-
-// Check equality through Option
-let is_alice = maybe_name.some_equal_to("Alice".to_string());
-```
-
-Setting a value on the unwrapped binding wraps it in `Some` automatically.
-
-### Numeric Bindings
-
-For `PartialOrd` types:
-
-```rust,ignore
-let volume = Binding::container(0.5f32);
-
-// Only accept values in range (reject out-of-range sets)
-let safe = volume.range(0.0..=1.0);
-
-// Clamp values to range (out-of-range values clamped to bounds)
-let clamped = volume.clamp(0.0..=1.0);
-```
-
-For `Signed` types:
-
-```rust,ignore
-let number = Binding::i32(10);
-
-let sign = number.sign();      // Binding<bool>: true if non-negative
-let neg = number.negate();     // Binding<i32>: always the negation
-let neg2 = -number;            // operator syntax for negate()
-```
-
-> **Tip:** Use `.range()` for validation (silently rejects bad values) and `.clamp()` for correction (forces values into bounds). A volume slider, for example, would typically use `.clamp(0.0..=1.0)`.
-
-### Bidirectional Mappings
-
-Sometimes you need a derived binding that can be written to as well as read. `Binding::mapping` creates a two-way derived binding:
-
-```rust,ignore
-let celsius = Binding::f64(0.0);
-
-let fahrenheit = Binding::mapping(
-    &celsius,
-    |c| c * 9.0 / 5.0 + 32.0,        // getter: celsius -> fahrenheit
-    |binding, f| binding.set((f - 32.0) * 5.0 / 9.0), // setter: fahrenheit -> celsius
-);
-
-fahrenheit.set(212.0);
-assert_eq!(celsius.get(), 100.0);
-```
-
-Try setting `fahrenheit` to `32.0` and check what `celsius.get()` returns.
-
-### Filtering
-
-Create a binding that rejects invalid values:
-
-```rust,ignore
-let age = Binding::i32(25);
-let valid_age = age.filter(|&a| a >= 0 && a <= 150);
-valid_age.set(-1); // silently ignored
-assert_eq!(age.get(), 25); // unchanged
-```
-
-### Condition and Equality
-
-```rust,ignore
-let score = Binding::i32(85);
-
-// Condition: arbitrary predicate -> Binding<bool>
-let is_passing = score.condition(|&s| s >= 60);
-
-// Equal to a specific value -> Binding<bool>
-let is_perfect = score.equal_to(100);
-```
-
-## Computed\<T\>: Derived Read-Only State
-
-While `Binding` is for state you *own and modify*, `Computed` is for values you *derive from other signals*. It is a type-erased, read-only signal that wraps any `Signal` implementation behind a `Box<dyn ...>`:
-
-```rust,ignore
-pub struct Computed<T>(Box<dyn ComputedImpl<Output = T>>);
-```
-
-Create computed values from other signals:
+`Binding` is state you own; `Computed<T>` is a type-erased read-only signal, useful when you need to store a signal in a struct field or accept one across an API boundary:
 
 ```rust,ignore
 let count = Binding::i32(5);
 
-// From a binding (zero-cost conversion)
 let computed: Computed<i32> = count.computed();
-
-// Constant computed (never changes)
 let always_42 = Computed::constant(42);
-
-// Default computed
-let zero: Computed<i32> = Computed::default(); // wraps 0
+let zero: Computed<i32> = Computed::default();
 ```
 
-`Computed<V: View>` also implements `View` directly -- it watches itself and dynamically re-renders whenever the inner view changes.
+Most component inputs take `impl IntoComputed<T>` or `impl Signal<Output = T>`, so a `Binding`, a mapped signal, or a plain value all work without an explicit conversion.
 
-> **Note:** `Computed` is useful when you need to store a signal in a struct field or pass it across an API boundary where the concrete signal type would be inconvenient. In most cases, you can work with concrete signal types directly.
+## Deriving signals
 
-## SignalExt Combinators
+`SignalExt` is implemented for every signal. Two combinators carry most of the weight.
 
-The `SignalExt` trait is automatically available on all `Signal` types. It provides a rich set of combinators for deriving new signals -- similar to how iterator adapters work in Rust's standard library.
-
-### Transforming: map
-
-The most fundamental combinator. It creates a new signal whose value is derived from another:
+**`map`** transforms one signal:
 
 ```rust,ignore
 let count = Binding::i32(5);
@@ -290,9 +145,7 @@ count.set(10);
 assert_eq!(doubled.get(), 20);
 ```
 
-### Combining: zip
-
-When you need a value that depends on *two* signals, use `zip`:
+**`zip`** combines two, emitting whenever either changes:
 
 ```rust,ignore
 let width = Binding::container(100.0f32);
@@ -302,238 +155,120 @@ let area = width.zip(&height).map(|(w, h)| w * h);
 assert_eq!(area.get(), 5000.0);
 ```
 
-`zip` creates a signal that emits whenever *either* input changes.
+Chain `zip` for more inputs -- `a.zip(&b).zip(&c).map(|((a, b), c)| ...)`. If you are past three, the values probably belong in a struct with `#[derive(Project)]`, covered below.
 
-### Type Conversion: map_into
+The rest of `SignalExt` is a shorthand layer over `map`, grouped by the output type you are working with:
 
-```rust,ignore
-let count = Binding::i32(42);
-let as_i64 = count.map_into::<i64>();
-```
+| Group | Methods |
+|-------|---------|
+| Comparison | `equal_to`, `condition`, `gt`, `lt`, `ge`, `le` |
+| Boolean | `not`, `and`, `or`, `then_some`, `select` |
+| Numeric | `abs`, `negate`, `sign`, `is_positive`, `is_negative`, `is_zero` |
+| `Option` | `is_some`, `is_none`, `unwrap_or`, `unwrap_or_else`, `unwrap_or_default`, `some_equal_to`, `flatten`, `map_some`, `and_then_some` |
+| `Result` | `is_ok`, `is_err`, `ok`, `err`, `unwrap_or_result`, `map_ok`, `map_err` |
+| String-like | `is_empty`, `str_len`, `contains` |
+| Plumbing | `map_into`, `inspect`, `distinct`, `cached`, `computed`, `with` |
+| Timing (`timer` feature, on by default) | `debounce`, `throttle` |
 
-### Side Effects: inspect
-
-```rust,ignore
-let value = Binding::i32(0);
-let inspected = value.inspect(|v| tracing::debug!("Value changed to {v}"));
-```
-
-`inspect` runs a side-effect function on each value but passes the original value through unchanged.
-
-### Deduplication: distinct
-
-```rust,ignore
-let noisy = Binding::i32(5);
-let quiet = noisy.distinct(); // only emits when value actually changes
-```
-
-> **Tip:** Use `distinct()` after expensive `map()` operations to avoid redundant downstream updates when the mapped result has not actually changed.
-
-### Caching: cached
-
-```rust,ignore
-let expensive = count.map(|n| heavy_computation(n));
-let cached_result = expensive.cached(); // memoizes the last value
-```
-
-### Type Erasure: computed
-
-```rust,ignore
-let signal = count.map(|n| n * 2);
-let erased: Computed<i32> = signal.computed();
-```
-
-### Comparison Helpers
-
-These produce boolean signals from numeric or comparable values:
-
-```rust,ignore
-let score = Binding::i32(85);
-
-let is_100 = score.equal_to(100);          // Signal<Output = bool>
-let is_high = score.condition(|s| *s > 90); // arbitrary predicate
-let above_50 = score.gt(50);               // greater than
-let below_50 = score.lt(50);               // less than
-let at_least_60 = score.ge(60);            // greater or equal
-let at_most_90 = score.le(90);             // less or equal
-```
-
-### Boolean Combinators
-
-Combine boolean signals with familiar logical operations:
-
-```rust,ignore
-let logged_in = Binding::bool(true);
-let is_admin = Binding::bool(false);
-
-let not_logged = logged_in.not();
-let can_edit = logged_in.and(&is_admin);
-let can_view = logged_in.or(&is_admin);
-
-// Conditional values
-let badge = is_admin.then_some("Admin");    // Signal<Output = Option<&str>>
-let role = is_admin.select("admin", "user"); // Signal<Output = &str>
-```
-
-### Numeric Combinators
-
-```rust,ignore
-let temp = Binding::i32(-5);
-
-let abs_temp = temp.abs();          // 5
-let neg_temp = temp.negate();       // 5
-let is_pos = temp.is_positive();    // false
-let is_neg = temp.is_negative();    // true
-let is_zero = temp.is_zero();       // false
-let sign = temp.sign();             // false (negative)
-```
-
-### Option Combinators
-
-Work with `Signal<Output = Option<T>>` without unwrapping manually:
-
-```rust,ignore
-let maybe = Binding::container(Some(42i32));
-
-let is_some = maybe.is_some();              // true
-let is_none = maybe.is_none();              // false
-let value = maybe.unwrap_or(0);             // 42
-let value = maybe.unwrap_or_default();      // 42
-let value = maybe.unwrap_or_else(|| 99);    // 42
-let eq = maybe.some_equal_to(42);           // true
-
-let nested = Binding::container(Some(Some(5i32)));
-let flat = nested.flatten();                // Some(5)
-
-let mapped = maybe.map_some(|n| n.to_string());  // Some("42")
-let chained = maybe.and_then_some(|n| if n > 0 { Some(n) } else { None });
-```
-
-### Result Combinators
-
-```rust,ignore
-let result = Binding::container::<Result<i32, String>>(Ok(42));
-
-let is_ok = result.is_ok();
-let is_err = result.is_err();
-let ok_val = result.ok();       // Signal<Output = Option<i32>>
-let err_val = result.err();     // Signal<Output = Option<String>>
-let safe = result.unwrap_or_result(0);
-let mapped = result.map_ok(|n| n * 2);
-let mapped_err = result.map_err(|e| format!("Error: {e}"));
-```
-
-### String Combinators
-
-```rust,ignore
-let text = Binding::container("hello world".to_string());
-
-let empty = text.is_empty();             // false
-let len = text.str_len();                // 11
-let has_world = text.contains("world");  // true
-```
-
-### Timer Combinators
-
-These require the `timer` feature and are essential for handling rapid user input:
+Two of those are worth calling out. `distinct()` suppresses emissions when the mapped value did not actually change -- put it after an expensive `map` so downstream work does not re-run. And `debounce(Duration)` waits for a pause in input, which is what a search-as-you-type field wants, while `throttle(Duration)` caps the update rate for scroll and resize handlers.
 
 ```rust,ignore
 use std::time::Duration;
 
-let rapid_input = Binding::container(String::new());
-
-// Only emit after 300ms of inactivity
-let debounced = rapid_input.debounce(Duration::from_millis(300));
-
-// Emit at most once per 100ms
-let throttled = rapid_input.throttle(Duration::from_millis(100));
+let query = Binding::container(String::new());
+let debounced = query.debounce(Duration::from_millis(300));
 ```
 
-> **Tip:** Use `debounce` for search-as-you-type (wait until the user stops typing). Use `throttle` for scroll or resize handlers (limit update frequency).
+### Binding-specific helpers
 
-## constant(): Static Signals
+`Binding` adds helpers that stay *writable*, unlike the read-only `SignalExt` versions:
 
-For values that never change but need to participate in the signal graph:
+```rust,ignore
+let dark_mode = Binding::bool(false);
+
+dark_mode.toggle();
+let light = dark_mode.reverse();      // Binding<bool>, always the opposite
+let light2 = !dark_mode.clone();      // same thing via the Not operator
+let theme = dark_mode.bidirectional_select("dark", "light");
+
+let volume = Binding::container(0.5f32);
+let checked = volume.range(0.0..=1.0);  // rejects out-of-range writes
+let clamped = volume.clamp(0.0..=1.0);  // clamps out-of-range writes
+
+let age = Binding::i32(25);
+let valid = age.filter(|&a| (0..=150).contains(&a));
+```
+
+Use `range` for validation (bad writes are dropped) and `clamp` for correction (bad writes are pulled into bounds).
+
+`Binding::mapping` builds a two-way derived binding when a simple helper is not enough:
+
+```rust,ignore
+let celsius = Binding::f64(0.0);
+
+let fahrenheit = Binding::mapping(
+    &celsius,
+    |c| c * 9.0 / 5.0 + 32.0,
+    |binding, f| binding.set((f - 32.0) * 5.0 / 9.0),
+);
+
+fahrenheit.set(212.0);
+assert_eq!(celsius.get(), 100.0);
+```
+
+## Constants
+
+`constant(value)` lifts a plain value into the signal graph. Its `watch()` is a no-op, so it costs nothing:
 
 ```rust,ignore
 use waterui::reactive::constant;
 
 let tax_rate = constant(0.08);
 let price = Binding::f64(100.0);
-
 let total = price.zip(&tax_rate).map(|(p, r)| p * (1.0 + r));
-assert_eq!(total.get(), 108.0);
 ```
 
-A `Constant<T>` implements `Signal` but its `watch()` is a no-op -- watchers are never notified because the value never changes. This makes it zero-overhead in the reactive graph.
+`Lazy::new(closure)` is the deferred version: the closure runs on first `get()` and the result is cached.
 
-## Lazy: Deferred Constants
+## `s!`: reactive string formatting
 
-For expensive constant computations that should only run on first access:
-
-```rust,ignore
-use waterui::reactive::constant::Lazy;
-
-let config = Lazy::new(|| {
-    // Expensive computation, runs only once
-    load_config_from_disk()
-});
-
-// First call computes and caches; subsequent calls return cached value
-let value = config.get();
-```
-
-## The s! Macro: Reactive String Formatting
-
-Building formatted strings from multiple reactive values is a common need. The `s!` macro creates a signal that produces a formatted `String`, automatically capturing reactive variables from scope:
+`s!` produces a signal of `String`, capturing reactive variables from scope by name:
 
 ```rust,ignore
 let name = Binding::container("Alice".to_string());
 let age = Binding::i32(30);
 
-// Named variable capture -- variables are found by name in scope
 let greeting = s!("Hello {name}, you are {age} years old");
-// greeting is a Signal<Output = String> that updates when name or age change
-
-// Positional arguments
-let msg = s!("Value: {}", count);
 ```
 
-The macro supports up to 4 reactive variables. It automatically `zip`s and `map`s them, producing a signal that re-formats whenever any input changes.
+Named placeholders are captured automatically; positional `{}` placeholders need explicit arguments (`s!("Value: {}", count)`); mixing the two forms is a compile error. Either form supports at most four reactive inputs.
 
-**Rules**:
-- Named placeholders like `{name}` are auto-captured from scope.
-- Positional placeholders like `{}` require explicit arguments.
-- You cannot mix named and positional placeholders in the same call.
+## `text!`: localized reactive text
 
-> **Note:** `s!` produces a `Signal<Output = String>`. If you need a `Text` view, use `text!` instead.
-
-## The text! Macro: Localized Reactive Text
-
-The `text!` macro creates a localized `Text` view with full i18n support:
+`text!` builds a `Text` view and routes the string through the i18n catalog:
 
 ```rust,ignore
-// Simple text -- looked up in i18n/*.toml files
-text!("Hello, World!")
+// Looked up in i18n/*.toml
+text!("Hello, World!");
 
-// With reactive placeholders
+// Reactive placeholder captured from scope
 let name = Binding::container("Alice".to_string());
-text!("Hello, {name}")
+text!("Hello, {name}");
 
-// Plural support -- {#count} marks the plural source
+// Plural: {#count} marks the plural source
 let count = Binding::i32(3);
-text!("I have {#count} apple")
-// English: "I have 3 apples" (other)
-// English: "I have 1 apple" (one)
+text!("I have {#count} apple");
 
 // Context disambiguation
-text!("Right" @ "direction")  // different from text!("Right" @ "correct")
+text!("Right" @ "direction");
 
-// Explicit binding
-text!("Hello, {name}", name = get_current_user())
+// Explicit alias when the local name is not the slot name
+text!("Hello, {name}", name = current_user());
 ```
 
-Translation files are TOML in the `i18n/` directory:
+Placeholder names are translation slot keys, which is why `text!` accepts identifiers and explicit aliases but not arbitrary expressions.
+
+Translations are TOML files under `i18n/`:
 
 ```toml
 # i18n/en.toml
@@ -545,9 +280,11 @@ Translation files are TOML in the `i18n/` directory:
 "I have {#count} apple" = { other = "我有{count}个苹果" }
 ```
 
-## The #[derive(Project)] Macro
+Use `text()` for static strings and `text!` for anything reactive or localized.
 
-When you have a `Binding<Struct>`, you often need to pass individual fields to different child views. The `Project` derive macro lets you decompose a struct binding into per-field bindings:
+## `#[derive(Project)]`
+
+A `Binding<Struct>` is awkward to hand to child views one field at a time. `Project` decomposes it into per-field bindings that stay connected in both directions:
 
 ```rust,ignore
 #[derive(Clone, Project)]
@@ -561,21 +298,15 @@ let person = Binding::container(Person {
     age: 30,
 });
 
-// Decompose into individual field bindings
 let projected: PersonProjected = person.project();
 // projected.name: Binding<String>
-// projected.age: Binding<u32>
+// projected.age:  Binding<u32>
 
-// Changes propagate bidirectionally
 projected.name.set_from("Bob");
-projected.age.set(25);
 assert_eq!(person.get().name, "Bob");
-assert_eq!(person.get().age, 25);
 ```
 
-The macro generates a `PersonProjected` struct with `Binding<T>` for each field. Each projected binding uses `Binding::mapping` internally, so changes in either direction are reflected.
-
-Tuples also implement `Project` natively (up to 14 elements):
+The derive generates a `<Name>Projected` struct with one `Binding<T>` per field, each built on `Binding::mapping`. Tuples implement `Project` natively:
 
 ```rust,ignore
 let pair = Binding::container((42i32, "hello".to_string()));
@@ -584,130 +315,75 @@ num.set(100);
 assert_eq!(pair.get().0, 100);
 ```
 
-> **Tip:** `Project` is especially useful when you have a form that edits a struct. Project the struct into per-field bindings and pass each one to its corresponding input control.
+This is what makes form editing pleasant: project the model once, pass each field binding to its input control.
 
-## List\<T\>: Reactive Collections
+## Reactive collections
 
-For dynamic lists -- think todo items, chat messages, or search results -- `Binding<Vec<T>>` works but does not tell you *what* changed. `List<T>` is a reactive `Vec` that notifies watchers when its contents change, with fine-grained information about insertions, removals, and reorderings:
+For a set of rows whose membership changes -- todos, chat messages, search results -- `Binding<Vec<T>>` is the wrong tool. It tells watchers *that* the vector changed but not *how*, so the whole list has to be rebuilt.
+
+`List<T>` is a reactive vector that reports insertions, removals, and reorderings:
 
 ```rust,ignore
+use waterui::prelude::*;
 use waterui::reactive::collection::{Collection, List};
 
-let items = List::new();
+let items: List<String> = List::new();
 
-// Mutation methods
 items.push("first".to_string());
-items.push("second".to_string());
 items.insert(1, "middle".to_string());
-let removed = items.remove(0);  // returns "first"
-let last = items.pop();         // returns Some("middle")
-items.clear();
-items.sort(); // for Ord types
+let removed = items.remove(0);
+let last = items.pop();
+items.sort();
 
-// Reading
-let snapshot: Vec<String> = items.snapshot(); // clone current contents
-let len = items.len(); // via Collection trait
+// Swap the whole contents in one diffed update instead of N pushes
+let previous = items.replace(vec!["a".into(), "b".into()]);
 
-// Iteration (clones the list to avoid borrow conflicts)
-for item in &items {
-    // ...
-}
+let snapshot: Vec<String> = items.snapshot();
+let len = items.len();
 ```
 
-`List<T>` implements the `Collection` trait, which supports range-based watching:
+`List<T>` is reference-counted: cloning gives you a second handle onto the same data, and writes through any handle notify every watcher. The `Collection` trait it implements also supports range-scoped watching (`items.watch(1..4, |ctx| ...)`), which is how virtualized backends observe only the visible window.
+
+> **Note:** the prelude also exports a `List` -- the *list component* from `waterui::component::list`. An explicit `use waterui::reactive::collection::List;` shadows the glob import, so the two coexist, but keep the distinction in mind: one is data, the other is a view.
+
+### Rendering with `ForEach`
 
 ```rust,ignore
-// Watch the entire collection
-let all_items_guard = items.watch(.., |ctx| {
-    let current = ctx.into_value();
-    tracing::debug!("Items: {current:?}");
-});
-
-// Watch a specific range
-let visible_items_guard = items.watch(1..4, |ctx| {
-    tracing::debug!("Items 1..4: {:?}", ctx.into_value());
-});
-```
-
-`List<T>` is reference-counted internally -- cloning a `List` creates a shared handle. Modifications through any handle notify all watchers.
-
-### Using List with ForEach
-
-To render a reactive list, use `ForEach`:
-
-```rust,ignore
+use waterui::prelude::*;
+use waterui::reactive::collection::List;
 use waterui::views::ForEach;
 use waterui::Identifiable;
 
-#[derive(Clone)]
+#[derive(Clone, Identifiable)]
 struct TodoItem {
-    id: i32,
-    title: String,
+    #[id]
+    id: u64,
+    title: Str,
     completed: Binding<bool>,
 }
 
-impl Identifiable for TodoItem {
-    type Id = i32;
-
-    fn id(&self) -> Self::Id {
-        self.id
-    }
-}
-
-let todos: List<TodoItem> = List::new();
-let list_view = ForEach::new(todos, |item| {
-    hstack((
-        text(item.title),
-        Spacer,
-        Toggle::new(&item.completed),
-    ))
-});
-```
-
-Each item must implement `Identifiable` so the framework can track insertions, removals, and reorderings efficiently.
-
-> **Warning:** Do not use `Vec` with `Dynamic::watch` for lists that change frequently. You will lose all diffing benefits and re-render the entire list on every change. Use `List<T>` with `ForEach` instead.
-
-## The BindingMailbox: Cross-Thread Access
-
-Since `Binding<T>` is `!Send` (it uses `Rc` internally), you cannot send it across threads. If you need to update UI state from a background task -- say, after fetching data from a network -- the `BindingMailbox` provides an async interface:
-
-```rust,ignore
-let count = Binding::i32(0);
-let mailbox = count.mailbox();
-
-// Send from another task
-async fn background_work(mailbox: BindingMailbox<i32>) {
-    let current = mailbox.get().await;
-    mailbox.set(current + 1).await;
-
-    // Or send a mutation job
-    mailbox.handle(|binding| {
-        binding.add_assign(10);
-    });
+fn todo_list(todos: List<TodoItem>) -> impl View {
+    ForEach::new(todos, |item| {
+        hstack((
+            text(item.title),
+            Spacer::flexible(),
+            toggle("Completed", &item.completed),
+        ))
+    })
 }
 ```
 
-The mailbox spawns a local task that processes jobs sequentially on the UI thread.
+Items must implement `Identifiable` so the framework can match rows across updates and move, insert, or remove only what changed. `#[derive(Identifiable)]` writes the impl for you: mark exactly one field with `#[id]`, and its type must be `Hash + Ord + Clone` (the generated `id()` clones it). The derive works on named fields, tuple fields, and generic id types; enums, unit structs, and zero or multiple `#[id]` markers are compile errors.
 
-## Watching Signals Manually
-
-While most reactive updates happen automatically through the view system, you can watch signals manually for side effects like logging, analytics, or synchronizing with external systems:
+For a fixed, known set of children, do not reach for a collection at all -- pass an array or build a tuple stack:
 
 ```rust,ignore
-let count = Binding::i32(0);
-
-let guard = count.watch(|ctx| {
-    let new_value = ctx.into_value();
-    tracing::debug!("Count changed to {new_value}");
-});
-
-// IMPORTANT: The guard keeps the watcher alive.
-// Dropping the guard unsubscribes the watcher.
-// Use .retain(guard) to tie it to a view's lifecycle.
+vstack((header(), body(), footer()));
 ```
 
-To keep a manual watcher alive for the lifetime of a view:
+## Watching manually
+
+Side effects that are not views -- logging, analytics, syncing to disk -- need an explicit watcher. The subscription lives exactly as long as its guard, and a view body's locals are dropped as soon as it returns, so tie the guard to the view with `.retain()`:
 
 ```rust,ignore
 fn my_view(count: Binding<i32>) -> impl View {
@@ -715,134 +391,50 @@ fn my_view(count: Binding<i32>) -> impl View {
         tracing::debug!("Count: {}", ctx.into_value());
     });
 
-    text!("Hello")
-        .retain(guard) // guard lives as long as the view
+    text!("Count: {count}").retain(guard)
 }
 ```
 
-## Feeding Signals into Views
+Forgetting `.retain()` is a classic bug: the watcher unsubscribes immediately and the side effect silently never fires.
 
-There are several ways to connect reactive state to the UI. Let's look at each approach and when to use it.
+## Updating from another thread
 
-### Dynamic::watch
-
-Rebuild a view section whenever a signal changes:
+`Binding<T>` uses `Rc` internally and is therefore `!Send`. To drive UI state from a background task, take a mailbox:
 
 ```rust,ignore
 let count = Binding::i32(0);
+let mailbox = count.mailbox();
 
-Dynamic::watch(count, |n| {
-    text!("Count: {n}")
+async fn background_work(mailbox: BindingMailbox<i32>) {
+    let current = mailbox.get().await;
+    mailbox.set(current + 1).await;
+
+    // Or enqueue a mutation without awaiting a reply
+    mailbox.handle(|binding| binding.add_assign(10));
+}
+```
+
+The mailbox owns a local task that applies queued jobs sequentially on the UI thread. `get_as::<T2>()` converts while it reads, which is how a `Binding<Str>` becomes an owned `String` on the other side of an `await`.
+
+## When the view's *shape* changes
+
+Everything above updates values in place. Occasionally the semantic structure itself has to change -- a loading screen becomes a detail screen. That is what `Dynamic::watch` is for, and it is a deliberate exception:
+
+```rust,ignore
+use waterui::prelude::*;
+
+watch(phase, |phase| match phase {
+    Phase::Loading => loading_screen().anyview(),
+    Phase::Ready => detail_screen().anyview(),
 })
 ```
 
-This is the most general approach -- the closure receives the raw value and returns any `View`.
+`watch` **replaces the entire child subtree and discards its state**. Reaching for it to update a number, a color, or a list is the most expensive mistake you can make in a WaterUI view:
 
-### The text! and s! macros
+| You want to update | Use this, not `watch` |
+|--------------------|------------------------|
+| Text content | `text!("{status}")` |
+| A view attribute | the signal-taking modifier, e.g. `photo.blur(amount)` |
+| Collection membership | `ForEach::new(rows, row_view)` / `List` |
 
-For text content, the macros handle reactivity automatically:
-
-```rust,ignore
-let name = Binding::container("World".to_string());
-text!("Hello, {name}") // updates when name changes
-```
-
-### Component-level reactivity
-
-Many WaterUI components accept signals directly:
-
-```rust,ignore
-let is_on = Binding::bool(false);
-Toggle::new(&is_on) // Toggle reads and writes the binding
-
-let progress = Binding::f64(0.5);
-Slider::new(&progress) // Slider binds to the value
-
-let label = Binding::container("Click me".to_string());
-Button::new(text!("{label}")).action(|| { /* action */ })
-```
-
-## The Golden Rule
-
-> **Never call `.get()` in view body code to feed values into the UI.**
-
-This is the single most important rule for working with WaterUI reactivity. When you call `.get()`, you take a snapshot of the current value. The UI will never update when the signal changes because no watcher was registered:
-
-```rust,ignore
-// BAD -- breaks reactivity
-fn bad_view(count: Binding<i32>) -> impl View {
-    let n = count.get(); // snapshot! never updates
-    text!("Count: {n}")  // n is a plain i32, not a signal
-}
-
-// GOOD -- reactive
-fn good_view(count: Binding<i32>) -> impl View {
-    Dynamic::watch(count, |n| text!("Count: {n}"))
-}
-
-// GOOD -- text! captures the binding reactively by name
-fn also_good(count: Binding<i32>) -> impl View {
-    text!("Count: {count}")
-}
-```
-
-> **Warning:** This is the number one source of "my UI is not updating" bugs. If your view is not reacting to state changes, check whether you are accidentally calling `.get()` in the view body.
-
-Use `.get()` only in:
-- Event handlers and callbacks (e.g., `on_tap(|| { let x = count.get(); ... })`)
-- Watcher closures
-- Async tasks
-- Tests
-
-## Combining Multiple Signals
-
-Use `zip` and `map` to derive values from multiple signals without breaking reactivity:
-
-```rust,ignore
-let first_name = Binding::container("Alice".to_string());
-let last_name = Binding::container("Smith".to_string());
-
-// Combine two signals
-let full_name = first_name.zip(&last_name)
-    .map(|(f, l)| format!("{f} {l}"));
-
-// Use in a view
-Dynamic::watch(full_name, |name| text!("{name}"))
-```
-
-For more than two signals, chain `zip`:
-
-```rust,ignore
-let a = Binding::i32(1);
-let b = Binding::i32(2);
-let c = Binding::i32(3);
-
-let sum = a.zip(&b).zip(&c)
-    .map(|((a, b), c)| a + b + c);
-```
-
-> **Tip:** If you find yourself zipping more than three signals, consider whether they belong in a struct with `#[derive(Project)]`. It often leads to cleaner code.
-
-## Summary Table
-
-| Type | Readable | Writable | Use Case |
-|------|----------|----------|----------|
-| `Binding<T>` | Yes | Yes | Primary mutable state |
-| `Computed<T>` | Yes | No | Type-erased derived value |
-| `Constant<T>` | Yes | No | Static value in signal graph |
-| `Lazy<F, T>` | Yes | No | Deferred constant computation |
-| `Map<S, F, O>` | Yes | No | Transformed signal |
-| `Zip<A, B>` | Yes | No | Combined signals |
-| `Distinct<S>` | Yes | No | Deduplicated signal |
-| `Cached<S>` | Yes | No | Memoized signal |
-| `Debounce<S>` | Yes | No | Time-delayed signal |
-| `Throttle<S>` | Yes | No | Rate-limited signal |
-| `List<T>` | Yes | Yes | Reactive collection |
-
-| Macro | Purpose |
-|-------|---------|
-| `s!("...")` | Reactive string formatting |
-| `text!("...")` | Localized reactive text view |
-| `#[derive(Project)]` | Decompose struct bindings into per-field bindings |
-
-With reactive state under your belt, the next chapter introduces the **Environment** -- WaterUI's dependency injection system that lets you share configuration, themes, and services across your entire view tree.
+Next: [The Environment](03-environment.md), which shares themes, locales, and services across the view tree without threading parameters through every function.

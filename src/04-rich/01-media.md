@@ -1,50 +1,45 @@
 # Media: photos, video, and audio
 
 > **In this chapter, you will:**
-> - Display images from the network with progressive streaming
-> - Play video with native controls or build your own player UI
-> - Work with Live Photos and the unified `Media` enum
+> - Display network images with `Photo`, including reactive URLs and progressive decoding
+> - Play video in one line with `video()` and `video_player()`
+> - Own playback state in a `PlaybackSession` and drive it through a `PlayerController`
+> - Build playlists, custom transport controls, and Live Photos
 > - Let users pick media with the platform-native `MediaPicker`
-> - Apply GPU-accelerated image filters
 
-Every app eventually needs to show a photo, play a video, or let the user pick something from their library. WaterUI's media stack handles the hard parts for you: async fetching, progressive decoding, and GPU texture management.
+The media stack does two jobs. For images it handles async fetching, progressive decoding, and GPU texture upload. For video and audio it gives you a *playback session*: an owned object that holds the playlist, the position, the volume, and every other piece of playback state, separate from the view that displays it.
 
-## Feature flags and crate layout
+## Crates and imports
 
-The media types live behind cargo features in the `waterui` crate:
+`media` is a default feature of `waterui`, and it turns on `video` with it:
 
 ```toml
 [dependencies]
-waterui = { version = "*", features = ["media"] }
-# Or for the raw video surface only:
-# waterui = { version = "*", features = ["video"] }
+waterui = "*"                       # media + video are on by default
+
+# Video types only, without the photo/picker stack:
+# waterui = { version = "*", default-features = false, features = ["video"] }
 ```
 
-`media` enables both `waterui-media` and `waterui-video`; the picker pulls in
-platform dialogs through the `std` feature, which is on by default.
+| Crate | Path | Contents |
+|---|---|---|
+| `waterui-media` | `waterui::media` | `Photo`, `LivePhoto`, `Media`, `MediaPicker`, `Image`, plus re-exports of the video types |
+| `waterui-video` | `waterui::video` | `Video`, `VideoPlayer`, `PlaybackSession`, `PlayerController`, `Playlist`, `MediaItem` |
 
-| Crate | Purpose |
-|---|---|
-| `waterui-media` | Photos, Live Photos, media picker, unified `Media` enum, GPU `Image` view |
-| `waterui-video` | `Video` (raw) and `VideoPlayer` (with controls), aspect ratio, volume |
-
-`waterui-media` re-exports the video types, so a single import covers most
+`waterui::media` re-exports the video types it needs, so one import covers most
 apps:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::media::{Photo, Video, VideoPlayer, LivePhoto, Media};
+use waterui::media::{LivePhoto, Media, Photo, PlaybackSession, Playlist, Video, VideoPlayer};
 ```
+
+The prelude also re-exports these names, but spelling them out keeps chapters
+and examples greppable.
 
 ---
 
-## Displaying Images with `Photo`
-
-`Photo` is the primary component for showing images from a URL. It fetches
-the image asynchronously, decodes it through a streaming pipeline, and hands the
-pixel data to the GPU-backed `Image` view.
-
-### Basic Usage
+## Displaying images with `Photo`
 
 ```rust,ignore
 use waterui::media::Photo;
@@ -54,14 +49,27 @@ fn avatar() -> impl View {
 }
 ```
 
-`Photo::new` accepts anything that implements `Into<Url>`, including string
-literals.
+`Photo::new` takes `impl IntoComputed<Url>`. That covers a string literal, a
+`Url`, and — the interesting case — a signal. Passing a signal swaps the image
+when the URL changes without rebuilding the view:
 
-### Listening for Events
+```rust,ignore
+use waterui::prelude::*;
+use waterui::media::{Photo, Url};
 
-You can observe loading progress through the `on_event` callback. Because
-`waterui::media` re-exports a video `Event` type, alias the photo event to
-keep the two clearly separate:
+fn hero(selected: Computed<Url>) -> impl View {
+    Photo::new(selected).resizable()
+}
+```
+
+`.resizable()` lets the decoded image stretch to the bounds its parent proposes;
+without it the image keeps its intrinsic pixel size. For a local file, use
+`Photo::from_path("/path/to/image.png")`.
+
+### Load events
+
+`Photo` reports load outcomes through `on_event`. Both `waterui::media` and
+`waterui::media::photo` export a type named `Event`, so alias the one you mean:
 
 ```rust,ignore
 use waterui::media::Photo;
@@ -69,27 +77,32 @@ use waterui::media::photo::Event as PhotoEvent;
 
 fn profile_photo() -> impl View {
     Photo::new("https://static.rust-lang.org/logos/rust-logo-512x512.png")
-        .on_event(|event| match event {
-            PhotoEvent::Loaded => tracing::info!("Image loaded successfully"),
-            PhotoEvent::Error(msg) => tracing::error!("Failed to load: {msg}"),
+        .on_event(|event: PhotoEvent| match event {
+            PhotoEvent::Loaded => tracing::info!("image loaded"),
+            PhotoEvent::Error(message) => tracing::error!("image failed: {message}"),
         })
 }
 ```
 
-`photo::Event` has two variants:
+`PhotoEvent` has exactly two variants: `Loaded` and `Error(String)`.
 
-| Variant | Description |
-|---|---|
-| `Loaded` | The image finished loading and is being displayed. |
-| `Error(String)` | The fetch or decode failed, with a human-readable message. |
+### Progressive decoding
 
-### Reactive filters
+`Photo` feeds the HTTP response into an `ImageStreamDecoder` as chunks arrive.
+The first decode attempt happens at 24 KB, then every 96 KB after that, for up
+to ten attempts. When the format supports it — JPEG, PNG, GIF, WebP, BMP, ICO,
+TIFF — a low-quality preview appears before the full image lands. There is
+nothing to configure.
 
-Filter modifiers from `ViewExt` accept signals, so a `Binding` lets the user
-adjust filter values in real time without rebuilding the photo:
+### Filters take signals
+
+Filter modifiers come from `FilterViewExt` (the `gpu` feature, on by default)
+and accept anything convertible to an `f32` signal, so a `Binding` drives them
+live:
 
 ```rust,ignore
 use waterui::prelude::*;
+use waterui::component::slider::slider;
 use waterui::media::Photo;
 
 fn blurry_photo() -> impl View {
@@ -100,215 +113,368 @@ fn blurry_photo() -> impl View {
         Photo::new("https://static.rust-lang.org/logos/rust-logo-512x512.png")
             .blur(blur.clone())
             .saturation(saturation.clone()),
-        Slider::new(&blur).range(0.0..=20.0),
-        Slider::new(&saturation).range(0.0..=2.0),
+        slider("Blur radius", &blur).range(0.0..=20.0),
+        slider("Saturation", &saturation).range(0.0..=2.0),
     ))
 }
 ```
 
-See [Filters and Visual Effects](../05-graphics/04-filters.md) for the full
-filter catalog.
+The full catalog — `blur`, `brightness`, `contrast`, `saturation`, `exposure`,
+`gamma`, `vibrance` — and how they collapse into one GPU pass is in
+[Filters and Visual Effects](../05-graphics/04-filters.md).
 
-### Streaming / Progressive Decoding
+### Pixels you already have
 
-`Photo` uses an `ImageStreamDecoder` internally. As HTTP response chunks
-arrive, the decoder attempts intermediate decodes at increasing byte thresholds
-(starting at 24 KB, stepping by 96 KB). For formats that support progressive
-rendering -- JPEG, PNG, GIF, WebP, BMP, ICO, TIFF -- you may see a
-lower-quality preview appear before the final image lands. This is automatic
-and requires no configuration.
-
-> **Tip:** Progressive decoding is especially valuable on slower connections. Your users see *something* almost immediately, which makes the app feel faster even before the full image arrives.
-
-### How `Image` Works Under the Hood
-
-The `Image` struct holds raw pixel data (RGBA8 or RGBA16F) that gets uploaded
-to a GPU texture on first render. After the texture is created, the CPU-side
-pixel buffer is dropped, keeping memory usage lean.
+`Image` is the GPU-backed view underneath `Photo`. Build one directly when the
+pixels come from somewhere other than a URL:
 
 ```rust,ignore
 use waterui::media::Image;
 
-// Construct directly from pixel data (4 bytes per pixel, RGBA)
-let pixels: Vec<u8> = vec![255, 0, 0, 255]; // 1x1 red pixel
+let pixels: Vec<u8> = vec![255, 0, 0, 255]; // one red RGBA pixel
 let red_dot = Image::new(pixels, 1, 1);
 ```
 
-For HDR content on Apple and Android platforms, WaterUI automatically selects
-the platform image decoder and produces RGBA16F textures. When the output
-surface does not support HDR, a tone-mapping shader converts the content to
-SDR transparently.
+HDR sources decode to RGBA16F and are tone-mapped at draw time when the output
+surface is SDR.
 
 ---
 
-## Video Playback
+## Playing video
 
-Whether you are building a media gallery, an onboarding flow with background video, or a full-featured player, WaterUI has you covered with two components:
-
-| Component | Controls | Use Case |
+| Component | Controls | Use for |
 |---|---|---|
-| `Video` | None (raw surface) | Custom player UI, background videos, decorative clips |
-| `VideoPlayer` | Native platform controls | Standard playback with play/pause, seek, fullscreen |
+| `Video` | none (raw surface) | custom player UI, background clips |
+| `VideoPlayer` | platform-appropriate controls | ordinary playback |
 
-### `VideoPlayer` -- Full-Featured Playback
-
-The quickest way to get video playing is `VideoPlayer`, which comes with platform-native controls out of the box:
+Each has a free-function constructor for the single-item case:
 
 ```rust,ignore
-use waterui::media::{AspectRatio, VideoPlayer};
+use waterui::media::video::{video, video_player};
 
 fn trailer() -> impl View {
-    VideoPlayer::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
-        .show_controls(true)
-        .aspect_ratio(AspectRatio::Fit)
+    // Paused, with controls. The user starts it.
+    video_player("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4")
+}
+
+fn ambient_background() -> impl View {
+    // Autoplays, loops, no controls.
+    video("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4")
 }
 ```
 
-#### Configuration Methods
+`video()` starts playing as soon as the surface is ready; `video_player()` stays
+paused. `Video` loops by default (`.loops(false)` to stop at the end), and both
+accept `.aspect_ratio(AspectRatio::Fit | Fill | Stretch)`. `VideoPlayer` hides
+its controls with `.show_controls(false)`.
 
-| Method | Type | Description |
-|---|---|---|
-| `aspect_ratio` | `AspectRatio` | `Fit` (letterbox), `Fill` (crop), or `Stretch` |
-| `show_controls` | `bool` | Whether to display native playback controls |
-| `volume` | `&Binding<Volume>` | Reactive volume binding; positive values are audible, negative values mute while preserving level |
-| `muted` | `&Binding<bool>` | Reactive mute toggle layered on top of volume |
-| `playback_rate` | `&Binding<f32>` | Reactive playback speed (1.0 = normal) |
-| `preserve_pitch` | `&Binding<bool>` | Keep audio pitch constant when speed is not 1x |
-| `playback_policy` | `PlaybackPolicy` | Buffering and realtime tuning |
-| `on_event` | `impl Fn(Event)` | Callback for playback events |
+---
 
-### `Video` -- Raw View
+## Playback sessions
 
-When you need full control over the playback UI -- a custom scrubber, gesture-based controls, or a looping background -- use `Video`:
+`Video::new` and `VideoPlayer::new` do not take a URL. They take a
+`PlaybackSession` — the object that owns the playlist, the position, the volume,
+the track selections, and the transport state:
+
+```rust,ignore
+use waterui::media::{PlaybackSession, Playlist, Video};
+
+let session = PlaybackSession::new(Playlist::single(
+    "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+));
+let controller = session.controller();
+let view = Video::new(session);
+```
+
+This split is the point. The view is a projection of the session, not the owner
+of it — so playback state lives at whatever level of your app actually owns it,
+and the view that renders it can be rebuilt, moved between containers, or
+swapped from `Video` to `VideoPlayer` without resetting the stream. WaterUI has
+no hidden per-view state slots to lose; if a value must survive, you hold it, the
+same way you hold a `Binding`.
+
+A session is mounted exactly once. `session.controller()` hands out a
+`PlayerController` that is cheap to clone, so pass one copy to every control that
+needs it.
+
+### Driving your own transport controls
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::media::{AspectRatio, Video};
+use waterui::media::{AspectRatio, PlaybackSession, Playlist, Video};
 
-fn background_video() -> impl View {
-    Video::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4")
-        .aspect_ratio(AspectRatio::Fill)
-        .loops(true)
+fn custom_player() -> impl View {
+    let session = PlaybackSession::new(Playlist::single(
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+    ));
+    let controller = session.controller();
+
+    let muted = controller.muted();
+    let elapsed = controller.position().map(|position| position.as_secs()).computed();
+
+    let play = controller.clone();
+    let pause = controller.clone();
+    let rewind = controller;
+
+    vstack((
+        Video::new(session).aspect_ratio(AspectRatio::Fit).loops(false),
+        hstack((
+            button("Play").action(move || play.play()),
+            button("Pause").action(move || pause.pause()),
+            button("Back 10s").action(move || {
+                if let Err(error) = rewind.seek_relative(-10.0) {
+                    tracing::warn!("seek rejected: {error}");
+                }
+            }),
+            toggle("Mute", &muted),
+            text!("{elapsed}s"),
+        ))
+        .spacing(12.0),
+    ))
 }
 ```
 
-### Volume and Mute System
+`muted()` returns the session's own `Binding<bool>`, so the toggle and the player
+read and write the same state — no synchronization code. `position()` returns a
+`Computed<Duration>`, which maps into whatever the label needs.
 
-Both video components encode mute state into the volume value itself:
+### The controller surface
 
-- **Positive** values represent audible volume (e.g. `0.7` = 70%).
-- **Negative** values represent muted state while preserving the original level
-  (e.g. `-0.7` means "muted, but restore to 70% on unmute").
+Commands that can fail return `Result<_, PlaybackError>`; the rest return `()`.
 
-In practice, use the `muted` method with a `Binding<bool>` and let the
-framework handle the encoding:
+| Command | Notes |
+|---|---|
+| `play` / `pause` / `stop` | `stop` pauses and returns to the start of the item |
+| `step_forward` / `step_backward` | pause and move one frame |
+| `seek(Duration)` | errors outside the duration or live window |
+| `seek_relative(f64)` | signed seconds, clamped to the item bounds |
+| `seek_to_live_edge()` | errors for finite media |
+| `next()` / `previous()` / `seek_to_item(id)` | playlist navigation |
+| `set_repeat(RepeatMode)` / `set_shuffle(bool)` | traversal policy |
+| `replace_playlist` / `add_item` / `remove_item(id)` / `move_item(id, index)` | playlist editing |
+
+Reactive state comes back as signals you can hand straight to views:
+
+| Getter | Type |
+|---|---|
+| `phase()` | `Computed<PlaybackPhase>` — `Idle`, `Preparing`, `Ready`, `Playing`, `Paused`, `Buffering`, `Ended`, `Failed` |
+| `position()` / `duration()` | `Computed<Duration>` (duration is zero until known) |
+| `current_item_id()` / `current_item_index()` | `Computed<MediaItemId>` / `Computed<usize>` |
+| `track_catalog()` / `live_window()` | `Computed<TrackCatalog>` / `Computed<Option<LiveWindow>>` |
+| `volume()` / `muted()` / `playback_rate()` / `preserve_pitch()` | shared `Binding`s |
+| `subtitle_selection()` / `audio_track_selection()` / `video_track_selection()` | shared `Binding`s |
+| `repeat_mode()` / `shuffle_enabled()` | shared `Binding`s |
+
+### Volume and mute are separate
+
+`Volume` is a validated linear level in `0.0..=1.0` — constructing one outside
+that range panics — and muting is its own boolean binding, so a single value can
+never encode two unrelated states:
 
 ```rust,ignore
-use waterui::prelude::*;
-use waterui::media::VideoPlayer;
+use waterui::media::Volume;
 
-fn mutable_player() -> impl View {
-    let muted = Binding::bool(false);
-    VideoPlayer::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4")
-        .muted(&muted)
+controller.volume().set(Volume::new(0.35));
+controller.muted().set(true);       // volume is still 0.35 when unmuted
+```
+
+`Volume::SILENT` and `Volume::FULL` are the constants; the default is `0.5`.
+
+### Playlists
+
+`Playlist` is non-empty by construction, so there is no "nothing is playing"
+state to defend against:
+
+```rust,ignore
+use waterui::media::{PlaybackSession, Playlist, VideoPlayer};
+use waterui::video::{Delivery, MediaItem, MediaMetadata};
+
+fn episode_queue() -> impl View {
+    let live = MediaItem::new(
+        "https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8",
+        Delivery::Hls,
+    )
+    .metadata(MediaMetadata::new().with_title("Episode 1").with_artist("WaterUI"));
+
+    let playlist = Playlist::new(
+        live,
+        [MediaItem::from(
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+        )],
+    );
+
+    VideoPlayer::new(PlaybackSession::new(playlist).autoplay())
 }
 ```
 
-### Video Events
+`Playlist::new(first, remaining)` takes the first item separately to keep the
+invariant in the type system; `Playlist::single(item)` is the one-item case.
+`remove_item` refuses the final item with `PlaybackError::CannotRemoveFinalItem`
+rather than leaving an empty session.
 
-Subscribe to playback lifecycle events to keep your UI in sync. The video
-`Event` is re-exported from `waterui::media` as `Event`; the example aliases
-it to make the variant matches read clearly:
+`MediaItem::from` covers plain URLs with progressive delivery. Use
+`MediaItem::new(url, Delivery::Hls | Delivery::Dash)` for adaptive streams, and
+`MediaMetadata` (title, artist, album, artwork URL, duration) to populate the
+platform's system media session and now-playing UI.
+
+Repeat and shuffle live on the controller: `RepeatMode::{Off, One, All}`, and
+`set_shuffle(true)` traverses a stable order derived from item identity without
+reordering the playlist itself.
+
+### Buffering policy
+
+`PlaybackSession::new` uses `PlaybackPolicy::vod_default()`. For a live stream,
+pass the realtime policy explicitly:
 
 ```rust,ignore
-use waterui::media::VideoPlayer;
+use waterui::media::{PlaybackSession, Playlist};
+use waterui::video::{Delivery, MediaItem, PlaybackPolicy, Url};
+
+fn live_session(stream: Url) -> PlaybackSession {
+    PlaybackSession::with_policy(
+        Playlist::single(MediaItem::new(stream, Delivery::Hls)),
+        PlaybackPolicy::live_default(),
+    )
+}
+```
+
+`NetworkPlaybackPolicy` under it makes every bound explicit — maximum manifest
+and segment bytes, initial bandwidth estimate, buffer thresholds, live catch-up
+rate limits — so a hostile manifest cannot make the player allocate without
+limit.
+
+---
+
+## Playback events
+
+`Video` and `VideoPlayer` share one `Event` type:
+
+```rust,ignore
 use waterui::media::Event as VideoEvent;
+use waterui::media::video::video_player;
 
 fn player_with_events() -> impl View {
-    VideoPlayer::new("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4")
-        .on_event(|event| match event {
+    video_player("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4")
+        .on_event(|event: VideoEvent| match event {
             VideoEvent::ReadyToPlay => tracing::info!("ready"),
-            VideoEvent::Ended => tracing::info!("playback ended"),
             VideoEvent::Buffering => tracing::info!("buffering"),
             VideoEvent::BufferingEnded => tracing::info!("resumed"),
-            VideoEvent::Error { message } => tracing::error!("error: {message}"),
+            VideoEvent::Ended => tracing::info!("ended"),
+            VideoEvent::Error { message } => tracing::error!("playback error: {message}"),
             _ => {}
         })
 }
 ```
 
-| Event | Description |
+| Event | Meaning |
 |---|---|
-| `ReadyToPlay` | The video is ready to begin playback. |
-| `Ended` | Playback reached the end of the video. |
-| `Buffering` | Playback stalled while waiting for more data. |
-| `BufferingEnded` | Enough data is available to resume playback. |
-| `BufferLevel { buffered_ms }` | Reports buffered duration ahead of the playhead. |
-| `PlaybackMetrics { av_drift_ms, dropped_video_frames }` | Periodic playback diagnostics. |
-| `PictureInPictureChanged { active }` | PiP entered or exited. |
-| `NextRequested` / `PreviousRequested` | The system or player UI asked for the next or previous queue item. |
-| `Error { message }` | A load or playback error occurred. |
+| `ReadyToPlay` | the current item can start |
+| `PlaybackStateChanged { playing }` | media time started or stopped advancing |
+| `Buffering` / `BufferingEnded` | playback stalled on data, then resumed |
+| `BufferLevel { buffered_ms }` | buffered duration ahead of the playhead |
+| `PlaybackMetrics { metrics }` | periodic diagnostics: A/V drift, dropped frames, rebuffer counts |
+| `PictureInPictureChanged { active }` / `ExternalPlaybackChanged { active }` | presentation route changed |
+| `TimedMetadata { metadata }` | a container metadata event reached its timestamp |
+| `NextRequested` / `PreviousRequested` | system or player UI asked to change item |
+| `Ended` | the current item reached its end |
+| `Error { message }` | load or playback failure |
+
+For state you want to *render*, prefer `controller.phase()` over counting
+events: it is a signal, so it updates the exact view that reads it.
 
 ---
 
-## Live Photos (Apple)
+## Live Photos
 
-Live Photos combine a still image with a short video clip: press and hold on an iPhone and the photo comes alive. WaterUI models this through `LivePhoto` and `LivePhotoSource`:
+`LivePhoto` is composed in Rust from a `Photo`, a muted `Video`, and a long-press
+gesture — no per-platform live-photo primitive is involved, so it behaves the
+same anywhere photos and video work:
 
 ```rust,ignore
 use waterui::media::{LivePhoto, Url};
 use waterui::media::live::LivePhotoSource;
 
-fn my_live_photo() -> impl View {
-    let source = LivePhotoSource::new(
-        Url::parse("https://static.rust-lang.org/logos/rust-logo-512x512.png").unwrap(),
-        Url::parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4").unwrap(),
-    );
-    LivePhoto::new(source)
+fn memory() -> impl View {
+    LivePhoto::new(LivePhotoSource::new(
+        Url::from_file_path_str("beach.heic"),
+        Url::from_file_path_str("beach.mov"),
+    ))
+    .activation_duration_ms(400)
 }
 ```
 
-`LivePhoto::new` accepts any `IntoComputed<LivePhotoSource>`, so you can
-drive it with a reactive signal that changes the photo dynamically.
-
-> **Note:** Live Photos are an Apple-specific feature. On non-Apple platforms,
-> the native backend may fall back to displaying just the still image.
+Press and hold for `activation_duration_ms` (250 ms by default) and the motion
+clip plays once over the still image, then the still returns. `LivePhoto::new`
+accepts `impl IntoComputed<LivePhotoSource>`, so the pair can come from a signal
+— usually one the `MediaPicker` below produced, or files your app ships.
 
 ---
 
-## The Unified `Media` Enum
+## The unified `Media` enum
 
-When your data model may contain images, videos, or Live Photos -- imagine a social feed or a chat thread -- use the `Media` enum. It implements `View` and automatically selects the right component:
+When your data model can hold any of the three kinds, `Media` implements `View`
+and picks the component for you:
 
 ```rust,ignore
 use waterui::media::{Media, Url};
 use waterui::media::live::LivePhotoSource;
 
-let items: Vec<Media> = vec![
-    Media::Image(Url::parse("https://static.rust-lang.org/logos/rust-logo-512x512.png").unwrap()),
-    Media::Video(Url::parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4").unwrap()),
+let feed = vec![
+    Media::Image(Url::from("https://static.rust-lang.org/logos/rust-logo-512x512.png")),
+    Media::Video(Url::from(
+        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+    )),
     Media::LivePhoto(LivePhotoSource::new(
-        Url::parse("https://static.rust-lang.org/logos/rust-logo-512x512.png").unwrap(),
-        Url::parse("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4").unwrap(),
+        Url::from_file_path_str("beach.heic"),
+        Url::from_file_path_str("beach.mov"),
     )),
 ];
 ```
 
-Each variant renders via its corresponding component:
-
-| Variant | Renders As |
+| Variant | Renders as |
 |---|---|
 | `Media::Image(url)` | `Photo` |
-| `Media::Video(url)` | `VideoPlayer` |
+| `Media::Video(url)` | `video_player(url)` — paused, with controls |
 | `Media::LivePhoto(source)` | `LivePhoto` |
+
+For a feed whose membership changes, render it with `ForEach`/`List` over a
+reactive collection so items diff by identity — see
+[Lists and collections](../03-ui/05-lists.md).
 
 ---
 
-## Media Picker
+## Audio
 
-Want to let users choose a photo or video from their device? The `MediaPicker` component presents the platform's native media selection dialog. It requires the `std` feature, which is enabled by default.
+There is no audio-only component at this pin. An audio track is a `MediaItem` in
+a `PlaybackSession`, driven by the same `PlayerController` — and because a
+session only starts once a view mounts it, you still place a `Video` (with your
+own controls, and no visible surface to speak of) to host the session. Fill in
+`MediaMetadata` so the platform's now-playing UI and lock-screen controls show
+the right title, artist, and artwork.
 
-### Basic Selection
+For a live microphone visualization, the `waterui-visualizer` crate provides
+`Waveform`. It is not re-exported through `waterui`, so add it as its own
+dependency:
+
+```rust,ignore
+use waterui_visualizer::{AudioCapture, waveform};
+
+fn microphone_meter() -> impl View {
+    waveform(AudioCapture::new()).sensitivity(1.5)
+}
+```
+
+Constructing an `AudioCapture` has no side effects; recording starts when the
+first visualizer using it finishes GPU setup, and clones share that one recorder
+and sample buffer. Request `Permission::Microphone` (from `waterkit-permission`)
+and confirm it was granted before you show the waveform.
+
+---
+
+## Media picker
+
+`MediaPicker` renders as a button that opens the platform's media selection
+dialog. It needs the `std` feature, which is on by default.
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -319,48 +485,28 @@ fn picker_demo() -> impl View {
 
     MediaPicker::new(&selection)
         .filter(MediaFilter::Image)
-}
-```
-
-### Media Filters
-
-Control what type of media the user can select:
-
-| Filter | Description |
-|---|---|
-| `MediaFilter::Image` | Only images |
-| `MediaFilter::Video` | Only videos |
-| `MediaFilter::LivePhoto` | Only Live Photos |
-| `MediaFilter::Any(vec)` | Any of the listed filters |
-| `MediaFilter::All(vec)` | All conditions must match |
-| `MediaFilter::Not(vec)` | Exclude the listed filters |
-
-### Custom Label
-
-Replace the default "Select Media" button text:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::media::media_picker::{MediaPicker, Selected};
-
-fn custom_picker() -> impl View {
-    let selection: Binding<Option<Selected>> = Binding::container(None);
-
-    MediaPicker::new(&selection)
         .label(text("Choose a photo"))
 }
 ```
 
-### Accessing the Result
+`filter` accepts a signal, so the allowed types can change while the view is
+live. The default label is "Select Media".
 
-Once the user selects media, inspect the `Selected` value through its
-`media()` accessor:
+| Filter | Selects |
+|---|---|
+| `MediaFilter::Image` / `Video` / `LivePhoto` | one kind |
+| `MediaFilter::Any(vec)` | any of the listed filters |
+| `MediaFilter::All(vec)` | all conditions must match |
+| `MediaFilter::Not(vec)` | everything except the listed filters |
+
+The binding fills with a `Selected`. Borrow the payload with `media()`, or take
+ownership with `load()`:
 
 ```rust,ignore
 use waterui::media::Media;
 use waterui::media::media_picker::Selected;
 
-fn handle_selection(selected: &Selected) {
+fn describe(selected: &Selected) {
     match selected.media() {
         Media::Image(url) => tracing::info!("selected image: {url}"),
         Media::Video(url) => tracing::info!("selected video: {url}"),
@@ -371,54 +517,22 @@ fn handle_selection(selected: &Selected) {
 
 ---
 
-## Image Filters
+## Platform notes
 
-Filter modifiers come from `ViewExt` and accept any `IntoSignalF32`, so you can
-hand them a literal value or a `Binding<f64>` for live updates:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::media::Photo;
-
-fn vintage_photo() -> impl View {
-    Photo::new("https://static.rust-lang.org/logos/rust-logo-512x512.png")
-        .saturation(0.6)
-        .brightness(-0.05)
-        .blur(1.5)
-}
-```
-
-Common modifiers: `.blur(radius)`, `.brightness(amount)`, `.contrast(amount)`,
-`.saturation(amount)`. The full list (and how filters compose into a single
-GPU pass) lives in [Filters and Visual Effects](../05-graphics/04-filters.md).
-
-WaterUI also re-exports `filtrate::Filter` as `waterui::media::Filter` if you
-need to construct filter pipelines manually.
+- **Video realization.** Apple platforms bridge AVPlayer/AVKit. Every non-Apple
+  target gets WaterUI's own GPU video player, installed by `export!()` at
+  compile time. This is a `cfg` decision, not a runtime switch: there is no
+  environment variable to flip and no silent fallback between the two.
+- **HDR video.** The backend negotiates HDR and tone-maps to SDR when the output
+  surface cannot display it. Applications do not configure the pipeline; to
+  *observe* it, read `VideoTrackInfo::is_hdr()` from `controller.track_catalog()`.
+- **Still images.** Apple platforms decode HEIF and AVIF through the system
+  decoder; other platforms use the software decoder, which includes an AVIF path
+  on desktop.
+- **Live Photos** work everywhere, because they are a Rust-side composition.
+  Whether the *picker* can return one depends on the platform dialog.
 
 ---
 
-## Platform Considerations
-
-| Feature | Apple | Android | Desktop (Hydrolysis) |
-|---|---|---|---|
-| Photo (network images) | Full support | Full support | Full support |
-| HDR (AVIF/HEIC) | Platform decoder, RGBA16F | Platform decoder, RGBA16F | Software fallback (SDR) |
-| VideoPlayer controls | Native (AVPlayerViewController) | WaterUI/Rust controls | WIP |
-| Live Photos | Native support | Image-only fallback | Image-only fallback |
-| Media Picker | Native photo picker | Native photo picker | File dialog fallback |
-| Streaming decode | JPEG, PNG, GIF, WebP, BMP, TIFF | Same | Same |
-
-### Supported Image Formats
-
-The decoding pipeline automatically selects between a platform-native decoder
-(Apple/Android) and a software fallback depending on the format and platform:
-
-- **Software path:** JPEG, PNG, GIF, WebP, BMP, ICO, TIFF
-- **Platform path:** AVIF, HEIC/HEIF (Apple & Android only), images with
-  embedded ICC/cICP color profiles
-
----
-
-## What's Next
-
-Now that you can display images and play video, the next chapter explores [Maps and Location](02-maps.md) -- embedding interactive maps, dropping pins, and tracking the user's real-time position.
+Next: [Maps and Location](02-maps.md) — embedding an interactive map, dropping
+annotations, and following the user's position.

@@ -1,23 +1,17 @@
 # Plugins
 
 > **In this chapter, you will:**
-> - Understand the `Plugin` trait and how it integrates with `Environment`
-> - Install plugins globally or scoped to a view subtree
-> - Build plugins for theming, analytics, and default error/loading views
-> - Compose multiple plugins into setup functions
-> - Use keyed storage with `Store<K, V>` for plugins that hold many values of one type
+> - Install services and configuration into an `Environment` with the `Plugin` trait
+> - Scope a plugin to the whole app or to one view subtree
+> - Make installed values extractable so views read them as typed parameters
+> - Store several values of one type under phantom keys with `store` / `query`
+> - Register a view hook from inside a plugin
 
-As your application grows, you accumulate cross-cutting concerns: theming,
-analytics, default error views, loading indicators. Scattering `env.insert(...)`
-calls through view code gets messy fast. WaterUI's plugin system gives you a
-clean pattern: a plugin is a self-contained unit that installs itself into an
-`Environment`, injecting services, configuration, or view hooks that every view
-in the hierarchy can read.
+Theming, analytics, default error and loading views: cross-cutting concerns accumulate, and scattering `env.insert(...)` calls through view code hides what an application actually depends on. A plugin packages one of those concerns as a value that knows how to install itself.
 
 ## The Plugin trait
 
-The `Plugin` trait lives in `waterui_core::plugin` and is intentionally
-minimal:
+`Plugin` is re-exported at the facade root as `waterui::Plugin` (it is not in the prelude):
 
 ```rust,ignore
 pub trait Plugin: Sized + 'static {
@@ -31,48 +25,30 @@ pub trait Plugin: Sized + 'static {
 }
 ```
 
-Both methods have default bodies:
+Both methods have defaults: `install` stores the plugin keyed by its own concrete type, `uninstall` removes it. Override `install` when the plugin needs to inject something other than itself — a service, several values, or a hook.
 
-- `install` stores the plugin instance keyed by its concrete type.
-- `uninstall` removes that instance.
-
-You override `install` when the plugin needs to do more than just store
-itself, for example, register a service, install a hook, or extract data into
-multiple environment slots.
-
-## A minimal plugin
-
-The simplest plugin just stores itself in the environment:
+The empty implementation is already useful as a feature marker:
 
 ```rust,ignore
-use waterui_core::{plugin::Plugin, Environment};
+use waterui::{Environment, Plugin};
 
-struct MyPlugin;
-impl Plugin for MyPlugin {}
+struct DebugOverlay;
+impl Plugin for DebugOverlay {}
 
 let mut env = Environment::new();
-env.install(MyPlugin);
-
-// Later, any view can check if the plugin is active.
-assert!(env.get::<MyPlugin>().is_some());
+env.install(DebugOverlay);
+assert!(env.get::<DebugOverlay>().is_some());
 ```
 
-This is useful as a feature flag or a marker that some behavior is enabled.
-Most plugins do more interesting work during installation.
+## Installing
 
-## Installing plugins
+### For the whole application
 
-There are two ways to install a plugin: globally on the application
-environment, or locally on a view subtree.
-
-### During environment setup
-
-Install plugins when building the application's environment. `Environment::install`
-calls `plugin.install(&mut self)` and returns `&mut Self` for chaining:
+`Environment::install` calls `plugin.install(&mut self)` and returns `&mut Self`, so installations chain:
 
 ```rust,ignore
-use waterui::prelude::*;
 use waterui::app::App;
+use waterui::prelude::*;
 
 pub fn app(env: Environment) -> App {
     let mut env = env;
@@ -80,54 +56,34 @@ pub fn app(env: Environment) -> App {
         .install(AnalyticsPlugin::new("api-key"));
     App::new(main, env)
 }
-
-fn main() -> impl View {
-    text("Hello")
-}
 ```
 
-### Per-view with ViewExt
+### For one subtree
 
-`ViewExt::install` installs a plugin for a specific subtree by cloning the
-environment, applying the plugin, and wrapping the view with the modified
-environment:
+`ViewExt::install` clones the environment, applies the plugin to the clone, and attaches it to the wrapped view. Everything outside is unaffected:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn themed_section() -> impl View {
     vstack((
-        text("Dark mode section"),
-        text("All children see DarkTheme"),
+        text("This section uses the dark palette"),
+        text("So does everything below it"),
     ))
-    .install(DarkThemePlugin)
+    .install(ThemePlugin::dark())
 }
 ```
 
-## Building a custom plugin
+## Building one
 
-A useful plugin typically:
+### A configuration plugin
 
-1. Carries configuration.
-2. Inserts services or values into the environment during `install`.
-3. Optionally cleans up during `uninstall`.
-
-The next sections walk through real-world examples.
-
-### Theming plugin
-
-This plugin installs a color palette that any view in the hierarchy can read.
-Note that `Use<T>` is the extractor wrapper: any `T: 'static + Clone` becomes
-extractable through `Use<T>` without you implementing `Extractor` yourself.
+Make the installed type an extractor with `impl_extractor!` so views receive it as a typed parameter instead of reaching into the environment by hand. The macro requires the type to be `Clone`:
 
 ```rust,ignore
+use waterui::env::useenv;
 use waterui::prelude::*;
-use waterui::graphics::color::Color;
-use waterui_core::{
-    Environment,
-    extract::Use,
-    plugin::Plugin,
-};
+use waterui::{Environment, Plugin, impl_extractor};
 
 #[derive(Debug, Clone)]
 pub struct ThemeConfig {
@@ -135,6 +91,8 @@ pub struct ThemeConfig {
     pub secondary: Color,
     pub background: Color,
 }
+
+impl_extractor!(ThemeConfig);
 
 pub struct ThemePlugin {
     config: ThemeConfig,
@@ -150,16 +108,6 @@ impl ThemePlugin {
             },
         }
     }
-
-    pub fn light() -> Self {
-        Self {
-            config: ThemeConfig {
-                primary: Color::srgb(0, 122, 255),
-                secondary: Color::srgb(52, 199, 89),
-                background: Color::srgb(255, 255, 255),
-            },
-        }
-    }
 }
 
 impl Plugin for ThemePlugin {
@@ -169,9 +117,9 @@ impl Plugin for ThemePlugin {
 }
 
 fn themed_card() -> impl View {
-    use_env(|Use(config): Use<ThemeConfig>| {
+    useenv(|config: ThemeConfig| {
         vstack((
-            text("Themed Card").foreground(config.primary),
+            text("Themed card").foreground(config.primary),
             text("Secondary text").foreground(config.secondary),
         ))
         .background(config.background)
@@ -179,28 +127,29 @@ fn themed_card() -> impl View {
 }
 ```
 
-### Analytics plugin
+Note the shape: `ThemePlugin` is the installer and disappears after installation; `ThemeConfig` is what views actually read. Keeping them separate means a view depends on the data, not on which plugin happened to provide it.
 
-A plugin that installs a service for event tracking. The service itself is
-`Clone`, so views can extract it through `Use<AnalyticsService>` and move it
-into action closures:
+For real color work, prefer the built-in theme tokens (`theme_color::Accent` and friends) over a bespoke palette type — they already resolve reactively and follow the system appearance. A custom config type is for values the theme system does not model.
+
+### A service plugin
+
+Same shape, with behavior attached. The service is `Clone`, so it can be moved into action closures:
 
 ```rust,ignore
+use waterui::env::useenv;
 use waterui::prelude::*;
-use waterui_core::{
-    Environment,
-    extract::Use,
-    plugin::Plugin,
-};
+use waterui::{Environment, Plugin, impl_extractor};
 
 #[derive(Clone)]
 pub struct AnalyticsService {
     api_key: String,
 }
 
+impl_extractor!(AnalyticsService);
+
 impl AnalyticsService {
     pub fn track(&self, event: &str) {
-        tracing::info!(api_key = %self.api_key, event, "analytics event");
+        tracing::info!(api_key = %self.api_key, event, "analytics");
     }
 }
 
@@ -221,95 +170,51 @@ impl Plugin for AnalyticsPlugin {
 }
 
 fn tracked_button() -> impl View {
-    use_env(|Use(analytics): Use<AnalyticsService>| {
-        button("Purchase").action(move || {
-            analytics.track("purchase_clicked");
-        })
+    useenv(|analytics: AnalyticsService| {
+        button("Purchase").action(move || analytics.track("purchase_clicked"))
     })
 }
 ```
 
-### Default error view plugin
+Because `AnalyticsService` is an extractor, a handler can also take it directly as a parameter, exactly like `State<T>`.
 
-Install a `DefaultErrorView` that any error in the subtree falls back to.
-See [Error handling](04-error-handling.md) for context. The `text!` macro reads
-named placeholders from the surrounding scope, so bind `message` first:
+### Framework defaults
+
+`DefaultErrorView` and `DefaultLoadingView` are ordinary environment values, so a plugin is the natural place to set them:
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::error::{BoxedStdError, DefaultErrorView};
-use waterui_core::{Environment, plugin::Plugin};
+use waterui::widget::suspense::DefaultLoadingView;
+use waterui::{Environment, Plugin};
 
-pub struct ErrorViewPlugin;
+pub struct AppChromePlugin;
 
-impl Plugin for ErrorViewPlugin {
+impl Plugin for AppChromePlugin {
     fn install(self, env: &mut Environment) {
         env.insert(DefaultErrorView::new(|error: BoxedStdError| {
             let message = Binding::container(error.to_string());
-            vstack((
-                text("Something went wrong").headline(),
-                text!("{message}"),
-            ))
-            .padding()
+            vstack((text("Something went wrong").headline(), text!("{message}"))).padding()
         }));
-    }
-}
-```
 
-### Default loading view plugin
-
-The same shape works for `Suspense` fallbacks. `loading()` returns an
-indeterminate circular `Progress` indicator:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::suspense::DefaultLoadingView;
-use waterui_core::{Environment, plugin::Plugin};
-
-pub struct LoadingViewPlugin;
-
-impl Plugin for LoadingViewPlugin {
-    fn install(self, env: &mut Environment) {
         env.insert(DefaultLoadingView::new(|| {
-            vstack((
-                loading(),
-                text("Loading..."),
-            ))
+            vstack((loading(), text("Loading...")))
         }));
     }
 }
 ```
 
-## Plugin lifecycle
+`loading()` is the facade's indeterminate circular `Progress`. See [Error handling](04-error-handling.md) and [Suspense](03-suspense.md) for what consumes these.
 
-Plugins are installed once during environment setup. The lifecycle is:
+## Lifecycle
 
-1. **Installation** — `install(self, env)` runs and injects values.
-2. **Active** — installed services are visible to every view that reads the
-   environment.
-3. **Uninstallation** — `uninstall(self, env)` removes the plugin entry. This
-   is rarely needed at runtime, but is the way to undo a per-subtree install.
+Installation runs once; the installed values then stay visible to every view that reads that environment. `uninstall` removes the plugin entry and is mainly useful for undoing a per-subtree install.
 
-> **Note:** `Environment` is a type-indexed map, so installing the same plugin
-> type twice replaces the first instance. Treat that as the intended way to
-> override defaults, not a bug.
+`Environment` is a type-indexed map, so installing the same plugin type twice replaces the first instance. That is the intended way to override a default, not an accident to guard against.
 
-## Querying plugin state
+## Keyed storage
 
-The `Environment` provides two ways to look up values that plugins installed.
-
-### Direct type lookup
-
-```rust,ignore
-let plugin = env.get::<ThemePlugin>();
-let config = env.get::<ThemeConfig>();
-```
-
-### Keyed store lookup
-
-When a plugin needs to install several values of the same type under different
-logical keys, use `Environment::store` and `Environment::query`. The `K` type
-acts as a phantom key; the `V` is the actual stored value:
+When a plugin installs several values of the *same* type under different logical meanings, a type key disambiguates them. `Environment::store` takes `self` and returns the extended environment; `query` reads it back:
 
 ```rust,ignore
 use waterui::Environment;
@@ -321,17 +226,15 @@ let env = Environment::new()
     .store::<ApiBaseUrl, _>("https://api.github.com".to_string())
     .store::<CdnBaseUrl, _>("https://static.rust-lang.org".to_string());
 
-let api_url = env.query::<ApiBaseUrl, String>();
+let api_url = env.query::<ApiBaseUrl, String>();   // Option<&String>
 let cdn_url = env.query::<CdnBaseUrl, String>();
 ```
 
-This is the same mechanism the theme system uses to keep many color and font
-slots distinct under one container.
+`ApiBaseUrl` and `CdnBaseUrl` are never constructed; they exist only as keys. This is the same mechanism the theme system uses to keep many font slots distinct in one environment.
 
-## Composing plugins
+## Composing
 
-Larger applications benefit from composing many plugins into a single setup
-function. This keeps `app()` clean and makes it easy to swap configurations:
+Grouping installations into named setups keeps `app()` readable and makes swapping configurations a one-line change:
 
 ```rust,ignore
 use waterui::Environment;
@@ -339,29 +242,23 @@ use waterui::Environment;
 fn setup_production(env: &mut Environment, analytics: AnalyticsPlugin) {
     env.install(ThemePlugin::light())
         .install(analytics)
-        .install(ErrorViewPlugin)
-        .install(LoadingViewPlugin);
+        .install(AppChromePlugin);
 }
 
 fn setup_development(env: &mut Environment) {
-    env.install(ThemePlugin::dark())
-        .install(ErrorViewPlugin)
-        .install(LoadingViewPlugin);
+    env.install(ThemePlugin::dark()).install(AppChromePlugin);
 }
 ```
 
-## Plugins and view hooks
+## Registering a hook
 
-A plugin's `install` body is the natural place to register a view hook —
-a function that intercepts a `ViewConfiguration` for a given component and
-substitutes a new view. The full mechanics live in the
-[Resolvers and hooks](08-resolvers.md) chapter; the shape inside a plugin
-looks like this:
+A plugin's `install` body is also where a view hook belongs — a function that intercepts a component's `ViewConfiguration` and returns a substitute view:
 
 ```rust,ignore
-use waterui::prelude::*;
 use waterui::component::button::ButtonConfig;
-use waterui_core::{Environment, plugin::Plugin};
+use waterui::prelude::*;
+use waterui::view::ViewConfiguration;
+use waterui::{Environment, Plugin};
 
 pub struct LoggingButtonsPlugin;
 
@@ -375,43 +272,16 @@ impl Plugin for LoggingButtonsPlugin {
 }
 ```
 
-`Environment::insert_hook` accepts any `Fn(&Environment, C) -> impl View`
-where `C: ViewConfiguration`. It boxes the closure into a `Hook<C>` and stores
-it under that configuration's type.
+`Environment::insert_hook` accepts any `Fn(&Environment, C) -> impl View` where `C: ViewConfiguration`, boxes it into a `Hook<C>`, and stores it under the configuration's type. [Resolvers and hooks](08-resolvers.md) covers the mechanism.
 
-## Best practices
+## Guidelines
 
-1. **Keep plugins focused.** Each plugin should install one logical unit.
-   Prefer many small plugins over one large one.
-2. **Document what gets installed.** Callers need to know which types appear
-   in the environment after installation.
-3. **Prefer `Use<T>` extractors** so views read services through `use_env(|Use(svc): Use<T>| ...)`
-   instead of grabbing the environment directly.
-4. **Avoid side effects in `install`.** Plugins should configure the
-   environment, not perform I/O or spawn tasks. Defer runtime behavior to the
-   services they install.
-5. **Use `env.install(plugin)` instead of `env.insert(plugin)`.** The plugin
-   pattern documents intent and lets the plugin run custom installation logic.
+- **One plugin, one concern.** Many small plugins compose; one large one does not.
+- **Separate the installer from the installed.** Views should depend on `ThemeConfig`, not `ThemePlugin`.
+- **Make installed types extractors.** `impl_extractor!` turns `useenv(|svc: MyService| ...)` and typed handler parameters on, and keeps `env.get::<T>()` out of view code.
+- **Do not perform I/O in `install`.** Configure the environment; let the installed service do the work when something calls it.
+- **Document what appears in the environment.** A plugin's public contract is the set of types it inserts.
 
-## Summary
+---
 
-| API | Purpose |
-|---|---|
-| `Plugin` trait | Core interface for environment extensions |
-| `Plugin::install(self, env)` | Add functionality to the environment |
-| `Plugin::uninstall(self, env)` | Remove functionality |
-| `Environment::install(plugin)` | Install a plugin (chainable) |
-| `ViewExt::install(plugin)` | Install a plugin for a view subtree |
-| `Environment::insert(value)` | Store a typed value |
-| `Environment::get::<T>()` | Retrieve a typed value |
-| `Environment::store::<K, V>(value)` | Store under a phantom key |
-| `Environment::query::<K, V>()` | Retrieve under a phantom key |
-| `Environment::insert_hook(f)` | Install a hook over `ViewConfiguration` |
-| `Environment::remove::<T>()` | Remove a typed value |
-
-## Next
-
-Plugins install services and configuration. But how do colors, fonts, and
-other design tokens become reactive values that update when the OS toggles
-dark mode? Move on to [Resolvers and hooks](08-resolvers.md) to see the
-machinery underneath the theme system and `.foreground()` modifier.
+Next: [Resolvers and hooks](08-resolvers.md), which is the machinery that turns a token like `theme_color::Accent` into a reactive value and lets a hook rewrite a component before it renders.

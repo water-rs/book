@@ -1,84 +1,102 @@
-# Backend Architecture
+# Backend architecture
 
 > **In this chapter, you will:**
 >
-> - See how each backend (Apple, Android, GTK4, Hydrolysis) maps Rust views to platform widgets
-> - Understand the shared contract that all backends implement
-> - Learn the architecture patterns for adding a new backend
-> - Review the feature matrix across platforms
+> - See how each backend maps a Rust view tree onto its platform
+> - Understand the shared contract every backend implements
+> - Learn why WaterUI ships two self-drawn renderers with opposite designs
+> - Follow the steps for adding a new backend
 
-WaterUI supports multiple rendering backends, each targeting a different platform.
-All backends share the same FFI contract but differ in how they create and manage
-platform widgets. Think of each backend as a translator: it reads the same Rust view tree but speaks a different platform language.
+A backend turns the same Rust view tree into whatever the target platform
+understands. Apple and Android bridge to native widgets; GTK4 bridges to GTK
+widgets; Hydrolysis and Dew draw the pixels themselves.
 
-## The Backend Contract
+> **Note:** You do not need any of this to use WaterUI. This chapter is for
+> contributors, backend authors, and the curious.
+
+## Native bridge first
+
+WaterUI's rule is that a semantic component gets a **native bridge** on every
+platform with a suitable platform primitive, and a shared self-drawn realization
+where none exists. "Native" means coupled to the platform's own object model,
+lifecycle, accessibility, input, and graphics pipeline — not merely "a library
+that happens to ship with the OS." Bundling a portable engine and calling it
+native does not qualify.
+
+The self-drawn realization is a deliberate backend, never a runtime fallback. A
+failed native bridge is an error to fix, not a cue to silently swap renderers.
+
+## The backend contract
 
 Every backend must:
 
-1. Call `waterui_init()` to initialize the Rust runtime.
-2. Install theme signals (color scheme, colors, fonts) into the environment.
+1. Call `waterui_init()` to initialize the Rust runtime and get an `Environment`.
+2. Install theme signals (color scheme, colors, fonts) into that environment.
 3. Call `waterui_app(env)` to obtain the application's window tree.
-4. Walk the view tree, dispatching each node by its `WuiTypeId`.
+4. Walk the tree, dispatching each node by its `WuiTypeId`.
 5. Subscribe to reactive signals and update widgets when values change.
-6. Handle the application lifecycle (window management, event loop).
+6. Drive the application lifecycle: windows and the event loop.
 
-The `waterui-backend-core` crate provides shared infrastructure, including
-`ViewDispatcher` -- a type-based dispatch table that routes `AnyView` instances
-to backend-specific handlers.
+`waterui_init` and `waterui_app` come from `waterui_ffi::export!()`. That macro
+lives in the FFI companion crate the `water` CLI generates — application crates
+neither declare `waterui-ffi` nor call `export!()` themselves.
 
-> **Note:** You do not need to understand backend internals to use WaterUI. This chapter is for contributors, backend authors, and the deeply curious.
+The `waterui-backend-core` crate holds what Rust-side backends share:
+`ViewDispatcher` for type-based dispatch, plus animation, gesture, input,
+scroll, frame-signal, and time modules.
 
-## Apple Backend (Swift)
+## Apple backend (Swift)
 
 **Location**: `backends/apple/` (git submodule)
 
-The Apple backend is a Swift Package that integrates with UIKit (iOS/tvOS),
-AppKit (macOS), and WatchKit (watchOS). It is the most mature backend and serves
-as the reference implementation.
-
-### Architecture
+A Swift Package targeting UIKit (iOS/tvOS), AppKit (macOS), and WatchKit
+(watchOS). It is the most mature backend and the reference implementation.
 
 ```text
-Rust Library (.dylib / .a)
+Rust library (.dylib / .a)
      |
      C ABI (waterui.h)
      |
-Swift Package (WaterUIRuntime)
+Swift package (WaterUI)
      |
-     UIKit / AppKit Widgets
+     UIKit / AppKit widgets
 ```
 
-The Swift side maintains a `ViewWatcher` that walks the Rust view tree and creates
-corresponding UIKit/AppKit views:
+The Swift side walks the Rust view tree and creates the corresponding platform
+views:
 
-| Rust View       | iOS Widget      | macOS Widget      |
-|----------------|-----------------|-------------------|
-| `Text`         | `UILabel`       | `NSTextField`     |
-| `Button`       | `UIButton`      | `NSButton`        |
-| `Toggle`       | `UISwitch`      | `NSSwitch`        |
-| `TextField`    | `UITextField`   | `NSTextField`     |
-| `ScrollView`   | `UIScrollView`  | `NSScrollView`    |
-| `NavigationStack` | `UINavigationController` | `NSNavigationController` (custom) |
-| `GpuSurface`   | `MTKView`       | `MTKView`         |
+| Rust view         | iOS                       | macOS                                    |
+|-------------------|---------------------------|------------------------------------------|
+| `Text`            | `UILabel`                 | `NSTextField` (label mode)               |
+| `Button`          | `UIButton`                | `NSButton`                               |
+| `Toggle`          | `UISwitch`                | `NSSwitch`                               |
+| `TextField`       | `UITextField`             | `NSTextField`                            |
+| `ScrollView`      | `UIScrollView`            | `NSScrollView`                           |
+| `NavigationStack` | `UINavigationController`  | custom `NSView` stack with `NSWindow` toolbar accessories |
+| `GpuSurface`      | `CAMetalLayer`            | `CAMetalLayer`                           |
 
-### Reactive Integration
+AppKit has no navigation controller, so the macOS stack is built from `NSView`
+containers and drives the window's title, leading, trailing, and search
+accessories directly. This is the "asymmetries are documented, not faked"
+principle in practice.
 
-The Swift backend subscribes to WaterUI reactive signals through FFI watchers. When a
-`Computed<T>` value changes, the Rust side invokes a C callback that the Swift
-side registered:
+### Reactive integration
+
+The backend subscribes to WaterUI signals through FFI watchers. A change in
+Rust invokes a C callback that Swift registered:
 
 ```text
-Binding<String> changes
+Binding<Str> changes
   --> Computed<Str> fires
     --> C callback invoked
       --> Swift closure updates UILabel.text
 ```
 
-This happens on the main thread, ensuring UI updates are safe.
+Only the bound property is touched, and the update lands on the main thread.
 
-### Theme Injection
+### Theme injection
 
-The Swift backend reads system appearance and typography, creating reactive signals:
+The backend maps system appearance and typography into WaterUI's theme slots:
 
 ```swift
 // Pseudocode
@@ -89,105 +107,106 @@ let colorSchemeSignal = waterui_computed_color_scheme_new { watcher in
 waterui_theme_install_color_scheme(env, colorSchemeSignal)
 ```
 
-Each semantic color (foreground, background, accent, etc.) is mapped to the
-platform's dynamic color system, so views automatically adapt to light/dark mode.
+Each semantic slot (`Foreground`, `Background`, `Surface`, `Accent`, and the
+rest) resolves to a platform dynamic color, so ordinary view code adapts to
+light/dark mode with no extra work. Backends read these slots rather than
+hard-coding `.label` or `.systemBackground`: getting defaults right is the
+backend's job, not the view author's.
 
-### Build Integration
+### Build integration
 
-The Apple backend is a git submodule under `backends/apple/`. You drive it
-through the `water` CLI -- never invoke `xcodebuild` or `swift build` yourself.
-`water run --platform ios` cross-compiles the Rust staticlib for the target
-triple, hands the path to the Swift package, performs code signing, and deploys
-to the chosen simulator or device. If you find a build step that the CLI cannot
-yet express, file an issue against `cli/` rather than working around it from
-your own scripts.
+Drive the backend through the `water` CLI, never `xcodebuild` or `swift build`
+directly. `water run --platform ios` cross-compiles the Rust staticlib for the
+target triple, hands the path to the Swift package, signs, and deploys to the
+chosen simulator or device. If a build step the CLI cannot express turns up,
+file an issue against `cli/` rather than scripting around it.
 
-## Android Backend (Kotlin/JNI)
+## Android backend (Kotlin/JNI)
 
 **Location**: `backends/android/` (git submodule)
 
-The Android backend uses JNI (Java Native Interface) to bridge Rust and Kotlin.
-It renders using Android's native View system.
-
-### Architecture
-
 ```text
-Rust Library (.so)
+Rust library (.so)
      |
-     JNI (Java Native Interface)
+     JNI
      |
-Kotlin Runtime (dev.waterui.android)
+Kotlin runtime (dev.waterui.android)
      |
-     Android Views / Compose Interop
+     Android View hierarchy
 ```
 
-### JNI Bridge
+The Kotlin runtime is organized into `components`, `ffi`, `layout`, `reactive`,
+and `runtime` packages.
 
-On Android, the FFI macros generate JNI entry points alongside C functions:
+### JNI bridge
+
+On Android, the FFI macros emit JNI entry points beside the C functions. For a
+view registered as `ffi_view!(TextConfig, WuiText, text)`:
 
 ```rust,ignore
-// Generated by ffi_view!(TextConfig, WuiText, text)
 extern "system" fn Java_dev_waterui_android_ffi_WatcherJni_textId(...) -> jobject;
 extern "system" fn Java_dev_waterui_android_ffi_WatcherJni_forceAsText(...) -> jobject;
 ```
 
-The JNI module (`ffi/src/jni/`) provides:
+The identifier is lower-camelized for the `*Id` function and upper-camelized
+after the `forceAs` prefix. The JNI module (`ffi/src/jni/`) caches class
+references at `JNI_OnLoad`, converts `#[repr(C)]` structs into Java objects
+field by field, and passes Rust pointers as `jlong`.
 
-- **Class caching**: JNI class references are cached at `JNI_OnLoad` time.
-- **Struct-to-Java conversion**: Rust `#[repr(C)]` structs are converted to Java
-  objects field by field.
-- **Pointer management**: Rust pointers are passed as `jlong` values through JNI.
-
-### Initialization
-
-The `JNI_OnLoad` function (generated by `export!()`) runs when the native library
-loads:
+`export!()` generates `JNI_OnLoad` in the companion crate:
 
 ```rust,ignore
-extern "system" fn JNI_OnLoad(vm: *mut c_void, reserved: *mut c_void) -> i32 {
-    debug_assert!(reserved.is_null());
-    ndk_context::initialize_android_context(vm, null_mut());
-    jni::init(vm as *mut JavaVM)
+extern "system" fn JNI_OnLoad(vm: *mut c_void, _reserved: *mut c_void) -> i32 {
+    unsafe { waterui_ffi::__jni_init(vm) }
 }
 ```
 
-This initializes the NDK context (for logging, asset access) and the JNI module
-(for cached class references and the `JavaVM` pointer).
+Targeting Android without the `android-jni` feature is a compile error rather
+than a silent no-op.
 
-### Gradle Project Structure
+### Gradle project
 
-The Android backend is a Gradle project with modules:
+The Gradle project holds the `runtime` Kotlin library and its JNI bindings. You
+do not invoke Gradle or `adb`; `water run --platform android` cross-compiles for
+the Android targets, copies the `.so` into `jniLibs/`, runs the embedded Gradle
+wrapper, and installs and launches the app.
 
-- **`runtime`**: The Kotlin library that hosts the WaterUI view tree.
-- **`ffi`**: JNI bindings generated from Rust.
+## GTK4 backend
 
-You do not invoke Gradle or `adb` directly. The `water` CLI orchestrates everything:
+**Location**: `backends/gtk/`
 
-1. Cross-compiling Rust for Android targets (`aarch64-linux-android`, etc.).
-2. Copying the `.so` into the Gradle project's `jniLibs/`.
-3. Running the embedded Gradle wrapper to build the APK.
-4. Installing and launching the app on the chosen device or emulator.
+The native Linux bridge, built on `gtk4-rs`. Beyond the widget mapping it hosts
+the embedded browser components: the system WebKitGTK view, WaterUI's bundled
+WPE runtime, and the CEF-based Chromium runtime, selected through the
+`webview_backend` key in `Water.toml`.
 
-If you ever feel tempted to call `gradlew` or `adb install` from a script,
-extend the CLI instead so the workflow stays reproducible across machines.
+Select it with `water run --platform linux --backend gtk4`, or scaffold with
+`water create <name> --backends gtk4`.
 
-## Hydrolysis Backend
+## Two self-drawn renderers
 
-**Location**: `backends/hydrolysis/` (and `backends/hydrolysis-m3/` for the
-Material 3 component overrides).
+Hydrolysis and Dew share `waterui-core`, reactivity, layout, and text, and
+diverge only in render strategy — deliberately, at opposite ends of the hardware
+range. Neither is converging on the other.
 
-Hydrolysis is the active Rust-side backend. It does not use platform widgets at
-all -- it renders the entire UI on the GPU using `vello` for 2D graphics,
-`parley` for text shaping, and `wgpu` for the device interface. It is also the
-backend that drives `waterui-testing`, because the accessibility tree it
-produces is the contract that integration tests assert against.
+| | Hydrolysis | Dew |
+|---|---|---|
+| Target | High-end desktop, mobile, web | MCU-class embedded (ESP32-S3, ESP32-C3) |
+| Rasterization | GPU-required (`vello` on `wgpu`) | CPU-first (`vello_cpu` sparse strips), GPU optional |
+| Frame strategy | Full-scene redraw, game-engine style | Dirty regions only, sliced into bands |
+| Peak pixel memory | Full frame | One band |
+| Frame rate | High refresh, explicitly requested | 30/60fps, power-frugal |
+| Dependency graph | Modern GPU + multi-core CPU | Lean, feature-gated for firmware |
 
-### Architecture
+### Hydrolysis
+
+**Location**: `backends/hydrolysis/`, with `backends/hydrolysis_m3/` supplying
+the Material 3 skin.
 
 ```text
-Rust View Tree
+Rust view tree
      |
-     ViewDispatcher (Rust)        ----> AccessKit a11y tree
+     ViewDispatcher (Rust)        ----> accesskit a11y tree
      |
      Hydrolysis widgets (text, layout, scroll, gestures, ...)
      |
@@ -196,69 +215,110 @@ Rust View Tree
      wgpu device + GPU surface
 ```
 
-### View Dispatch
+Rules that hold when you author GPU-backed components on top of it:
 
-Hydrolysis (and any other Rust-side backend) uses `ViewDispatcher` from
-`waterui-backend-core` to route views to type-specific handlers:
+- **GPU only, no CPU fallback.** There is no software rasterization path.
+  Production surfaces reject software and noop `wgpu` adapters; the
+  `WATER_HYDROLYSIS_FORCE_FALLBACK_ADAPTER` environment variable exists for
+  one-off diagnostics, not for shipping.
+- **Never read render targets back to CPU memory** on the runtime render path.
+  Offscreen capture for tests has its own entry points.
+- **One `GpuView` per `GpuSurface`.** `GpuSurface::new(renderer)` owns that
+  `GpuView` for the surface's lifetime, and persistent GPU resources belong in
+  `GpuView::setup()` — not in a cache that outlives the surface.
+- **No damage tracking.** The scene is redrawn rather than invalidated by
+  region. Adding dirty-rectangle logic here would contradict the design.
+
+Starting a Hydrolysis app installs the Material 3 defaults onto the app's
+environment after the app is constructed:
+
+```rust,ignore
+let env = Environment::new();
+let mut app = my_crate::app(env);
+hydrolysis_m3::install_defaults(&mut app.env);
+hydrolysis::run(app);
+```
+
+The CLI generates exactly this for managed Hydrolysis backends.
+
+#### Accessibility as a build output
+
+With the `accessibility` feature enabled, every Hydrolysis component emits an
+`accesskit` tree as a first-class artifact rather than a retrofit.
+`waterui-testing` consumes that tree directly, so a component that cannot be
+covered by an accessibility query is failing its design contract, not just a CI
+lint.
+
+### Dew
+
+**Location**: `backends/dew/`
+
+```text
+WaterUI view tree
+   |  dispatch + waterui-layout measure/place
+   v
+DisplayList        retained draw commands (kurbo paths, peniko brushes)
+   |  diff against previous frame -> dirty rects
+   v
+BandScheduler      dirty rects -> row slices no taller than band_height
+   |
+Painter            vello_cpu rasterizes each band into a scratch pixmap
+   |
+DisplayFlush       the only platform-specific piece: in-memory buffer,
+                   simulator window, or RGB565 panel stream
+```
+
+The screen never has to exist as a full-resolution framebuffer, which is what
+makes the backend viable on a microcontroller driving an SPI/QSPI panel. Dew is
+`std`-based through its embedded RTOS rather than bare-metal `no_std`, and
+firmware builds strip GPU, widget, and gesture features from the dependency
+graph.
+
+The whole flow runs on the desktop without cross-compiling:
+
+```bash
+cargo run -p waterui-dew --example watch_sim --features embedded-simulator
+```
+
+`waterui_dew::render_view_png(builder, env, width, height)` renders one frame
+headlessly for snapshot tests. Views Dew does not yet support panic rather than
+render something wrong.
+
+## View dispatch
+
+Rust-side backends route views through `ViewDispatcher` from
+`waterui-backend-core`:
 
 ```rust,ignore
 use waterui_backend_core::ViewDispatcher;
-use waterui_core::{components::Native, Environment};
+use waterui_core::{Environment, components::Native};
 
-let mut dispatcher: ViewDispatcher<State, RenderContext, Widget> =
-    ViewDispatcher::new();
+let mut dispatcher: ViewDispatcher<State, RenderContext, Widget> = ViewDispatcher::new();
 
-dispatcher.register::<Native<TextConfig>>(|state, ctx, native, env| {
-    // Build the Hydrolysis text widget from the config.
+dispatcher.register::<Native<TextConfig>>(|state, ctx, view, env| {
+    // Build the backend's text widget from the config.
 });
 
-dispatcher.register::<Native<ButtonConfig>>(|state, ctx, native, env| {
-    // Build the Hydrolysis button widget.
+dispatcher.register::<Native<ButtonConfig>>(|state, ctx, view, env| {
+    // Build the backend's button widget.
 });
 
-// Dispatch a concrete view; unknown types auto-expand via body().
-dispatcher.dispatch(view, &env, context);
+let widget = dispatcher.dispatch(my_view, &env, context);
 ```
 
-The dispatcher's `dispatch` method is the render loop:
+`dispatch` is the render loop:
 
 1. Look up the view's `TypeId` in the handler table.
-2. If a handler is registered, run it.
-3. Otherwise, evaluate `body()` and recurse on the result.
+2. If a handler is registered, run it — the view stays on the stack, no
+   allocation.
+3. Otherwise evaluate `body()` and recurse on the result.
 
-This is the same algorithm the FFI backends implement in Swift or Kotlin, but
-performed in Rust without crossing a language boundary.
+That is the same algorithm the Apple and Android backends implement in Swift and
+Kotlin, minus the language boundary.
 
-### GPU Discipline
+### Debug tracing
 
-Hydrolysis enforces several rules that you must respect when authoring
-GPU-backed components on top of it:
-
-- **GPU only on the runtime path.** Never read render targets back to CPU
-  memory in the runtime render path. Offscreen capture for testing has its
-  own dedicated entry points.
-- **One `GpuView` per `GpuSurface`.** `GpuSurface::new(renderer)` owns one
-  `GpuView` for the lifetime of that surface. Persistent GPU resources for
-  that renderer instance live in `GpuView::setup()`, not in hidden caches
-  outside the surface's lifetime.
-- **No software fallback in production.** Hydrolysis production surfaces
-  reject software/noop wgpu adapters. Test-only constructors gated behind
-  `#[cfg(test)]` (and the `WATER_HYDROLYSIS_FORCE_FALLBACK_ADAPTER`
-  environment variable for diagnostics) opt in to compute-capable software
-  adapters so CI can still run accessibility tests where no real GPU exists.
-
-### Accessibility as a Build Output
-
-Every Hydrolysis component produces an `accesskit` accessibility tree as a
-first-class artifact, not as an after-thought layered on top of the visual
-output. `waterui-testing` consumes that tree directly, which means a UI
-component that fails accessibility coverage is failing its design contract,
-not just a CI lint.
-
-### Debug Tracing
-
-Set `WATERUI_DISPATCH_DEBUG=1` to log the dispatch tree as views are matched
-against handlers:
+`WATERUI_DISPATCH_DEBUG=1` logs the dispatch tree as views are matched:
 
 ```text
 [dispatch] Native<TextConfig>
@@ -266,72 +326,57 @@ against handlers:
 [dispatch]   Native<ButtonConfig>
 ```
 
-> **Tip:** This is invaluable when a view is not rendering as expected. It
-> shows you exactly which view types the dispatcher matched and which ones
-> fell through to `body()` recursion.
+Any view that falls through to `body()` and never reaches a registered handler
+is a backend gap worth filing.
 
-## Other Rust-Side Backends
+## Adding a new backend
 
-Two additional backend folders exist in the workspace:
-
-- **GTK4** (`backends/gtk/`) -- An early Linux backend over `gtk4-rs`. The
-  upstream roadmap marks it as no longer supported, so do not target it for
-  new work; treat it as historical reference.
-- **TUI** -- Listed as work in progress in `AGENTS.md`. There is no stable
-  terminal backend you can ship against today.
-
-If you need a Linux-only target right now, drive Hydrolysis through `water run
---platform linux --backend hydrolysis`.
-
-## How to Add a New Backend
-
-If you want to bring WaterUI to a new platform, here is the roadmap:
-
-1. **Create the backend crate** in `backends/your-backend/`.
-
-2. **Add a dependency** on `waterui-backend-core` for the `ViewDispatcher` and
-   shared types.
-
-3. **Register view handlers** for each native view type you support:
+1. **Create the crate** in `backends/your-backend/`.
+2. **Depend on `waterui-backend-core`** for `ViewDispatcher` and the shared
+   interaction types.
+3. **Register handlers** for each native view type you support:
    ```rust,ignore
-   dispatcher.register::<Native<TextConfig>>(|state, ctx, text, env| {
+   dispatcher.register::<Native<TextConfig>>(|state, ctx, view, env| {
        // Create your platform's text widget
    });
    ```
-
-4. **Handle metadata** by registering handlers for `Metadata<T>` types:
+4. **Handle metadata** the same way:
    ```rust,ignore
    dispatcher.register::<Metadata<Opacity>>(|state, ctx, meta, env| {
        // Apply opacity, then render meta.content
    });
    ```
-
-5. **Implement the application lifecycle**: window creation, event loop,
-   and signal-driven updates.
-
-6. **Install theme signals**: Map your platform's appearance system to
+5. **Implement the lifecycle**: window creation, event loop, signal-driven
+   updates.
+6. **Install theme signals**, mapping your platform's appearance system onto
    WaterUI's color and font slots.
 
-For backends that go through FFI (like the Apple and Android backends), you
-instead implement the view walker in the target language, using the C header
-or JNI functions to call into Rust.
+Two constraints apply throughout. A bridge may only make reachable the platform
+code the selected WaterUI features actually need — hiding a whole framework
+behind FFI or broad keep rules defeats dead-stripping and inflates every
+packaged app. And unused WaterUI features must drop their Rust code, platform
+code, resources, and transitive dependencies from the artifact, which means new
+backend dependencies are feature-gated and measured.
 
-## Backend Status
+For FFI backends, you write the view walker in the target language against the
+generated C header or JNI functions instead of registering Rust handlers.
 
-| Backend       | Path                        | Status                                      |
-|---------------|-----------------------------|---------------------------------------------|
-| Apple         | `backends/apple/`           | Stable. Reference implementation.           |
-| Android       | `backends/android/`         | Stable.                                     |
-| Hydrolysis    | `backends/hydrolysis/`      | Active Rust-side renderer. Drives `waterui-testing`. |
-| Hydrolysis-M3 | `backends/hydrolysis-m3/`   | Material 3 component overrides for Hydrolysis. |
-| GTK4          | `backends/gtk/`             | Unmaintained. The roadmap marks it as no longer supported. |
-| TUI           | (not in tree)               | Work in progress.                           |
+## Backend status
 
-Component coverage on each backend is an evolving target. Rather than freezing
-a feature matrix here that will rot, run `water run --platform <target>` against
-your view and read the dispatch trace -- any view that falls through to its
-`body()` and never reaches a registered handler is a backend gap to file.
+| Backend       | Path                      | Notes                                                     |
+|---------------|---------------------------|-----------------------------------------------------------|
+| Apple         | `backends/apple/`         | Submodule. UIKit/AppKit bridge; reference implementation.  |
+| Android       | `backends/android/`       | Submodule. Android View bridge over JNI.                   |
+| GTK4          | `backends/gtk/`           | Linux bridge; also hosts the WebKitGTK/WPE/CEF web views.  |
+| Hydrolysis    | `backends/hydrolysis/`    | GPU self-drawn renderer; drives `waterui-testing`.         |
+| Hydrolysis-M3 | `backends/hydrolysis_m3/` | Material 3 skin for Hydrolysis.                            |
+| Dew           | `backends/dew/`           | CPU self-drawn renderer for MCU-class targets.             |
+| Backend core  | `backends/core/`          | Shared dispatch, gesture, scroll, animation, frame timing. |
 
-## What's Next
+Component coverage moves too fast to freeze in a matrix. Run your view against a
+target and read the dispatch trace instead.
 
-With backends covered, the [next chapter](05-library-authoring.md) shifts focus from framework internals to framework extension -- how to author reusable WaterUI component libraries that integrate cleanly with the ecosystem.
+## What's next
+
+The [next chapter](05-library-authoring.md) turns from extending the framework
+downward to extending it outward: authoring reusable WaterUI component crates.

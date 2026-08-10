@@ -1,369 +1,284 @@
 # Animation
 
 > **In this chapter, you will:**
-> - Learn how WaterUI's declarative animation system works with reactive state
-> - Use `.animated()` and `.with_animation()` to bring values to life
-> - Choose between bezier curves and spring physics for different effects
-> - Compose multiple animations that run in parallel
-> - Implement custom interpolation for your own types
+> - Attach animation metadata to a signal so the renderer interpolates it
+> - Choose between bezier curves and spring physics
+> - Animate transforms, shape geometry, and collection membership
+> - Implement `Animatable` for your own types
+> - Drive a timeline manually with `AnimationTrack`
 
-Your app works, but it feels static. Buttons snap into place, views appear
-instantly, and state changes feel jarring. Animation is the difference between
-software that *functions* and software that *feels good*. WaterUI's animation
-system makes this easy: instead of writing imperative "start animation from A to
-B" code, you attach animation metadata to reactive values and let the framework
-interpolate automatically whenever those values change.
+WaterUI has no "start animation from A to B" call. You attach an `Animation`
+to a reactive value, and every later change to that value is interpolated
+instead of applied instantly. Because the metadata rides on the signal, any
+modifier that already accepts a signal animates for free.
 
-```text
-Reactive Values  --->  Change Propagation  --->  Animation System
-(Binding/Compute)      (With Metadata)           (Renderer)
-```
+## Attaching an animation to a signal
 
-## Core Concepts
-
-The animation system lives in `waterui_core::animation` and exposes two
-fundamental primitives:
-
-- **Bezier** -- Timed interpolation along a cubic bezier curve. Great for
-  predictable, time-based transitions like fades and slides.
-- **Spring** -- Physics-based movement with configurable stiffness and damping.
-  Ideal for interactions that should feel organic, like drag releases or
-  toggles.
-
-Both primitives are variants of the `Animation` enum:
+`SignalExt::with` attaches metadata to a signal's emissions. Pass an
+`Animation` and the value becomes animated:
 
 ```rust,ignore
-pub enum Animation {
-    Default,
-    Bezier { duration: Duration, x1: f32, y1: f32, x2: f32, y2: f32 },
-    Spring { stiffness: f32, damping: f32 },
-}
+use waterui::animation::Animation;
+use waterui::prelude::*;
+
+let scale = Binding::f32(1.0);
+let animated_scale = scale.with(Animation::spring(300.0, 15.0));
+
+Blue.size(80.0, 80.0)
+    .scale(animated_scale.clone(), animated_scale)
 ```
 
-Now let's see how to apply these to your reactive values.
+Setting `scale` to `1.5` now springs the box to its new size. The binding
+itself is unchanged — `with` returns a wrapper, so the same binding can feed
+several views with different timings.
 
-## Animated Signals
-
-The `AnimationExt` trait is implemented for every WaterUI reactive signal. It
-provides two methods that cover most use cases.
-
-### `.animated()`
-
-The quickest way to add animation. This applies a sensible default (ease-in-out,
-250 ms) to any reactive value:
+For the common case, `.animated()` applies WaterUI's default timing
+(ease-in-out over 250 ms):
 
 ```rust,ignore
 use waterui::prelude::*;
 
 let opacity = Binding::f64(1.0);
-let animated_opacity = opacity.clone().animated();
+let fade = opacity.animated();
 ```
 
-When `opacity` changes from `1.0` to `0.0`, the renderer will smoothly
-transition through intermediate values over 250 ms using an ease-in-out curve.
+> **Note:** `.animated()` comes from the prelude. Importing
+> `waterui::animation::AnimationExt` additionally brings
+> `.with_animation(animation)`, a named alias for `.with(animation)`.
 
-> **Tip:** `.animated()` is perfect for quick prototyping. You can always switch
-> to `.with_animation()` later for finer control.
+## Bezier curves
 
-### `.with_animation(animation)`
+`Animation::Bezier` is a timed curve through two control points, running from
+`(0, 0)` to `(1, 1)`. Four constructors match the CSS easing keywords:
 
-When you need a specific curve or duration, use this method instead:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui_core::animation::Animation;
-use core::time::Duration;
-
-let scale = Binding::f64(1.0);
-let animated_scale = scale.with_animation(
-    Animation::ease_in_out(Duration::from_millis(300))
-);
-```
-
-Both methods return a `WithMetadata<Self, Animation>` -- the original signal
-wrapped with animation metadata that the renderer inspects during each frame.
-
-## Bezier Animations
-
-Bezier animations use cubic bezier control points to define the easing curve.
-The curve starts at `(0, 0)` and ends at `(1, 1)`. The four control-point values
-`(x1, y1, x2, y2)` shape the acceleration and deceleration profile.
-
-### Convenience Constructors
-
-WaterUI provides four standard curves that match the CSS easing keywords:
-
-| Constructor | Control Points | Behavior |
+| Constructor | Control points | Behavior |
 |---|---|---|
 | `Animation::linear(duration)` | `(0.0, 0.0, 1.0, 1.0)` | Constant velocity |
 | `Animation::ease_in(duration)` | `(0.42, 0.0, 1.0, 1.0)` | Starts slow, accelerates |
 | `Animation::ease_out(duration)` | `(0.0, 0.0, 0.58, 1.0)` | Starts fast, decelerates |
 | `Animation::ease_in_out(duration)` | `(0.42, 0.0, 0.58, 1.0)` | Slow start and end |
 
-If you have worked with CSS transitions before, these will feel familiar.
-
-### Custom Bezier Curves
-
-For fine-grained control, use `Animation::bezier`:
+`Animation::bezier` takes the control points directly:
 
 ```rust,ignore
-use waterui_core::animation::Animation;
 use core::time::Duration;
+use waterui::animation::Animation;
 
-// A bounce-like feel
-let bounce = Animation::bezier(
-    Duration::from_millis(400),
-    0.25, 0.1, 0.25, 1.0,
-);
+let bounce = Animation::bezier(Duration::from_millis(400), 0.25, 0.1, 0.25, 1.0);
 ```
 
-> **Note:** The `x1` and `x2` values must be in the range `[0.0, 1.0]`. The
-> `y1` and `y2` values are unclamped, allowing overshoot effects. Providing
-> out-of-range `x` values or non-finite values panics from inside
-> `Animation::bezier`.
+`x1` and `x2` must lie in `[0.0, 1.0]`; `y1` and `y2` are unclamped so curves
+can overshoot. Out-of-range or non-finite values panic inside
+`Animation::bezier`.
 
-## Spring Animations
+## Spring physics
 
-Sometimes a fixed-duration curve does not capture the right feel. Drag releases,
-toggles, and pull-to-refresh interactions feel more natural with physics-based
-motion. That is what spring animations are for.
+Drag releases and toggles feel wrong on a fixed-duration curve. Springs take
+stiffness (how hard the spring pulls) and damping (how fast oscillation dies):
 
 ```rust,ignore
-use waterui_core::animation::Animation;
+use waterui::animation::Animation;
 
-// stiffness: how quickly the spring accelerates (higher = faster)
-// damping:   how quickly oscillation decays     (higher = less bounce)
 let springy = Animation::spring(100.0, 10.0);
 ```
 
-The physics simulation uses the following model:
+The damping ratio `damping / (2 * sqrt(stiffness))` decides the character:
+below `1.0` the value overshoots and oscillates, at `1.0` it arrives as fast as
+possible without overshoot, above `1.0` it eases in slowly. Start at
+`(100.0, 10.0)`, lower the damping for more bounce, raise the stiffness to make
+it snappier. `Animation::spring` panics on a non-positive stiffness or a
+negative damping.
 
-- **Underdamped** (`damping / (2 * sqrt(stiffness)) < 1.0`) -- the spring
-  overshoots and oscillates before settling.
-- **Critically damped** -- the spring reaches its target as fast as possible
-  without overshooting.
-- **Overdamped** -- the spring approaches the target slowly without overshoot.
+Springs have no natural end time. `Animation::duration()` reports 600 ms for
+scheduling purposes, but how long the motion *looks* like it lasts is decided
+by the physics parameters.
 
-> **Tip:** Start with `stiffness: 100.0` and `damping: 10.0`, then tweak from
-> there. Lower damping gives more bounce; higher stiffness makes things snappier.
+## Different curves, one state change
 
-Spring animations do not have a fixed duration. The framework uses a default
-duration of 600 ms for timing calculations, but the actual visual completion
-depends on the physics parameters.
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui_core::animation::Animation;
-
-let position = Binding::container((0.0, 0.0));
-let animated_pos = position.with_animation(Animation::spring(120.0, 12.0));
-```
-
-## The Easing System
-
-Under the hood, `Animation` delegates to `EasingCurve` for progress
-calculation. `EasingCurve` is a standalone type in `waterui_core::easing` with
-two variants:
+Each signal carries its own metadata, so a single state change can drive
+several properties on different timings:
 
 ```rust,ignore
-pub enum EasingCurve {
-    CubicBezier(f32, f32, f32, f32),
-    Spring { stiffness: f32, damping: f32 },
-}
-```
-
-You can use `EasingCurve` directly if you need easing outside of the animation
-metadata system. Common constants are available:
-
-```rust,ignore
-use waterui_core::easing::EasingCurve;
-
-let _ = EasingCurve::LINEAR;       // (0, 0, 1, 1)
-let _ = EasingCurve::EASE_IN;      // (0.42, 0, 1, 1)
-let _ = EasingCurve::EASE_OUT;     // (0, 0, 0.58, 1)
-let _ = EasingCurve::EASE_IN_OUT;  // (0.42, 0, 0.58, 1)
-let _ = EasingCurve::EASE;         // (0.25, 0.1, 0.25, 1) -- CSS default
-```
-
-## The Animatable Trait
-
-For the animation system to interpolate between two values, the type must
-implement `Animatable`. Each animatable value exposes a payload that the
-renderer blends frame-by-frame using the lower-level `Interpolatable` trait
-from `waterui_core::easing`:
-
-```rust,ignore
-pub trait Animatable: Clone {
-    type AnimatableData: Interpolatable;
-    fn animatable_data(&self) -> Self::AnimatableData;
-    fn from_animatable_data(data: Self::AnimatableData) -> Self;
-}
-
-pub trait Interpolatable: Clone {
-    fn lerp(&self, other: &Self, t: f32) -> Self;
-}
-```
-
-WaterUI provides built-in `Animatable` implementations for `f32`, `f64`, tuples
-up to four elements, and fixed-size arrays `[T; N]` where the element type is
-`Animatable + Copy`. The matching `Interpolatable` impls cover the same shapes
-on the easing side.
-
-To animate a custom type (for example, a color struct), implement `Animatable`
-and pick a tuple or array `AnimatableData` that the easing system already knows
-how to interpolate.
-
-## Coordinated Transitions
-
-Real-world UIs rarely animate a single property. A card appearing on screen
-might fade in, slide up, and scale all at once. Because each signal carries its
-own animation metadata, different properties can use different curves and
-durations:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui_core::animation::Animation;
 use core::time::Duration;
-
-let opacity = Binding::f64(0.0);
-let position = Binding::container((0.0, 100.0));
-let scale = Binding::f64(0.8);
-
-// Opacity fades in with ease-in-out
-let anim_opacity = opacity.with_animation(
-    Animation::ease_in_out(Duration::from_millis(300))
-);
-
-// Position slides up with a spring
-let anim_position = position.with_animation(
-    Animation::spring(100.0, 10.0)
-);
-
-// Scale grows to 1.0 with ease-out
-let anim_scale = scale.with_animation(
-    Animation::ease_out(Duration::from_millis(250))
-);
-```
-
-When you trigger the state change, all three properties animate in parallel:
-
-```rust,ignore
-# // Trigger the "appear" state
-# let opacity = waterui::prelude::Binding::f64(0.0);
-# let position = waterui::prelude::Binding::container((0.0, 100.0));
-# let scale = waterui::prelude::Binding::f64(0.8);
-opacity.set(1.0);
-position.set((0.0, 0.0));
-scale.set(1.0);
-```
-
-The framework handles each animation independently, so a 300 ms opacity fade
-will finish before a bouncy spring position settles.
-
-## Composition with Reactive Operators
-
-Animation metadata composes naturally with `map`, `zip`, and other signal
-combinators. This means you can derive animated values from other signals
-without any special effort:
-
-```rust,ignore
+use waterui::animation::Animation;
 use waterui::prelude::*;
-use waterui_core::animation::Animation;
+
+fn card(revealed: &Binding<bool>) -> impl View {
+    let opacity = revealed.select(1.0, 0.0)
+        .with(Animation::ease_in_out(Duration::from_millis(300)));
+    let offset_y = revealed.select(0.0, 100.0)
+        .with(Animation::spring(100.0, 10.0));
+    let scale = revealed.select(1.0, 0.8)
+        .with(Animation::ease_out(Duration::from_millis(250)));
+
+    text("Now you see me")
+        .padding()
+        .opacity(opacity)
+        .offset(0.0, offset_y)
+        .scale(scale.clone(), scale)
+}
+```
+
+Flipping `revealed` starts all three at once, and each settles on its own
+schedule. A derived signal animates the same way — attach the metadata after
+the `map` or `zip`:
+
+```rust,ignore
 use core::time::Duration;
+use waterui::animation::Animation;
+use waterui::prelude::*;
 
 let count = Binding::i32(0);
+let opacity = count.map(|n: i32| if n > 5 { 1.0 } else { 0.5 }).animated();
 
-// Map count to opacity, then animate
-let opacity = count
-    .map(|n: i32| if n > 5 { 1.0 } else { 0.5 })
-    .animated();
-
-// Combine two values and animate the result
-let value1 = Binding::i32(1);
-let value2 = Binding::i32(2);
-
-let combined = value1
-    .zip(&value2)
-    .map(|(a, b)| a + b)
-    .with_animation(Animation::ease_in_out(Duration::from_millis(250)));
+let width = Binding::f32(0.0);
+let height = Binding::f32(0.0);
+let area = width
+    .zip(&height)
+    .map(|(w, h)| w * h)
+    .with(Animation::ease_in_out(Duration::from_millis(250)));
 ```
 
-## Manual Interpolation
+## What animates, and what only updates
 
-If you need to compute intermediate values outside of the signal system (for
-example, in a custom view renderer), use `Animation::interpolate` directly.
-It accepts the bounds by reference so you can interpolate any
-`Animatable` type, including tuples and arrays:
+Transforms and opacity are compositor properties: `.scale()`, `.rotation()`,
+`.offset()`, and `.opacity()` hand the animation metadata to the platform
+animator, so the value is interpolated frame by frame.
 
-```rust,ignore
-use waterui_core::animation::Animation;
-use core::time::Duration;
-
-let anim = Animation::ease_in_out(Duration::from_millis(300));
-let elapsed = Duration::from_millis(150);
-
-let value = anim.interpolate(&0.0_f32, &100.0_f32, elapsed);
-// value is approximately 50.0, but eased
-
-let is_done = anim.is_complete(elapsed); // false
-let is_done = anim.is_complete(Duration::from_millis(300)); // true
-```
-
-The `progress` method returns the eased progress as a float:
-
-```rust,ignore
-# use waterui_core::animation::Animation;
-# use core::time::Duration;
-# let anim = Animation::ease_in_out(Duration::from_millis(300));
-let p = anim.progress(Duration::from_millis(150));
-// p is between 0.0 and 1.0, shaped by the easing curve
-```
-
-## Using Animations with View Modifiers
-
-Many `ViewExt` modifiers accept reactive values. Passing an animated signal
-automatically animates the visual property -- no extra wiring needed:
+Layout parameters are different. Stack spacing and the `Frame` dimensions
+accept signals and re-run layout when the signal changes, but the change is
+applied in one step — the layout invalidation carries no animation metadata:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui_core::animation::Animation;
 
-let angle = Binding::f64(0.0).animated();
-let x_scale = Binding::f64(1.0).animated();
-let y_scale = Binding::f64(1.0).animated();
-
-text("Hello")
-    .rotation(angle)
-    .scale(x_scale, y_scale);
+fn toolbar(compact: &Binding<bool>) -> impl View {
+    // Reactive: the stack re-lays out when `compact` flips.
+    // Not interpolated: the gap jumps from 20 to 4.
+    hstack((text("Cut"), text("Copy"), text("Paste")))
+        .spacing(compact.select(4.0, 20.0))
+}
 ```
 
-When `angle` or the scale bindings change, the rotation and scale transforms
-will animate smoothly to their new values.
+To animate a size change, animate a transform on top of a fixed layout rather
+than animating the layout itself.
 
-> **Try it yourself:** Create a button that toggles between `angle = 0.0` and
-> `angle = 3.14`. Watch it spin smoothly each time you tap.
+## Animating collection membership
 
-## Summary
+Rows appearing and disappearing in a `ForEach` or `List` pop in by default.
+Wrap the subtree in `collection_transition` to fade and grow entering items and
+fade and collapse exiting ones:
 
-| API | Purpose |
-|---|---|
-| `signal.animated()` | Default ease-in-out animation (250 ms) |
-| `signal.with_animation(anim)` | Custom animation configuration |
-| `Animation::linear(dur)` | Constant velocity |
-| `Animation::ease_in(dur)` | Slow start |
-| `Animation::ease_out(dur)` | Slow end |
-| `Animation::ease_in_out(dur)` | Slow start and end |
-| `Animation::spring(stiff, damp)` | Physics-based spring |
-| `Animation::bezier(dur, x1, y1, x2, y2)` | Custom cubic bezier |
-| `anim.interpolate(from, to, elapsed)` | Manual value interpolation |
-| `anim.progress(elapsed)` | Eased progress `[0, 1]` |
-| `anim.is_complete(elapsed)` | Check if animation finished |
-| `EasingCurve::ease(t)` | Low-level easing calculation |
-| `Interpolatable::lerp(other, t)` | Linear interpolation trait |
+```rust,ignore
+use core::time::Duration;
+use waterui::animation::Animation;
+use waterui::prelude::*;
 
-## What's Next
+collection_transition(
+    List::for_each(rows.clone(), row_view),
+    Animation::ease_out(Duration::from_millis(220)),
+)
+```
 
-Your app now moves smoothly, but users interact with more than taps. In the
-[next chapter](02-gestures.md), you will learn how to recognize gestures --
-taps, drags, pinches, and rotations -- and pair them with the animations you
-just learned.
+The transition is scoped through the environment, so every reactive collection
+inside `content` picks it up. Backends without support render the collection
+correctly, just without the transition.
+
+## Shape morphing
+
+Geometry morphing is not a native transform, so WaterUI renders it on the GPU
+through its own interpolation pipeline:
+
+```rust,ignore
+use core::time::Duration;
+use waterui::prelude::*;
+use waterui::shape::{Capsule, Circle, Rectangle, RoundedRectangle, ShapeExt};
+
+hstack((
+    Circle
+        .morph_to(RoundedRectangle::new(0.22), Color::srgb_hex("#3B82F6"))
+        .duration(Duration::from_millis(1100))
+        .size(90.0, 90.0),
+    Rectangle
+        .morph_to(Capsule, Color::srgb_hex("#10B981"))
+        .duration(Duration::from_millis(900))
+        .autoreverse(true)
+        .size(128.0, 72.0),
+))
+```
+
+Morphing supports the SDF-backed built-ins: `Rectangle`, `Circle`, `Ellipse`,
+`RoundedRectangle`, `UnevenRoundedRectangle`, and `Capsule`.
+
+## Making your own types animatable
+
+Interpolation is defined by the `Animatable` trait. A type exports a payload
+the animation system already knows how to blend, and reconstructs itself from
+the blended payload:
+
+```rust,ignore
+use waterui::animation::Animatable;
+
+#[derive(Clone)]
+struct Rgb {
+    r: f32,
+    g: f32,
+    b: f32,
+}
+
+impl Animatable for Rgb {
+    type AnimatableData = (f32, f32, f32);
+
+    fn animatable_data(&self) -> Self::AnimatableData {
+        (self.r, self.g, self.b)
+    }
+
+    fn from_animatable_data(data: Self::AnimatableData) -> Self {
+        Self { r: data.0, g: data.1, b: data.2 }
+    }
+}
+```
+
+WaterUI ships `Animatable` for `f32`, `f64`, tuples up to four elements, and
+`[T; N]` where `T: Animatable + Copy`. Pick whichever of those shapes matches
+your field layout as `AnimatableData` and you never have to write
+interpolation math.
+
+## Driving a timeline yourself
+
+Custom renderers sometimes own their frame loop. `AnimationTrack<T>` holds one
+value plus its in-flight animation, and you advance it by a frame delta:
+
+```rust,ignore
+use core::time::Duration;
+use waterui::animation::{Animation, AnimationTrack};
+
+let mut track = AnimationTrack::new(0.0_f32);
+track.set_target(1.0, Some(Animation::ease_in_out(Duration::from_millis(120))));
+
+// Once per frame:
+let still_running = track.advance(Duration::from_millis(16));
+let value = track.value();
+```
+
+`advance` returns `false` once the animation has landed on its target, and
+`set_target` with `None` (or a zero-duration animation) applies the value
+immediately. For a one-off sample without a track, `Animation::interpolate`,
+`Animation::progress`, and `Animation::is_complete` take the elapsed time
+directly:
+
+```rust,ignore
+use core::time::Duration;
+use waterui::animation::Animation;
+
+let anim = Animation::ease_in_out(Duration::from_millis(300));
+let value = anim.interpolate(&0.0_f32, &100.0_f32, Duration::from_millis(150));
+let progress = anim.progress(Duration::from_millis(150));
+let done = anim.is_complete(Duration::from_millis(300));
+```
+
+## What's next
+
+Animation reacts to state; gestures produce it. In the
+[next chapter](02-gestures.md) you will recognize taps, drags, pinches, and
+rotations, and feed them into the signals you just learned to animate.

@@ -26,7 +26,7 @@ pub mod examples {
             text!("Doubled: {doubled}"),
             hstack((
                 button("Increment")
-                    .action(|State(c): State<Binding<i32>>| c.set(c.get() + 1))
+                    .action(|State(c): State<Binding<i32>>| *c.get_mut() += 1)
                     .state(&count),
                 button("Reset")
                     .action(|State(c): State<Binding<i32>>| c.set(0))
@@ -45,6 +45,7 @@ pub mod examples {
 #[cfg(test)]
 mod tests {
     use super::examples;
+    use waterui::View;
     use waterui::reactive::binding;
 
     #[test]
@@ -54,10 +55,15 @@ mod tests {
         assert_eq!(counter.get(), 5);
     }
 
-    #[test]
-    fn greeting_is_signal_backed() {
-        let view = examples::greeting("World");
-        let env = waterui::env::Environment::new();
-        let _ = waterui::View::body(view, &env);
+    fn greeting_view() -> impl View {
+        examples::greeting("World")
+    }
+
+    #[waterui::test(greeting_view)]
+    fn greeting_renders_reactive_text(app: &mut waterui_testing::SemanticApp) {
+        app.query()
+            .role(waterui_testing::Role::LABEL)
+            .label("Hello, World!")
+            .single();
     }
 }

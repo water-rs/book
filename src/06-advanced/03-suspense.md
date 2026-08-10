@@ -1,60 +1,44 @@
-# Suspense and Async Views
+# Suspense and async views
 
 > **In this chapter, you will:**
-> - Use `Suspense` to show loading states while async operations run
-> - Customize loading views per-instance or app-wide
-> - Implement the `SuspendedView` trait for environment-aware loading
-> - Combine `Suspense` with reactive state for data that changes over time
-> - Understand task lifecycle and cancellation
+> - Show a placeholder while an async operation runs, then swap in the result
+> - Customize the loading view per instance and app-wide
+> - Implement `SuspendedView` to reach the environment during loading
+> - Choose between `Suspense` and `ViewExt::task` based on cancellation needs
+> - Reload suspended content when its input changes
 
-Most applications need to load data asynchronously -- from a network API, a
-database, or a file system. Without proper handling, your users stare at a blank
-screen wondering if the app is broken. WaterUI's `Suspense` component solves
-this declaratively: show a placeholder while an async operation runs, then
-seamlessly swap in the loaded content.
+A view body is synchronous, but data usually is not. `Suspense` bridges the two: it renders a loading view immediately, spawns your future on the local executor, and replaces the placeholder when the future resolves.
 
-## The Suspense Component
+## The Suspense component
 
-`Suspense` lives in `waterui::widget::suspense`. It wraps any type that
-implements the `SuspendedView` trait and pairs it with a loading view:
+`Suspense` lives in `waterui::widget::suspense`, and the `suspense()` shorthand is in the prelude.
 
 ```rust,ignore
+use waterui::prelude::*;
+use waterui::text::Text;
 use waterui::widget::suspense::Suspense;
 
-async fn fetch_user() -> impl View {
-    // simulate network request
-    text("John Doe")
+async fn fetch_user() -> Text {
+    text(api::get_user_name().await)
 }
 
 let view = Suspense::new(fetch_user());
 ```
 
-When the view tree is built, `Suspense`:
+Any `Future` whose output is a `View` implements `SuspendedView`, which is why a plain `async fn` works with no extra glue.
 
-1. Immediately renders the **loading view** (by default, whatever
-   `DefaultLoadingView` is in the environment).
-2. Spawns the async content on the local executor.
-3. Once the future resolves, replaces the loading view with the loaded content.
+Internally `Suspense` allocates a `Dynamic` node, sets the loading view into it, spawns the future with `spawn_local`, and sets the resolved content when it completes. The swap replaces that subtree — deliberately, since the placeholder and the content are different views.
 
-Internally, `Suspense` creates a `Dynamic` view and uses its handler to swap
-content when the future completes.
+## Loading views
 
-## Custom Loading Views
+### Per instance
 
-The default loading view might not fit your design. WaterUI gives you two ways
-to customize it: per-instance and app-wide.
-
-### Inline Loading View
-
-Use `.loading()` to provide a custom loading view for a specific `Suspense`
-instance. The method has two type parameters -- the loading view type and the
-async output view type -- so the call site needs the turbofish to pin down the
-output type:
+`.loading()` overrides the placeholder for one `Suspense`:
 
 ```rust,ignore
-use waterui::widget::suspense::Suspense;
 use waterui::prelude::*;
 use waterui::text::Text;
+use waterui::widget::suspense::Suspense;
 
 async fn fetch_data() -> Text {
     text("Data loaded!")
@@ -64,59 +48,38 @@ let view = Suspense::new(fetch_data())
     .loading::<_, Text>(text("Loading data..."));
 ```
 
-The loading view can be any type that implements `View` -- a spinner, a
-skeleton placeholder, or even a complex layout. Pin the output of the async
-function to a concrete view type (here, `Text`) so the second turbofish slot
-can match it.
+The turbofish is not optional. `loading` is declared as `loading<Loading2, Output: View>(self, loading: Loading2)`, and `Output` appears nowhere in the arguments or the return type, so inference has nothing to work from and the call site has to spell it. Any `View` type satisfies it; naming the async function's own output type, as here, at least keeps the intent readable.
 
-### Environment-Based Default
+### App-wide
 
-To set a consistent loading view across your entire application, install a
-`DefaultLoadingView` in the environment. `DefaultLoadingView::new` accepts any
-`ViewBuilder`, which is satisfied by closures of the form `Fn() -> impl View`:
+Install a `DefaultLoadingView` in the environment and every `Suspense` without an explicit `.loading()` picks it up. `DefaultLoadingView::new` takes any `ViewBuilder`, which a `Fn() -> impl View` closure satisfies:
 
 ```rust,ignore
-use waterui::widget::suspense::DefaultLoadingView;
 use waterui::app::App;
 use waterui::prelude::*;
+use waterui::widget::suspense::DefaultLoadingView;
 
-fn app(env: Environment) -> App {
+pub fn app(env: Environment) -> App {
     let mut env = env;
     env.insert(DefaultLoadingView::new(|| {
-        vstack((
-            text("Please wait..."),
-        ))
+        vstack((loading(), text("Please wait...")))
     }));
     App::new(main, env)
 }
 ```
 
-Any `Suspense` component that does not provide an explicit `.loading()` view
-will use this default. If no `DefaultLoadingView` is installed, `Suspense`
-renders an empty view while loading.
+`loading()` is the facade's indeterminate circular `Progress`. Without a `DefaultLoadingView`, `Suspense` renders an empty view while loading — install one at the root so no async screen is ever blank.
 
-> **Tip:** Always install a `DefaultLoadingView` in your root environment. This
-> ensures every `Suspense` in your app has a visible loading state, even if you
-> forget to add `.loading()` at a specific call site.
-
-### UseDefaultLoadingView
-
-`UseDefaultLoadingView` is the sentinel type used internally. When it renders,
-it queries the environment for a `DefaultLoadingView` and invokes its builder.
-You can use it explicitly if you want:
+`UseDefaultLoadingView` is the sentinel that performs that lookup. `Suspense::new(fut)` uses it already; naming it explicitly is only useful when you need to write the type out:
 
 ```rust,ignore
 use waterui::widget::suspense::{Suspense, UseDefaultLoadingView};
 
-let view = Suspense::new(fetch_data())
-    .loading::<_, ()>(UseDefaultLoadingView);
+// Identical to Suspense::new(fetch_data()).
+let view = Suspense::new(fetch_data()).loading::<_, ()>(UseDefaultLoadingView);
 ```
 
-This is equivalent to `Suspense::new(fetch_data())`.
-
-## The SuspendedView Trait
-
-`Suspense` accepts anything that implements `SuspendedView`:
+## Implementing SuspendedView
 
 ```rust,ignore
 pub trait SuspendedView: 'static {
@@ -124,31 +87,11 @@ pub trait SuspendedView: 'static {
 }
 ```
 
-### Automatic Implementation for Futures
-
-Any `Future` whose output implements `View` automatically satisfies
-`SuspendedView`. This is why the simple async function approach works out of
-the box:
+Implement it directly when the async work needs environment services — an API client, a configuration value, a locale. `Suspense` clones the environment before spawning, so everything in scope at construction is available inside the future:
 
 ```rust,ignore
-async fn load_profile() -> impl View {
-    let data = api::get_profile().await;
-    text(data.name)
-}
-
-// This works because the future implements SuspendedView
-let view = Suspense::new(load_profile());
-```
-
-### Custom SuspendedView
-
-For more control, implement `SuspendedView` directly. This gives you access to
-the `Environment` during the async operation, which is useful when you need
-services like API clients or configuration:
-
-```rust,ignore
-use waterui::widget::suspense::SuspendedView;
 use waterui::prelude::*;
+use waterui::widget::suspense::{SuspendedView, Suspense};
 
 struct UserLoader {
     user_id: u32,
@@ -156,47 +99,29 @@ struct UserLoader {
 
 impl SuspendedView for UserLoader {
     async fn body(self, env: Environment) -> impl View {
-        // Access environment services during loading
-        let api_client = env.get::<ApiClient>().unwrap().clone();
-        let user = api_client.fetch_user(self.user_id).await;
+        let api = env
+            .get::<ApiClient>()
+            .expect("ApiClient must be installed before rendering UserLoader")
+            .clone();
+        let user = api.fetch_user(self.user_id).await;
 
-        vstack((
-            text(user.name).headline(),
-            text(user.email),
-        ))
+        vstack((text(user.name).headline(), text(user.email)))
     }
 }
 
 let view = Suspense::new(UserLoader { user_id: 42 });
 ```
 
-The environment is cloned when the future is spawned, so you have access to all
-services, themes, and configuration that were in scope.
+## Failures are views too
 
-## The `suspense()` Function
-
-A convenience function creates a `Suspense` with the default loading view:
-
-```rust,ignore
-use waterui::widget::suspense::suspense;
-
-let view = suspense(async {
-    let data = load_something().await;
-    text(data)
-});
-```
-
-## Error Handling within Suspense
-
-Async operations can fail. Since `Result<V, E>` implements `View` when both
-`V: View` and `E: View`, you can handle errors directly inside the async block:
+`Result<V, E>` implements `View` when both sides do, so a fallible load can resolve to either branch:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::widget::suspense::Suspense;
 use waterui::widget::error::Error;
+use waterui::widget::suspense::Suspense;
 
-async fn fetch_with_error() -> impl View {
+async fn fetch_with_error() -> AnyView {
     match api::get_data().await {
         Ok(data) => text(data.content).anyview(),
         Err(e) => Error::new(e).anyview(),
@@ -206,72 +131,56 @@ async fn fetch_with_error() -> impl View {
 let view = Suspense::new(fetch_with_error());
 ```
 
-For a more ergonomic pattern, combine with the `ResultExt` trait described in
-the [Error Handling](04-error-handling.md) chapter.
+`Error::new` renders through your app's `DefaultErrorView`, so a failed load looks like every other failure in the app. The [Error handling](04-error-handling.md) chapter covers `ResultExt::error_view` for shaping the error at the call site.
 
-## Combining Suspense with Reactive State
+## Suspense or `ViewExt::task`?
 
-`Suspense` is a one-shot component -- it resolves once and then shows the
-result. But what if your data source can change? For example, a user profile
-page where the user ID comes from navigation state. Combine `Suspense` with
-`Dynamic::watch` to trigger reloads:
+They differ in one respect that matters: cancellation.
+
+`Suspense` detaches its task. If the user navigates away mid-flight, the future still runs to completion — fine for a read, a problem for anything with side effects.
+
+`ViewExt::task` retains the task handle on the view. Dropping the view drops the handle, and dropping the handle cancels the task:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::reactive::binding;
+
+fn my_view() -> impl View {
+    let status: Binding<Str> = binding("Loading...");
+    let sink = status.clone();
+
+    text!("{status}").task(async move {
+        sink.set(api::get_status().await);
+    })
+}
+```
+
+Reach for `Suspense` when the placeholder is a different view from the result. Reach for `.task()` when the view already exists and the async work only fills in reactive state.
+
+## Reloading when the input changes
+
+`Suspense` resolves once. When the input identity changes — a different user id, a different document — the correct behavior is a genuinely new `Suspense` instance, placeholder included, and that is one of the rare cases `watch` exists for:
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::suspense::Suspense;
 
 fn user_profile(user_id: Binding<u32>) -> impl View {
-    Dynamic::watch(user_id, |id| {
-        Suspense::new(async move {
-            let user = api::get_user(id).await;
-            text(user.name)
-        })
+    watch(user_id, |id: u32| {
+        Suspense::new(async move { text(api::get_user(id).await.name) })
     })
 }
 ```
 
-Every time `user_id` changes, a new `Suspense` is created, which shows the
-loading view and kicks off a fresh async operation.
+`watch` replaces the whole child subtree and discards any state it owned. That is what you want here and almost nowhere else: for a changing scalar use `text!` or a signal-taking input, and for a changing set of rows use `ForEach` / `List`. If the profile screen owns editable fields, hoist those bindings above the `watch` so they survive the reload.
 
-## Lifecycle and Cancellation
+## Nesting
 
-The async task spawned by `Suspense` uses `executor_core::spawn_local`. The
-task handle is detached, meaning it will run to completion even if the
-`Suspense` view is removed from the tree.
-
-> **Warning:** If you navigate away from a screen while a `Suspense` task is
-> running, the task will complete in the background. Be mindful of this if
-> your async operation has side effects.
-
-If you need cancellation semantics, tie the task to the view lifecycle using
-`ViewExt::task` instead of `Suspense`:
+Inner content can suspend again, so each region appears as soon as its own data lands:
 
 ```rust,ignore
 use waterui::prelude::*;
-
-fn my_view() -> impl View {
-    let data = Binding::container::<Option<String>>(None);
-    let data_for_task = data.clone();
-
-    text("Loading...")
-        .task(async move {
-            let result = api::get_data().await;
-            data_for_task.set(Some(result));
-        })
-}
-```
-
-The task spawned by `.task()` returns a handle that is retained by the view.
-When the view is dropped, the handle is dropped and the task is cancelled.
-
-## Nested Suspense
-
-You can nest `Suspense` components for situations where loaded content itself
-needs to fetch more data. Each inner suspense manages its own loading state
-independently:
-
-```rust,ignore
-use waterui::prelude::*;
+use waterui::text::Text;
 use waterui::widget::suspense::Suspense;
 
 let view = Suspense::new(async {
@@ -281,35 +190,16 @@ let view = Suspense::new(async {
         text(user.name).headline(),
         Suspense::new(async move {
             let posts = api::get_posts(user.id).await;
-            vstack(
-                posts.into_iter().map(|p| text(p.title)).collect::<Vec<_>>()
-            )
-        }).loading(text("Loading posts...")),
+            vstack(posts.into_iter().map(|p| text(p.title)).collect::<Vec<_>>())
+        })
+        .loading::<_, Text>(text("Loading posts...")),
     ))
-}).loading(text("Loading user..."));
+})
+.loading::<_, Text>(text("Loading user..."));
 ```
 
-The outer suspense shows "Loading user..." while the user is fetched. Once the
-user loads, the inner suspense shows "Loading posts..." while fetching posts.
-This creates a progressive loading experience where content appears as it
-becomes available.
+Both levels need the turbofish, for the same reason as above.
 
-## Summary
+---
 
-| API | Purpose |
-|---|---|
-| `Suspense::new(content)` | Create suspense with default loading view |
-| `.loading(view)` | Set a custom loading view |
-| `suspense(future)` | Convenience function |
-| `SuspendedView` trait | Custom async content loading |
-| `DefaultLoadingView::new(builder)` | App-wide default loading view |
-| `UseDefaultLoadingView` | Render the default loading view |
-| `ViewExt::task(future)` | Lifecycle-bound async task |
-| `Dynamic::watch(signal, f)` | Reactive suspense reloading |
-
-## What's Next
-
-Async operations can fail, and when they do, your users need to see something
-useful -- not a blank screen. In the [next chapter](04-error-handling.md), you
-will learn how WaterUI turns errors into views and how to build consistent error
-presentation across your entire application.
+Next: [Error handling](04-error-handling.md), where the `Error` type you just spawned into a suspended view gets a proper presentation layer.

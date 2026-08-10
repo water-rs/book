@@ -14,9 +14,17 @@ reject_matches() {
   fi
 }
 
-reject_matches "stale WaterUI API references" "water create --playground|waterui_(webview|map|barcode|graphics|icon|locale|controls)|nami::|WebView::new|Id::new\\(|\\.frame\\(|\\.padding\\([^\\)]|Font::(body|headline|caption)|Color::(white|surface|muted_foreground|foreground)|ios_simulators|crate-type = \\[\\\"staticlib\\\"|TextField::new\\(\\\"|Slider::new\\([^&]|waterui_core::reactive"
+reject_matches "stale WaterUI API references" "water create --playground|waterui_(webview|map|barcode|graphics|icon|locale|controls)::|nami::|WebView::new|Id::new\\(|\\.frame\\(|\\.padding\\([^\\)]|Font::(body|headline|caption)|Color::(white|surface|muted_foreground|foreground)|ios_simulators|crate-type = \\[\\\"staticlib\\\"|TextField::new\\(\\\"|Slider::new\\(&|waterui_core::reactive|02-hot-reload"
 reject_matches "placeholder URLs or fake credentials" "example\\.com|prod-key|abc123|MyApp/1\\.0|from_environment\\("
-reject_matches "reader-facing underscore placeholder names" "(^|[^A-Za-z0-9])_[A-Za-z][A-Za-z0-9_]*"
+reject_underscore_placeholders() {
+  # _padding is the real WGSL prelude field, _reserved and __jni_init are the
+  # canonical JNI names, and `*_name` is a prose wildcard over real API families.
+  if rg -n "(^|[^A-Za-z0-9])_[A-Za-z][A-Za-z0-9_]*" src | rg -v '_padding|_reserved|__jni_init|\*_[a-z]'; then
+    echo "found reader-facing underscore placeholder names in book sources" >&2
+    exit 1
+  fi
+}
+reject_underscore_placeholders
 
 nami_path=$(git -C waterui ls-tree -r HEAD | awk '$1 == "160000" && $4 ~ /(^|\/)nami$/ {print $4; exit}')
 

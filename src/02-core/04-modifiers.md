@@ -1,13 +1,12 @@
 # Modifiers and ViewExt
 
 > **In this chapter, you will:**
-> - Learn how modifier chaining works under the hood
-> - Use layout modifiers to control sizing, spacing, and alignment
-> - Apply visual effects like backgrounds, borders, shadows, and filters
-> - Add interactivity with tap, gesture, and drag-and-drop modifiers
-> - Understand why modifier order matters and how to get it right
+> - Understand how modifier chaining builds a nested type, and why order matters
+> - Size, position, and align views with layout modifiers
+> - Apply backgrounds, borders, shadows, transforms, and GPU filters
+> - Add taps, gestures, hover, and drag-and-drop, and disable a whole subtree correctly
 
-You have your views and your reactive state. Now you need to make them look good and respond to user input. In WaterUI, you do this with **modifiers** -- chainable methods that add styling, layout, and behavior to any view. Instead of passing dozens of parameters to a constructor, you build up the description one modifier at a time:
+Modifiers are chainable methods that add styling, layout, and behavior to any view. Instead of a constructor with twenty parameters, you describe the view once and layer on the rest:
 
 ```rust,ignore
 text!("Hello")
@@ -16,410 +15,299 @@ text!("Hello")
     .on_tap(|| { /* ... */ })
 ```
 
-This approach keeps your view constructors simple and your styling composable.
-
 ![WaterUI modifiers preview showing padding background border opacity and filters](../assets/visuals/02-core/modifiers-visual-stack.png)
 
 *A Hydrolysis preview showing how modifier order changes rendered output. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
-## How Modifiers Work
+## How modifiers work
 
-Every modifier method on `ViewExt` takes `self` (consuming the view) and returns a new type that wraps it. For example:
+Every method on `ViewExt` consumes `self` and returns a new type that wraps it:
 
 ```rust,ignore
-text!("Hello")          // Text
-    .padding()          // Padding (wraps Text)
-    .background(Color::blue())  // Background (wraps Padding)
-    .border(Color::srgb(0, 0, 0), 1.0) // Metadata<Border> (wraps Background)
+text!("Hello")                          // Text
+    .padding()                          // Padding<Text>
+    .background(Color::blue())          // BackgroundView<Padding<Text>, Color>
+    .border(Color::srgb(0, 0, 0), 1.0)  // Metadata<Border>
 ```
 
-The resulting type is a nested structure. The renderer walks this structure from outside to inside, applying each modifier's effect as it goes.
+The result is a nested type, not a runtime property bag, so mistakes surface at compile time and the compiler can see through the whole chain.
 
-Because modifiers are type-level wrappers (not runtime property bags), the compiler can optimize aggressively and catch errors at compile time.
-
-## The ViewExt Trait
-
-`ViewExt` is an extension trait automatically implemented for every `View`:
+`ViewExt` is blanket-implemented for every view:
 
 ```rust,ignore
-pub trait ViewExt: View + Sized {
-    // ... modifier methods ...
-}
+pub trait ViewExt: View + Sized { /* ... */ }
 
 impl<V: View + Sized> ViewExt for V {}
 ```
 
-All methods are available through the WaterUI prelude -- no special imports needed. The following sections catalog every modifier by category.
+It is in the prelude, so `use waterui::prelude::*;` is all you need.
 
-## Layout Modifiers
-
-Layout modifiers control sizing, spacing, and alignment -- the fundamentals of placing your views on screen.
+## Layout modifiers
 
 ### padding
 
-Every UI needs breathing room. `padding` adds space around the view's content:
-
 ```rust,ignore
-// Default padding (14.0 points on all sides)
-text!("Hello").padding()
+// 14.0 points on every side
+text!("Hello").padding();
 
-// Custom edge insets
-text!("Hello").padding_with(EdgeInsets::new(10.0, 20.0, 10.0, 20.0))
+// Explicit insets: top, bottom, leading, trailing
+text!("Hello").padding_with(EdgeInsets::new(10.0, 10.0, 20.0, 20.0));
 
-// EdgeInsets also supports From<f32> for uniform padding
-text!("Hello").padding_with(16.0)
+// EdgeInsets: From<f32>, so a scalar means uniform padding
+text!("Hello").padding_with(16.0);
 ```
 
-### width, height, size
-
-Fix the view to specific dimensions:
+### Size and constraints
 
 ```rust,ignore
-Color::red().width(100.0)
-Color::red().height(50.0)
-Color::red().size(100.0, 50.0) // both at once
-```
+Color::red().width(100.0);
+Color::red().height(50.0);
+Color::red().size(100.0, 50.0);
 
-### min/max constraints
-
-When you want a view that flexes within bounds:
-
-```rust,ignore
 text!("Flexible")
     .min_width(80.0)
     .max_width(300.0)
     .min_height(40.0)
-    .max_height(200.0)
+    .max_height(200.0);
 
-// Both axes at once
-text!("Bounded").min_size(80.0, 40.0).max_size(300.0, 200.0)
+text!("Bounded").min_size(80.0, 40.0).max_size(300.0, 200.0);
+```
+
+All of these return a `Frame`, which is itself chainable -- and `Frame`'s own methods accept any `IntoSignalF32`, so a reactive width really does re-run layout:
+
+```rust,ignore
+let column_width = Binding::f32(200.0);
+
+text!("Hello")
+    .width(200.0)                 // ViewExt -> Frame
+    .min_width(column_width)      // Frame method, reactive
+    .alignment(Alignment::Center)
 ```
 
 ### alignment
 
-Position the view within its allocated frame:
-
 ```rust,ignore
-text!("Top Left").alignment(Alignment::TopLeading)
-text!("Center").alignment(Alignment::Center)
-text!("Bottom Right").alignment(Alignment::BottomTrailing)
+text!("Top Left").alignment(Alignment::TopLeading);
+text!("Center").alignment(Alignment::Center);
+text!("Bottom Right").alignment(Alignment::BottomTrailing);
 ```
 
 ### ignore_safe_area
 
-Extend the view's bounds beyond safe area insets (useful for full-bleed backgrounds):
+Extend past the safe-area insets, for full-bleed backgrounds:
 
 ```rust,ignore
-use waterui::prelude::*;
-
-// Fill entire screen including notch/status bar area
-Color::red().ignore_safe_area(EdgeSet::ALL)
-
-// Only extend to top (under status bar)
-header_view.ignore_safe_area(EdgeSet::TOP)
+Color::red().ignore_safe_area(EdgeSet::ALL);
+header_view.ignore_safe_area(EdgeSet::TOP);
 ```
 
-### Frame Builder
-
-The `width`, `height`, `alignment`, and constraint methods all return a `Frame`, which supports further chaining:
-
-```rust,ignore
-text!("Hello")
-    .width(200.0)        // returns Frame
-    .height(50.0)        // Frame method
-    .min_width(100.0)    // Frame method
-    .alignment(Alignment::Center) // Frame method
-```
-
-> **Tip:** You can chain all frame-related modifiers together in one fluent call since they all return `Frame`.
-
-## Visual Modifiers
-
-Visual modifiers affect the appearance of views without changing their layout. These are what make your views look polished.
+## Visual modifiers
 
 ### background
 
-Render content behind the view:
-
 ```rust,ignore
-// Solid color
-text!("Hello").background(Color::red())
-
-// Material (platform blur effect)
-text!("Hello").background(Material::Regular)
-
-// Any view as background
-text!("Hello").background(
-    hstack((Color::red(), Color::blue()))
-)
+text!("Hello").background(Color::red());
+text!("Hello").background(Material::Regular);           // platform blur
+text!("Hello").background(hstack((Color::red(), Color::blue()))); // any view
 ```
 
-The background fills the view's bounds. The content determines the layout size; the background stretches to fill it.
+The content determines the layout size; the background stretches to fill it. Material rendering is best-effort: Apple platforms map it to native visual-effect views, other backends approximate or ignore it.
 
 ### foreground
 
-Set the foreground color for text and icons in the subtree:
-
 ```rust,ignore
-// All text in this VStack will be red
 vstack((
     text!("Hello"),
     text!("World"),
 )).foreground(Color::red())
 ```
 
-This works by injecting a `ForegroundOverride` into the environment, so it affects all descendants that do not override it themselves.
+This injects a foreground override into the environment, so it reaches every descendant that does not set its own.
 
 ### opacity
 
-Control transparency. Any `IntoSignalF32` is accepted, including a constant `f32` or a reactive `Binding<f32>`:
+Accepts any `IntoSignalF32` -- a constant or a signal:
 
 ```rust,ignore
-// Static opacity
-text!("Faded").opacity(0.5)
+text!("Faded").opacity(0.5);
 
-// Reactive opacity (useful for animations)
 let alpha = Binding::f32(1.0);
-text!("Dynamic").opacity(alpha)
+text!("Dynamic").opacity(alpha);
 ```
 
-The `opacity` modifier maps to compositor-native operations (no GPU pass) and is available directly on `ViewExt`.
+`opacity` maps to compositor-native operations (`CALayer.opacity`, `View.alpha`, a Vello layer) rather than an offscreen GPU pass.
 
 ### overlay
 
-Render content on top of the view, without affecting the base view's size:
+Draw content on top without affecting the base view's layout:
 
 ```rust,ignore
-text!("Hello").overlay(
-    Color::red().opacity(0.5)
-)
+text!("Hello").overlay(Color::red().opacity(0.5))
 ```
 
-Unlike `ZStack`, an overlay does not influence the layout of the underlying view.
-
-> **Tip:** `overlay` is great for badges, status indicators, or decorative elements that should sit on top of content without affecting layout.
+Unlike a `ZStack`, an overlay never influences the size of what is underneath, which makes it the right tool for badges and status dots.
 
 ### shadow
 
-Add a drop shadow. `Shadow::new` takes a color, an offset vector, and a blur radius:
+`Shadow::new(color, offset, blur_radius)`:
 
 ```rust,ignore
 use waterui::style::{Shadow, Vector};
 
 text!("Shadowed").shadow(Shadow::new(
     Color::srgb(0, 0, 0).with_opacity(0.3),
-    Vector { x: 2.0, y: 2.0 },
+    Vector::new(2.0, 2.0),
     4.0,
 ))
 ```
 
 ### border
 
-Add a border around the view:
-
 ```rust,ignore
-// Simple border on all edges
-text!("Bordered").border(Color::red(), 2.0)
+text!("Bordered").border(Color::red(), 2.0);
 
-// Full customization via Border builder
 let custom = Border::new(Color::blue(), 2.0)
     .corner_radius(12.0)
     .edges(EdgeSet::HORIZONTAL);
 
-text!("Custom").border_with(custom)
+text!("Custom").border_with(custom);
 ```
 
 ### clip
 
-Clip the view to a shape. The shape is normalized to the view's bounds, so `RoundedRectangle::new` accepts a corner radius in `0.0..=0.5`:
+The shape is normalized to the view's bounds, so `RoundedRectangle::new` takes a corner radius in `0.0..=0.5`, not points:
 
 ```rust,ignore
 use waterui::shape::{Circle, RoundedRectangle};
 
-// Clip to circle
-avatar_view.clip(Circle)
-
-// Clip to rounded rectangle (10% corner radius)
-card_view.clip(RoundedRectangle::new(0.1))
+avatar_view.clip(Circle);
+card_view.clip(RoundedRectangle::new(0.1));
 ```
 
-### visible
+### floating
 
-Control visibility. `visible` is implemented as a composition of opacity and hit testing -- when hidden, the view fades to opacity `0.0` and stops receiving touches:
+`floating()` promotes a view onto the elevated surface layer: themed container color, clip radius, and a pair of ambient and key shadows.
+
+```rust,ignore
+button("Compose").action(|| {}).floating()
+```
+
+The tokens come from a `FloatingStyle` in the environment, which `Theme::install` provides. Calling `.floating()` without one panics -- there is no silent fallback. Override the tokens for a subtree with `.floating_with(style)` or by installing your own `FloatingStyle`, which is a `Plugin` with a `Default` impl.
+
+Presentation stays an attribute here: a floating button is still semantically a button, with the same identity and accessibility.
+
+### visible
 
 ```rust,ignore
 let show = Binding::bool(true);
 text!("Now you see me").visible(show)
 ```
 
-## Transform Modifiers
+`visible` composes three things: opacity goes to `0.0`, hit testing turns off, and the accessibility state reports the view as hidden -- so a hidden view also disappears for screen readers.
 
-Transforms are purely visual -- they change how the view is drawn but do not affect layout calculations. This makes them ideal for animations.
+## Transform modifiers
 
-### scale
-
-Scale the view around its center. Both axes accept any `IntoSignalF32`:
+Transforms are purely visual. They change how a view is drawn without touching layout, which is what makes them cheap to animate.
 
 ```rust,ignore
-// Uniform scale
-star_view.scale(1.5, 1.5)
+// Scale around the center; both axes take IntoSignalF32
+star_view.scale(1.5, 1.5);
+text!("Stretched").scale(2.0, 1.0);
 
-// Non-uniform scale
-text!("Stretched").scale(2.0, 1.0)
-
-// Reactive (for animations)
 let s = Binding::f32(1.0);
-heart_view.scale(s.clone(), s)
+heart_view.scale(s.clone(), s);
 
-// Scale from a specific anchor point
-star_view.scale_from(0.5, 0.5, Anchor::TOP_LEFT)
+// Scale or rotate around an explicit anchor
+star_view.scale_from(0.5, 0.5, Anchor::TOP_LEFT);
+dial_view.rotation_from(90.0, Anchor::TOP_LEFT);
+
+// Rotation in degrees, positive = clockwise
+arrow_view.rotation(45.0);
+
+// Translation
+badge.offset(10.0, -5.0);
 ```
 
-### rotation
+`Anchor` lives in `waterui::style`.
 
-Rotate the view in degrees:
+## Interaction modifiers
 
 ```rust,ignore
-// Static (positive = clockwise)
-arrow_view.rotation(45.0)
+text!("Click me").on_tap(|| tracing::info!("Tapped!"));
 
-// Reactive
-let angle = Binding::f32(0.0);
-spinner_view.rotation(angle)
+text!("Double-tap me").on_tap_gesture_count(2, || { /* ... */ });
 
-// Rotate around a specific anchor
-dial_view.rotation_from(90.0, Anchor::TOP_LEFT)
+text!("Press and hold").on_long_press_gesture(500, || { /* ... */ });
 ```
 
-### offset
-
-Translate the view:
+`gesture` attaches any recognizer:
 
 ```rust,ignore
-// Static offset
-badge.offset(10.0, -5.0)
+use waterui::gesture::TapGesture;
 
-// Reactive (great for drag or animation)
-let x = Binding::f32(0.0);
-let y = Binding::f32(0.0);
-draggable_view.offset(x, y)
+text!("Triple tap").gesture(TapGesture::repeat(3), || { /* ... */ })
 ```
 
-> **Tip:** Combine `offset` with reactive bindings and animations to create smooth drag interactions or slide-in effects.
-
-## Interaction Modifiers
-
-These modifiers add gesture recognition and touch handling to views. They turn passive content into interactive controls.
-
-### on_tap
-
-The simplest interaction -- recognize a single tap:
+`hittable` controls whether a view receives pointer events at all, without changing how it looks:
 
 ```rust,ignore
-text!("Click me").on_tap(|| {
-    tracing::info!("Tapped!");
-})
-```
+overlay_decoration.hittable(false);
 
-### on_tap_gesture_count
-
-Require a specific number of taps:
-
-```rust,ignore
-text!("Double-tap me").on_tap_gesture_count(2, || {
-    tracing::info!("Double tapped!");
-})
-```
-
-### on_long_press_gesture
-
-Recognize a long press:
-
-```rust,ignore
-text!("Press and hold").on_long_press_gesture(500, || {
-    tracing::info!("Long pressed for 500ms!");
-})
-```
-
-### gesture
-
-Attach any gesture recognizer:
-
-```rust,ignore
-use waterui::gesture::*;
-
-text!("Custom gesture")
-    .gesture(TapGesture::repeat(3), || {
-        tracing::info!("Triple tap!");
-    })
-```
-
-### hittable
-
-Control whether the view responds to touch/click events:
-
-```rust,ignore
-// Disable hit testing -- touches pass through
-overlay_decoration.hittable(false)
-
-// Reactive control
 let interactive = Binding::bool(true);
-my_view.hittable(interactive)
+my_view.hittable(interactive);
 ```
 
 ### disabled
 
-Disable the view -- grays it out and blocks all interactions:
+`disabled` is not a visual dimming shortcut. It installs a `Disabled` scope into the subtree's environment:
 
 ```rust,ignore
 // Static
-button("Submit").action(|| {}).disabled(true)
+button("Submit").action(|| {}).disabled(true);
 
-// Reactive
-let is_loading = Binding::bool(false);
-button("Submit").action(|| {}).disabled(is_loading)
+// Reactive, applied to a whole form
+let is_submitting = Binding::bool(false);
+vstack((
+    field("Name", &name),
+    button("Submit").action(|| {}),
+)).disabled(is_submitting);
 ```
 
-`disabled` is a convenience that composes `opacity(0.5)`, `hittable(false)`, and the corresponding accessibility state.
+Three things follow from that. Controls inside the subtree render their **platform-correct disabled appearance** instead of a blanket 50% opacity. The subtree stops hit-testing and reports the disabled state to assistive technologies. And nested scopes **OR-combine**: a control stays disabled while any enclosing `.disabled(...)` is disabled, tracked reactively without rebuilding the subtree.
 
-### draggable
+Controls fold the inherited scope into their own configuration through `Disabled::resolve`, so a per-control `.disabled(...)` and an ancestor scope both take effect. `Button`, `Toggle`, and `Slider` implement that today. `Stepper`, `TextField`, and `Picker` are not wired into the scope yet -- they still stop receiving events, but they do not render a disabled appearance.
 
-Make a view draggable:
+### Drag and drop
 
 ```rust,ignore
 use waterui::drag_drop::DragData;
 
-text!("Drag me").draggable(DragData::text("Hello!"))
-```
+text!("Drag me").draggable(DragData::text("Hello!"));
 
-### drop_destination
-
-Make a view accept dropped content:
-
-```rust,ignore
 text!("Drop here").drop_destination(|data: DragData| {
-    tracing::info!("Received: {:?}", data);
-})
+    tracing::info!("Received: {data:?}");
+});
 ```
 
-## Stateful Event Handlers
+## Stateful event handlers
 
-Sometimes your event handlers need to capture mutable state -- for example, tracking a hover count or toggling a flag. Use `ViewExt::state` to inject cloneable state into the view's environment, then extract it in handlers via the `State<T>` extractor:
+Handlers are extractor-based, exactly like `use_env`. `ViewExt::state` injects a cloneable value into the subtree's environment, and the handler pulls it back out with `State<T>`:
 
 ```rust,ignore
-use waterui::extract::State;
+use waterui::State;
+use waterui::prelude::*;
 
 let count = Binding::i32(0);
 let is_hovered = Binding::bool(false);
 
-text("Hover Me!")
+text("Hover me")
     .padding()
     .state(&count)
     .state(&is_hovered)
     .on_hover_enter(
         |State(count): State<Binding<i32>>,
          State(hovered): State<Binding<bool>>| {
-            count.set(count.get() + 1);
+            *count.get_mut() += 1;
             hovered.set(true);
         },
     )
@@ -428,252 +316,103 @@ text("Hover Me!")
     })
 ```
 
-Each `.state(&value)` call inserts that binding into the subtree's environment. Handlers extract whichever values they need via `State<T>` parameters; missing values become a clear runtime error.
+One `.state(&value)` per injected value, one `State<T>` parameter per value you want back. A missing value is a clear runtime error, not a silent default. If a handler needs four or more pieces of state, bundle them into one `#[derive(Clone)]` struct and inject that instead.
 
-## Feedback Modifiers
-
-These modifiers provide sensory feedback to the user, making your app feel more responsive and native.
-
-### on_tap_haptic
-
-Trigger haptic feedback on tap (requires the `std` feature):
-
-```rust,ignore
-use waterkit_haptic::Intensity;
-
-text!("Haptic tap").on_tap_haptic(Intensity::MEDIUM, || {
-    // action
-})
-
-// Default medium intensity
-text!("Haptic tap").on_tap_haptic_default(|| {
-    // action
-})
-```
-
-### cursor
-
-Set the cursor style when hovering (desktop platforms):
+## Feedback modifiers
 
 ```rust,ignore
 use waterui::cursor::CursorStyle;
 
-text!("Click me").cursor(CursorStyle::PointingHand)
-```
+// Haptic tap at the default (medium) intensity
+text!("Haptic tap").on_tap_haptic_default(|| { /* ... */ });
 
-### badge
+// Cursor style while hovering (desktop and trackpad platforms)
+text!("Click me").cursor(CursorStyle::PointingHand);
 
-Add a numeric badge overlay (common for notification counts):
-
-```rust,ignore
+// Numeric badge overlay, typically for unread counts
 let unread = Binding::i32(5);
-SystemIcon::new("envelope").badge(unread)
+inbox_icon().badge(unread);
 ```
 
-## Filter Modifiers
+`on_tap_haptic` also takes an explicit `Intensity`, but that type comes from the `waterkit-haptic` crate rather than the `waterui` facade, so `on_tap_haptic_default` is the portable choice.
 
-Filter modifiers apply GPU-accelerated visual effects. They come from the `FilterViewExt` trait (included in the prelude) and are great for image processing and polished UI effects.
+## Filter modifiers
 
-### blur
-
-Apply a Gaussian blur:
+Filters are GPU effects from `FilterViewExt`, which is in the prelude when the `gpu` feature is enabled -- it is on by default, and off in embedded builds.
 
 ```rust,ignore
-photo_view.blur(10.0)
+photo_view.blur(10.0);
+photo_view.brightness(0.2);     // negative darkens
+photo_view.contrast(1.5);
+photo_view.saturation(0.0);     // fully desaturated
+photo_view.grayscale(1.0);
+photo_view.hue_rotation(90.0);  // degrees
+```
 
-// Reactive
+Every filter takes an `impl IntoSignalF32`, so a `Binding<f32>` animates the effect without rebuilding the view:
+
+```rust,ignore
 let blur_amount = Binding::f32(0.0);
-photo_view.blur(blur_amount)
+background_content.blur(blur_amount)
 ```
 
-### brightness
+Blurring the background as a modal appears is the canonical use.
 
-Adjust brightness:
+## Lifecycle modifiers
 
 ```rust,ignore
-photo_view.brightness(0.2)  // increase
-photo_view.brightness(-0.2) // decrease
+text!("Hello").on_appear(|| tracing::info!("visible"));
+text!("Hello").on_disappear(|| tracing::info!("removed"));
 ```
 
-### contrast
+`body()` running does not mean the view is on screen -- a lazy container may resolve views ahead of time. Use `on_appear` for work that should start when the view is actually displayed.
 
-Adjust contrast:
-
-```rust,ignore
-photo_view.contrast(1.5) // higher contrast
-photo_view.contrast(0.5) // lower contrast
-```
-
-### saturation
-
-Adjust color saturation:
+`on_change` watches a signal and runs a handler on every change, managing the watcher's lifetime for you:
 
 ```rust,ignore
-photo_view.saturation(1.5) // more vivid
-photo_view.saturation(0.0) // completely desaturated
-```
+let query = Binding::container(Str::from(""));
 
-### grayscale
-
-Convert to grayscale:
-
-```rust,ignore
-photo_view.grayscale(1.0) // fully grayscale
-photo_view.grayscale(0.5) // partially desaturated
-```
-
-### hue_rotation
-
-Rotate the hue of all colors (degrees):
-
-```rust,ignore
-photo_view.hue_rotation(90.0)  // shift by 90 degrees
-photo_view.hue_rotation(180.0) // invert hues
-```
-
-All filter modifiers accept any `impl IntoSignalF32`, which means you can pass a static `f32`, a `Binding<f32>`, or any signal-based value for animated filters.
-
-> **Tip:** Try animating `blur` or `saturation` with a reactive binding for smooth transition effects -- for example, blurring the background when a modal appears.
-
-## Lifecycle Modifiers
-
-These modifiers let you run code at specific points in a view's lifecycle.
-
-### on_appear
-
-Execute code when the view becomes visible:
-
-```rust,ignore
-text!("Hello").on_appear(|| {
-    tracing::info!("View is now visible");
-})
-```
-
-> **Note:** `body()` being called does not mean the view is visible. A lazy container may resolve views ahead of time. Use `on_appear` for code that should run when the view is actually displayed on screen.
-
-### on_disappear
-
-Execute code when the view is removed from the view hierarchy:
-
-```rust,ignore
-text!("Hello").on_disappear(|| {
-    tracing::info!("View removed from hierarchy");
-})
-```
-
-### on_change
-
-Monitor a signal and execute a handler when the value changes:
-
-```rust,ignore
-let search = Binding::container(String::new());
-
-text_field("Search", search.clone())
-    .on_change(&search, |value: String| {
+field("Search", &query)
+    .on_change(&query, |value: Str| {
         tracing::info!("Search changed to: {value}");
     })
 ```
 
-This is a convenience over manual `watch()` + `retain()` -- the watcher lifecycle is managed automatically. The handler receives the new `Output` value of the source signal.
+The handler receives the source signal's `Output`. `on_change` subscribes before caching its first value, so a change that lands during subscription is delivered rather than swallowed.
 
-### task
-
-Spawn an async task tied to the view's lifecycle:
+`task` spawns an async task bound to the view's lifetime:
 
 ```rust,ignore
 text!("Loading...").task(async {
     let data = fetch_data().await;
-    // The task is cancelled when the view is removed
+    // cancelled when the view is removed
 })
 ```
 
-## Event Modifiers
-
-### on_hover_enter / on_hover_exit
-
-React to cursor hover (macOS, iPadOS with trackpad, Android API 24+):
+## Other modifiers
 
 ```rust,ignore
-text!("Hover me")
-    .on_hover_enter(|| tracing::info!("Mouse entered"))
-    .on_hover_exit(|| tracing::info!("Mouse exited"))
-```
-
-### event
-
-Attach a handler for any `Event` variant:
-
-```rust,ignore
-use waterui_core::event::Event;
-
-text!("Interactive")
-    .event(Event::HoverEnter, || { /* ... */ })
-    .event(Event::HoverExit, || { /* ... */ })
-```
-
-## Other Modifiers
-
-### metadata
-
-Attach arbitrary metadata to a view:
-
-```rust,ignore
-text!("Important").metadata(MyCustomMetadata { priority: 1 })
-```
-
-### tag
-
-Tag a view for identification:
-
-```rust,ignore
-text!("Item").tag(42)
-```
-
-### anyview
-
-Convert to a type-erased `AnyView`:
-
-```rust,ignore
+// Type erasure
 let view: AnyView = text!("Hello").anyview();
+
+// Keep a guard alive for the view's lifetime
+text!("Watching").retain(guard);
+
+// Wrap in a navigation view with a title
+content_view.title(text!("Settings"));
+
+// Focus a field when the binding matches
+let focus: Binding<Option<Field>> = Binding::container(None);
+field("Name", &name).focused(&focus, Field::Name);
+
+// Block screenshots of sensitive content
+sensitive_content.secure();
+
+// Identify a view for selection and navigation
+text!("Item").tag(42);
 ```
 
-### retain
-
-Keep a value alive for the view's lifetime:
-
-```rust,ignore
-let guard = some_signal.watch(|_| { /* ... */ });
-text!("Watching").retain(guard)
-```
-
-### title
-
-Wrap in a navigation view with a title:
-
-```rust,ignore
-content_view.title(text!("Settings"))
-```
-
-### focused
-
-Mark the view as focused when a binding matches:
-
-```rust,ignore
-let focus = Binding::container::<Option<Field>>(None);
-text_field("Name", name).focused(&focus, Field::Name)
-```
-
-### secure
-
-Prevent screenshots of the view:
-
-```rust,ignore
-sensitive_content.secure()
-```
-
-### context_menu
-
-Attach a context menu (long-press on mobile, right-click on desktop). Menu content is built from `MenuView` implementations -- ordinary `Button`s with `.action()` work directly:
+`context_menu` attaches a menu shown on long press (mobile) or right click (desktop). Ordinary buttons are valid menu content:
 
 ```rust,ignore
 text("Right-click me").context_menu((
@@ -682,103 +421,54 @@ text("Right-click me").context_menu((
 ))
 ```
 
-### a11y_label / a11y_role
-
-Set accessibility attributes:
+Accessibility attributes are modifiers too:
 
 ```rust,ignore
-SystemIcon::new("star").a11y_label("Favorite")
-SystemIcon::new("star").a11y_role(AccessibilityRole::Button)
+use waterui::accessibility::AccessibilityRole;
+
+icon_view.a11y_label("Favorite");
+icon_view.a11y_role(AccessibilityRole::Button);
 ```
 
-> **Tip:** Always add `a11y_label` to icon-only buttons and interactive elements. Screen readers rely on these labels to describe your UI to users with visual impairments.
+Always label icon-only controls. Screen readers have nothing else to announce.
 
-## Modifier Order
+## Modifier order
 
-Modifier order matters in WaterUI because each modifier wraps the previous result. The outermost modifier is applied first during rendering. Getting the order wrong is one of the most common sources of "why does my layout look wrong?"
-
-A common pattern where order matters:
+Each modifier wraps the previous result, so order changes the outcome:
 
 ```rust,ignore
-// Padding INSIDE the background
+// Background covers the padded area
 text!("Hello")
-    .padding()           // padding applied first
-    .background(Color::red()) // background wraps the padded view
-
-// Padding OUTSIDE the background
-text!("Hello")
-    .background(Color::red()) // background applied first
-    .padding()           // padding wraps the background
-```
-
-Similarly for transforms:
-
-```rust,ignore
-// Rotate then offset -- rotates in place, then translates
-view.rotation(45.0).offset(100.0, 0.0)
-
-// Offset then rotate -- translates first, then rotates around original center
-view.offset(100.0, 0.0).rotation(45.0)
-```
-
-> **Warning:** If your background does not seem to extend behind your padding, or your border appears inside your content area, check your modifier order.
-
-General guidelines:
-
-1. **Layout modifiers** (padding, frame, alignment) should go before visual modifiers.
-2. **Gestures** should go after layout/visual modifiers so the hit area matches what the user sees.
-3. **Lifecycle hooks** can go anywhere -- they do not affect rendering.
-4. **Background** goes after padding if you want the background to include the padded area.
-
-Try swapping `.padding()` and `.background()` on a view and observe the difference.
-
-## Complete Example
-
-Here is a complete example that puts many modifier categories together:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::shape::RoundedRectangle;
-use waterui::style::{Shadow, Vector};
-
-fn card(title: &'static str, count: Binding<i32>) -> impl View {
-    let is_highlighted = count.clone().map(|n| n > 10);
-    let background = is_highlighted.map(|on| {
-        if on { Color::blue() } else { Color::grey() }
-    });
-
-    vstack((
-        text(title).foreground(Color::srgb(255, 255, 255)),
-        text!("{count}"),
-        button("Increment").action(move || {
-            count.set(count.get() + 1);
-        }),
-    ))
     .padding()
-    .background(background)
-    .border(Color::srgb(0, 0, 0), 1.0)
-    .clip(RoundedRectangle::new(0.15))
-    .shadow(Shadow::new(
-        Color::srgb(0, 0, 0).with_opacity(0.2),
-        Vector { x: 0.0, y: 2.0 },
-        4.0,
-    ))
-    .on_appear(|| tracing::info!("Card appeared"))
-}
+    .background(Color::red());
+
+// Padding sits outside the background
+text!("Hello")
+    .background(Color::red())
+    .padding();
 ```
 
-## Summary
+The same applies to transforms:
+
+```rust,ignore
+view.rotation(45.0).offset(100.0, 0.0);  // rotate in place, then translate
+view.offset(100.0, 0.0).rotation(45.0);  // translate, then rotate about the original center
+```
+
+Rules of thumb: layout modifiers before visual ones; gestures after both, so the hit area matches what the user sees; lifecycle hooks anywhere, since they do not affect rendering.
+
+## Modifier index
 
 | Category | Modifiers |
 |----------|-----------|
 | **Layout** | `padding`, `padding_with`, `width`, `height`, `size`, `min_width`, `max_width`, `min_height`, `max_height`, `min_size`, `max_size`, `alignment`, `ignore_safe_area` |
-| **Visual** | `background`, `foreground`, `overlay`, `shadow`, `border`, `border_with`, `clip`, `visible` |
+| **Visual** | `background`, `foreground`, `opacity`, `overlay`, `shadow`, `border`, `border_with`, `clip`, `floating`, `floating_with`, `visible` |
 | **Transform** | `scale`, `scale_from`, `rotation`, `rotation_from`, `offset` |
 | **Interaction** | `on_tap`, `on_tap_gesture`, `on_tap_gesture_count`, `on_long_press_gesture`, `gesture`, `gesture_observer`, `hittable`, `disabled`, `draggable`, `drop_destination`, `state` |
 | **Feedback** | `on_tap_haptic`, `on_tap_haptic_default`, `cursor`, `badge` |
-| **Filter** | `blur`, `brightness`, `contrast`, `saturation`, `grayscale`, `hue_rotation`, `opacity` |
+| **Filter** (`gpu`) | `blur`, `brightness`, `contrast`, `saturation`, `grayscale`, `hue_rotation`, `invert` |
 | **Lifecycle** | `on_appear`, `on_disappear`, `on_change`, `task` |
-| **Event** | `event`, `on_hover_enter`, `on_hover_exit` |
-| **Other** | `metadata`, `tag`, `anyview`, `retain`, `title`, `focused`, `secure`, `context_menu`, `a11y_label`, `a11y_role`, `with`, `install` |
+| **Event** | `on_hover_enter`, `on_hover_exit`, `event` |
+| **Other** | `tag`, `anyview`, `retain`, `title`, `focused`, `secure`, `context_menu`, `a11y_label`, `a11y_role`, `a11y_hidden`, `with`, `install` |
 
-You now have the complete toolkit for building views, managing reactive state, sharing configuration through the environment, and styling everything with modifiers. The next part of the book, **Building UIs**, puts all of these concepts together as you work with text, layouts, controls, forms, and navigation.
+Next: [Building UIs](../03-ui/01-text.md), which puts views, state, environment, and modifiers to work on text, layout, controls, forms, and navigation.

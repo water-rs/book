@@ -3,80 +3,71 @@
 > **In this chapter, you will:**
 >
 > - Script the `water` CLI for deterministic, non-interactive builds
-> - Set up GitHub Actions workflows for multi-platform CI
-> - Run tests, validate FFI headers, and generate preview-based visual tests
+> - Run preview-based semantic and performance tests in CI
+> - Set up a multi-platform GitHub Actions workflow
 > - Debug CI failures with structured logging
 
-WaterUI projects can be fully automated for continuous integration, deployment,
-and development workflows. This appendix gives you the practical recipes to make that happen.
-
-## Deterministic CLI Runs
-
-The `water` CLI is designed for both interactive and automated use. When running
-in scripts or CI, use these flags to ensure deterministic behavior.
+## Deterministic CLI runs
 
 ### JSON output
 
-`--json` is a global flag on `water` that switches every status, error, and
-success message to machine-readable JSON instead of human-readable ANSI
-output:
+`--json` is a global flag. It switches every status, error, and success message
+from human-readable ANSI to machine-readable JSON:
 
 ```bash
 water --json devices
 ```
 
-Pipe through `jq` to parse fields:
+Pipe it through `jq` to pull out fields:
 
 ```bash
-# Inspect the first iOS simulator's identifier
-water --json devices | jq '.ios[0].udid'
+# The first iOS simulator's identifier
+water --json devices | jq -r '.ios[0].udid'
 ```
+
+The `devices` payload has one section per platform — `ios`, `android`
+(`emulators` and `devices`), `macos`, and `esp32` — and omits sections that were
+not scanned.
 
 ### Non-interactive mode
 
-Subcommands that may prompt for confirmation accept `-y`/`--yes` to
-auto-confirm in scripts:
+Subcommands that may prompt accept `-y`/`--yes`:
 
 ```bash
 water clean -y
 water backend remove apple -y
 ```
 
-Check `water <command> --help` to see exactly which subcommands accept
-`--yes`; not every command prompts.
+Not every command prompts; check `water <command> --help`. A forgotten prompt
+hangs the pipeline.
 
-> **Tip:** In CI, set `CI=1` if your scripts depend on it, and pass `-y` to
-> any command that may prompt. A forgotten prompt will hang the pipeline.
+## Scripting with water commands
 
-## Scripting with Water Commands
+### Building for multiple platforms
 
-### Building for Multiple Platforms
+`--platform` is a flag, not a positional argument:
 
 ```bash
 #!/bin/bash
 set -euo pipefail
 
-# Build for each target you care about. The platform is a flag, not a
-# positional argument.
 water build --platform ios-simulator
 water build --platform android
 water build --platform linux
+water build --platform esp32c3
 ```
+
+Accepted values are `ios`, `ios-simulator`, `android`, `macos`, `linux`,
+`windows`, `esp32s3`, and `esp32c3`.
 
 ### Device discovery
 
 ```bash
-# Capture the device list
-water --json devices > devices.json
-
-# Run on a specific device
 DEVICE_ID=$(water --json devices | jq -r '.ios[0].udid')
 water run --platform ios --device "$DEVICE_ID"
 ```
 
-### Preview generation
-
-Generate preview images for visual regression testing:
+### Preview rendering
 
 ```bash
 water preview my_component \
@@ -86,33 +77,61 @@ water preview my_component \
 ```
 
 This builds the project as a dylib, loads it into a preview host, and captures
-the rendered output. Use the same command in CI to regenerate "current"
-snapshots before diffing them against your committed reference images.
+the rendered output — the same command whether you are eyeballing a change
+locally or regenerating snapshots before a diff.
 
-### Book visual assets
+## Preview-based testing
 
-This book keeps generated illustrations in `src/assets/visuals/`. Each image
-is listed in `scripts/book-visuals/manifest.tsv` and rendered from the pinned
-WaterUI submodule through the runnable
-[`examples/book-visuals`](https://github.com/water-rs/book/tree/main/examples/book-visuals)
-preview example:
+Beyond rendering an image, `water preview` has two subcommands built for CI.
+
+### Semantic assertions
+
+`water preview test` drives a preview through WaterUI's accessibility tree.
+`--all` discovers and runs every `#[preview]` function in the crate:
 
 ```bash
-scripts/render-book-visuals
+water preview test --all --theme material3 --platform macos --path ./app
 ```
 
-Use `--check` when you want to prove the committed PNGs match a fresh
-`water preview` render. The renderer requires `oxipng` so committed assets stay
-small without changing pixels; `--check` also uses `ffmpeg` for a PSNR compare
-when Hydrolysis text rasterization differs by a few antialiasing pixels. The
-normal book validation uses `--check-links` only, so Cloudflare Pages can keep
-deploying with a plain `mdbook build`.
+The automation body is Rust, supplied inline with `--code` or from a file with
+`--code-file`, and receives `app: &mut waterui_testing::SemanticApp`:
 
-## CI/CD Integration Patterns
+```bash
+water preview test my_form \
+    --theme material3 \
+    --code-file ci/checks/my_form.rs
+```
 
-### GitHub Actions
+Because the assertions run against the accessibility tree, they are
+simultaneously interaction tests and accessibility tests. Prefer these to pixel
+diffs: a snapshot fails on any antialiasing change, while a semantic query fails
+only when the UI actually changed meaning.
 
-Here is a minimal GitHub Actions workflow for a WaterUI project:
+### Performance measurement
+
+`water preview perf` profiles a preview through the offscreen GPU pipeline and
+emits a JSON report:
+
+```bash
+water preview perf --all \
+    --theme material3 \
+    --warmups 10 --samples 120 --repetitions 7 \
+    --path ./app
+```
+
+The automation body here receives `perf: &mut waterui_testing::PerfApp<_, _, _>`.
+Add `--flamegraph <path>` to also write a CPU call-stack SVG.
+
+### Image comparison
+
+If you do need pixel comparison, generate and diff explicitly:
+
+```bash
+water preview my_button --platform macos --path ./app --output current/button.png
+compare -metric RMSE reference/button.png current/button.png diff/button.png
+```
+
+## GitHub Actions
 
 ```yaml
 name: CI
@@ -124,12 +143,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Check formatting
-        run: cargo fmt --check
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-      - name: Run tests
-        run: cargo test
+      - run: cargo fmt --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test
 
   build-ios:
     runs-on: macos-latest
@@ -138,12 +154,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios-sim
-      - name: Install water CLI
-        run: cargo install waterui-cli
-      - name: Doctor check
-        run: water doctor
-      - name: Build for iOS Simulator
-        run: water build --platform ios-simulator
+      - run: cargo install waterui-cli
+      - run: water doctor
+      - run: water build --platform ios-simulator
 
   build-android:
     runs-on: ubuntu-latest
@@ -152,32 +165,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-      - name: Install water CLI
-        run: cargo install waterui-cli
-      - name: Build for Android
-        run: water build --platform android
+      - run: cargo install waterui-cli
+      - run: water build --platform android
 ```
 
-### Environment Validation
+WaterUI requires rustc 1.95 or newer, so a pinned toolchain older than that will
+fail before any WaterUI-specific step runs.
 
-Always run `water doctor` at the start of your CI pipeline to verify the
-environment is correctly configured:
+### Environment validation
 
-```bash
-water doctor
-```
-
-This checks for:
-- Rust toolchain version and required targets.
-- Platform SDKs (Xcode, Android SDK, GTK4 development libraries).
-- Required tools (`cargo`, `rustc`, `xcodebuild`, `adb`, `gradle`).
-
-Use `water doctor --fix` to automatically install missing components where
-possible (e.g., adding Rust targets via `rustup`).
+Run `water doctor` early. It checks the Rust toolchain and required targets,
+Xcode and the macOS/iOS SDKs, iOS simulators, Android run targets, GTK4, and
+Linux system packages. `water doctor --fix` installs what it can — missing Rust
+targets, for instance — and reports the rest.
 
 ### Caching
-
-Cache the Cargo build directory to speed up CI builds:
 
 ```yaml
 - uses: actions/cache@v4
@@ -189,128 +191,90 @@ Cache the Cargo build directory to speed up CI builds:
     key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 ```
 
-> **Warning:** Do not cache platform-specific build artifacts (Xcode derived data, Gradle build directories) as they are more fragile and can cause hard-to-debug failures.
+Do not cache Xcode derived data or Gradle build directories; they are fragile
+across runners and produce failures that are hard to diagnose.
+
+WaterUI keeps managed backend builds under `~/.water/build_cache`. On a long-
+lived self-hosted runner, prune stale entries:
+
+```bash
+water gc build-cache --path ./app
+```
 
 ## Testing
 
-### Rust Unit and Integration Tests
-
-Run the full test suite:
-
 ```bash
 cargo test
-```
-
-Run tests for a specific crate:
-
-```bash
 cargo test -p waterui-core
-cargo test -p waterui-layout
-cargo test -p waterui-ffi
 ```
 
-### Book Validation
+Component tests written with `#[waterui::test(...)]` expand to ordinary `#[test]`
+functions, so they need no custom runner. When `WATERUI_TEST_ARTIFACTS_DIR` is
+set, snapshot artifacts are written beneath it as `<suite>/<case>/<stage>.png`,
+ready to upload as a workflow artifact.
 
-If your project includes an mdBook (like this book), validate that all code
-examples compile:
+If your project includes an mdBook, `mdbook test` compiles the Rust code blocks
+in your markdown; blocks marked `rust,ignore` are skipped.
 
-```bash
-mdbook test
-```
+## Release builds
 
-This extracts Rust code blocks from markdown files and runs them as doctests.
-Code blocks marked with `rust,ignore` are skipped.
-
-### FFI Header Verification (WaterUI contributors only)
-
-If you are contributing to WaterUI itself, your CI should verify the checked-in
-C header is up to date. Application authors do not need this step.
+`water package` requires an explicit `--backend`, and `--release` selects
+optimized output:
 
 ```bash
-# Generate the header
-cargo run --bin generate_header --features cbindgen --manifest-path ffi/Cargo.toml
-
-# Check for differences
-git diff --exit-code ffi/waterui.h
-```
-
-A drift in `ffi/waterui.h` fails CI, reminding the developer to regenerate and
-commit it.
-
-### Preview-Based Visual Tests
-
-For visual regression testing, generate preview images and compare them:
-
-```bash
-# Generate current previews
-water preview my_button --platform macos --path ./app --output current/button.png
-water preview my_card   --platform macos --path ./app --output current/card.png
-
-# Compare against reference images (using any image diff tool)
-# For example, with ImageMagick:
-compare -metric RMSE reference/button.png current/button.png diff/button.png
-```
-
-## Build Automation Scripts
-
-### Regenerating FFI Bindings (WaterUI contributors only)
-
-If you have modified an FFI API in your fork of WaterUI, regenerate the C
-header from the upstream `waterui` checkout:
-
-```bash
-cargo run --bin generate_header --features cbindgen --manifest-path ffi/Cargo.toml
-cargo build -p waterui-ffi
-```
-
-### Release Builds
-
-For production releases, the `water` CLI handles platform-specific packaging.
-`--platform` is a flag and `--release` switches to optimized output:
-
-```bash
-water package --platform ios --backend apple --release
+water package --platform ios     --backend apple      --release
 water package --platform android --backend android --arch arm64 --release
-water package --platform linux --backend gtk4 --release
+water package --platform linux   --backend gtk4       --release
 ```
 
-### Clean Builds
+`--arch` is required for Android and accepts a comma-separated list
+(`arm64`, `x86_64`, `armv7`, `x86`). Add `--distribution` for App Store or Play
+Store packaging.
 
-When you need a fresh start (rarely necessary):
+## Clean builds
 
 ```bash
 water clean
 ```
 
-This removes WaterUI-specific build artifacts. Avoid `cargo clean` as it removes
-the entire Cargo target directory, which wastes significant rebuild time.
+This removes WaterUI-specific build artifacts. Avoid `cargo clean`, which wipes
+the whole target directory and forces a full rebuild.
 
-## Environment Variables
+## Environment variables
 
-The `water` CLI and WaterUI runtime respect these environment variables:
-
-| Variable                  | Purpose                                    |
-|---------------------------|--------------------------------------------|
-| `RUST_LOG`                | Controls tracing log level (e.g., `debug`) |
-| `WATERUI_DISPATCH_DEBUG`  | Enables view dispatch tracing (any Rust-side backend that uses `ViewDispatcher`, including Hydrolysis) |
-| `CARGO_TARGET_DIR`        | Cargo build directory (do not customize when working inside the WaterUI monorepo) |
+| Variable                                | Purpose                                                             |
+|-----------------------------------------|---------------------------------------------------------------------|
+| `RUST_LOG`                              | Tracing filter for the runtime (e.g. `debug`)                       |
+| `WATERUI_DISPATCH_DEBUG`                | Logs the view dispatch tree in any backend using `ViewDispatcher`   |
+| `WATERUI_TEST_ARTIFACTS_DIR`            | Root directory for `waterui-testing` snapshot artifacts             |
+| `WATERUI_HYDROLYSIS_RENDER_DIAG`        | Per-frame render diagnostics from Hydrolysis                        |
+| `WATER_HYDROLYSIS_FORCE_FALLBACK_ADAPTER` | Allows a software wgpu adapter — diagnostics only, never in a release job |
 
 ## Debugging in CI
 
-When CI builds fail, use debug logging to get more information:
-
 ```bash
-# Run with verbose output
 water run --platform ios --logs debug
-
-# Or set the environment variable
 RUST_LOG=debug cargo test
 ```
 
-The `--logs debug` flag enables tracing output from the WaterUI runtime, showing
-view dispatch, signal updates, and FFI calls. On Apple platforms, this uses
-`os_log`; on Android, `logcat`; on other platforms, `stderr`.
+`--logs debug` streams device logs at or above the given level, showing view
+dispatch, signal updates, and FFI calls. Apple platforms route these through
+`os_log`, Android through `logcat`, and everything else to stderr. Add
+`--native-logs` when you need the platform's own output (`NSLog`, `print`)
+alongside WaterUI's — noisy, but necessary when debugging native code.
 
-## What's Next
+## FFI header verification
 
-If your CI pipeline is passing but something still is not working, head to the [Troubleshooting](troubleshooting.md) appendix for solutions to common development issues.
+This one is for WaterUI contributors only; application authors never need it.
+`ffi/waterui.h` is checked in and generated, never hand-written, so CI verifies
+it has not drifted:
+
+```bash
+cargo run --bin generate_header --features cbindgen --manifest-path ffi/Cargo.toml
+git diff --exit-code ffi/waterui.h
+```
+
+## What's next
+
+If CI is green but something still misbehaves, the
+[Troubleshooting](troubleshooting.md) appendix covers the common failures.

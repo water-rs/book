@@ -1,166 +1,185 @@
 # Accessibility
 
 > **In this chapter, you will:**
-> - Learn how WaterUI's built-in accessibility defaults work
+> - Rely on the labels WaterUI forces every control to carry
+> - Hide a label visually without removing it from the accessibility tree
 > - Override labels, roles, and states for custom widgets
-> - Hide decorative elements from screen readers
-> - Respect reduced motion preferences
-> - Test accessibility with platform tools
+> - Report disabled and hidden states correctly
+> - Assert on the accessibility tree in `cargo test`
 
-Your app looks great and handles errors gracefully. But can *everyone* use it?
-A user who relies on VoiceOver, TalkBack, or keyboard navigation deserves the
-same experience as someone tapping a touchscreen. The good news: WaterUI
-components ship with sensible accessibility defaults. Buttons announce themselves
-as buttons, text views expose their content, and interactive controls report
-their states. This chapter covers what to do when the defaults are not enough --
-when you build custom composite widgets, use icons without text labels, or need
-to communicate specific semantic meaning to assistive technologies.
+WaterUI does not treat accessibility as an annotation you add later. Its
+control constructors put the accessible name in the signature, so the common
+path already produces a labeled control. The work left to you is the part the
+type system cannot do: describing custom composites and hiding decoration.
 
-The accessibility types live in `waterui::accessibility` and are attached to
-views through `ViewExt` methods.
+The types live in `waterui::accessibility`; the modifiers are on `ViewExt`.
 
-## Design Philosophy
+## Labels are mandatory, visibility is not
 
-WaterUI follows two principles:
+`button`, `slider`, `stepper`, `toggle`, and `field` all take an `impl
+IntoLabel` as their first argument. Screen readers, voice control, switch
+control, and command palettes all read that label — a control without one is an
+anonymous widget that assistive technology users cannot reach.
 
-1. **Defaults first.** Built-in components already carry the right roles,
-   labels, and states. You should not need to touch accessibility code for
-   standard UIs.
-2. **Override when necessary.** Custom widgets, decorative elements, and complex
-   layouts sometimes need explicit annotations.
+Reach for the ergonomic free functions rather than `Toggle::new(&binding)` and
+`TextField::new(&binding)`, which start with an empty label and rely on you
+remembering `.label(...)` afterwards.
 
-Because WaterUI renders to native platform widgets, accessibility metadata maps
-directly to the platform's accessibility APIs (UIAccessibility on Apple,
-AccessibilityNodeInfo on Android, ATK/AT-SPI on GTK).
+Hiding the label is a separate, presentational decision. `.hide_label()`
+collapses the label's rendered view to zero size while keeping the semantic
+text in the accessibility tree:
 
-## AccessibilityLabel
+```rust,ignore
+use waterui::prelude::slider::slider;
+use waterui::prelude::*;
 
-An `AccessibilityLabel` overrides the spoken label for a component. Use it when
-the visual content does not adequately describe the element's purpose -- the
-most common case is an icon-only button.
+let progress = Binding::f64(0.5);
+
+// Announced as "Playback position"; nothing is drawn next to the track.
+slider("Playback position", &progress).hide_label()
+```
+
+`.hide_label()` is shorthand for `.label_style(LabelDisplayMode::Hidden)`. The
+other modes — `TitleAndIcon`, `TitleOnly`, `IconOnly`, and the default
+`Automatic` — pick between title and icon without ever dropping the semantic
+text. Install a `LabelDisplayMode` in the environment to set the default for a
+whole subtree.
+
+### Icon-only controls
+
+An icon-only button is a display mode, not a label-less button:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-// An icon-only button (label is read by VoiceOver, not painted on screen).
-button(trash_icon())
-    .action(delete_item)
-    .a11y_label("Delete draft")
+// Still announced as "Search".
+button(label("Search").icon(search_icon()).icon_only())
+    .action(run_search)
 ```
 
-The label should be short, action-oriented, and match what a sighted user would
-understand from context. Avoid redundant prefixes like "Button:" -- the
-accessibility role already communicates that.
+`Label::icon` takes any view, so an icon-pack crate works here. `SystemIcon`
+(via `Label::system_icon`) renders SF Symbols on Apple platforms and is
+intentionally unsupported on Android, Linux, and Web — for portable code prefer
+`Label::icon` with `waterui-icons-lucide`, `waterui-icons-material-icon`, or
+`waterui-icons-fontawesome7`.
 
-### Creating Labels
+### When the visible content is not the spoken text
 
-`AccessibilityLabel::new` accepts anything that converts to `Str`:
-
-```rust,ignore
-use waterui::accessibility::AccessibilityLabel;
-
-let label = AccessibilityLabel::new("Delete draft");
-let label = AccessibilityLabel::new(format!("Item {index}"));
-```
-
-### Attaching to Views
-
-Use `ViewExt::a11y_label`:
+`Label::new(semantic_text, content)` is the general constructor: it takes
+arbitrary visual content plus the text assistive technology should announce.
 
 ```rust,ignore
 use waterui::prelude::*;
 
-logo_image().a11y_label("Company logo")
+let verified = Label::new(
+    "Account, verified",
+    hstack((text("Account"), verification_badge())),
+);
+
+button(verified).action(open_account)
 ```
 
-## AccessibilityRole
+A `Label::new` label owns its own layout, so the semantic-label builders
+(`.icon()`, `.system_icon()`, `.leading()`, `.trailing()`, `.spacing()`,
+`.font()`) panic on it — compose those inside `content` instead.
 
-An `AccessibilityRole` describes the semantic purpose of a component. WaterUI
-components set their own roles (a `Button` is `Role::Button`, a `Toggle` is
-`Role::Switch`), but custom composites need explicit role assignment.
+## Overriding a label
 
-### Available Roles
+`ViewExt::a11y_label` replaces the spoken label for any view. Reach for it when
+the view is not a control and its visual content does not describe it:
 
-The `AccessibilityRole` enum covers a wide range of semantics:
+```rust,ignore
+use waterui::prelude::*;
+
+logo_image().a11y_label("Acme, home")
+```
+
+Keep it short and action-oriented, and leave out prefixes like "Button:" — the
+role already communicates that.
+
+## Roles
+
+`AccessibilityRole` describes what a view *is*. Built-in controls set their own
+role; custom composites need one assigned:
 
 | Category | Roles |
 |---|---|
-| **Interactive** | `Button`, `Link`, `Checkbox`, `RadioButton`, `Switch`, `Slider` |
-| **Content** | `Text`, `Image`, `Header`, `Footer`, `Article` |
-| **Structure** | `Navigation`, `Main`, `Search`, `Section`, `Group` |
-| **Collections** | `List`, `ListItem`, `Tab`, `TabList`, `TabPanel` |
-| **Menus** | `Menu`, `MenuItem`, `MenuBar`, `MenuItemCheckbox`, `MenuItemRadio` |
-| **Forms** | `Combobox`, `Option`, `ProgressBar` |
+| Interactive | `Button`, `Link`, `Checkbox`, `RadioButton`, `Switch`, `Slider` |
+| Content | `Text`, `Image`, `Header`, `Footer`, `Article` |
+| Structure | `Navigation`, `Main`, `Search`, `Section`, `Group` |
+| Collections | `List`, `ListItem`, `Tab`, `TabList`, `TabPanel` |
+| Menus | `Menu`, `MenuItem`, `MenuBar`, `MenuItemCheckbox`, `MenuItemRadio` |
+| Forms | `Combobox`, `Option`, `ProgressBar` |
 
-### Attaching Roles
-
-Use `ViewExt::a11y_role`. Here is a custom toggle that would otherwise be
-invisible to assistive technology:
+Navigation containers do not attach landmark roles for you. If you build a
+sidebar, say so:
 
 ```rust,ignore
-use waterui::prelude::*;
 use waterui::accessibility::AccessibilityRole;
+use waterui::prelude::*;
 
-fn custom_toggle(is_on: &Binding<bool>) -> impl View {
-    let background = is_on.map(|on| {
-        if on { Color::srgb(52, 199, 89) } else { Color::srgb(200, 200, 200) }
-    });
-
-    hstack((knob(),))
-        .padding()
-        .background(background)
-        .a11y_role(AccessibilityRole::Switch)
-        .a11y_label("Dark mode")
-        .state(is_on)
-        .on_tap(|State(b): State<Binding<bool>>| b.toggle())
-}
+vstack((
+    text("Menu").headline(),
+    button("Home").action(go_home),
+    button("Settings").action(go_settings),
+))
+.a11y_role(AccessibilityRole::Navigation)
+.a11y_label("Main navigation")
 ```
 
-The role tells VoiceOver/TalkBack to announce this as a switch and provide
-the appropriate interaction hints.
+## States
 
-## AccessibilityState
-
-`AccessibilityState` communicates nuanced state information to assistive
-technologies. You need it when building custom controls whose state goes beyond
-what a label and role can express.
+`AccessibilityState` carries what a label and role cannot express. It is a
+const builder, so a state is cheap to construct:
 
 ```rust,ignore
-pub struct AccessibilityState {
-    disabled: bool,
-    selected: bool,
-    checked: Option<bool>,
-    expanded: Option<bool>,
-    busy: bool,
-    hidden: bool,
-}
+use waterui::accessibility::AccessibilityState;
+
+let state = AccessibilityState::new().expanded(Some(true)).busy(false);
 ```
 
 | Field | Meaning |
 |---|---|
-| `disabled` | The control is visible but not interactive |
-| `selected` | The control is the current selection in its group |
-| `checked` | Checked (`Some(true)`), unchecked (`Some(false)`), or mixed/indeterminate (`None` when the concept applies) |
-| `expanded` | Expanded (`Some(true)`) or collapsed (`Some(false)`) for disclosure controls |
-| `busy` | The control is loading or processing |
-| `hidden` | The control should be invisible to assistive technology |
+| `disabled` | Visible but not interactive |
+| `selected` | The current selection within its group |
+| `checked` | `Some(true)`, `Some(false)`, or `None` for mixed |
+| `expanded` | `Some(true)` / `Some(false)` for disclosure controls |
+| `busy` | Loading or processing |
+| `hidden` | Not exposed to assistive technology |
 
-### When to Use States
+Attach a fixed state with `.a11y_state(state)`, or a reactive one with
+`.a11y_state_signal(signal)`:
 
-Most of the time, built-in components handle state automatically. Use
-`AccessibilityState` when you build custom controls:
+```rust,ignore
+use waterui::accessibility::AccessibilityState;
+use waterui::prelude::*;
 
-- A custom accordion needs `expanded`.
-- A custom checkbox needs `checked`.
-- A skeleton loading placeholder needs `busy`.
-- Decorative elements need `hidden`.
+fn disclosure(expanded: &Binding<bool>, content: impl View) -> impl View {
+    let state = expanded.map(|open| AccessibilityState::new().expanded(Some(open)));
 
-## Hiding Decorative Elements
+    content.a11y_state_signal(state)
+}
+```
 
-Purely decorative views (background patterns, divider lines, brand marks)
-should be hidden from assistive technology so screen readers do not announce
-noise. Use `ViewExt::a11y_hidden(true)`, which attaches the
-`AccessibilityHidden` metadata:
+### Disabled and hidden come for free
+
+Two `ViewExt` modifiers already write state for you:
+
+- `.disabled(signal)` installs a disabled scope over the subtree. Controls
+  render their platform disabled appearance, stop hit-testing, and report the
+  disabled state to assistive technology. Nested scopes OR-combine, so an
+  enclosing `.disabled(true)` cannot be undone by a child.
+- `.visible(signal)` sets `hidden` on the accessibility state as it fades the
+  view out, so an invisible view is not announced.
+
+`.disabled(...)` is wired through `Button`, `Toggle`, and `Slider`. `Stepper`
+and `TextField` do not yet read the scope, and `Command`'s own disabled flag is
+not combined with it — those are gaps, not design.
+
+## Hiding decoration
+
+Background patterns, dividers, and brand marks add noise to a screen reader.
+`ViewExt::a11y_hidden(true)` drops a view from the tree:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -168,193 +187,149 @@ use waterui::prelude::*;
 decorative_swirl().a11y_hidden(true)
 ```
 
-If you also want to drop a subtree's children from the tree (for example, an
-icon-and-label composite that you re-described with a single label), use
-`ViewExt::a11y_children(AccessibilityChildren::ExcludeDescendants)` instead.
-
-## Custom Control Accessibility
-
-Building a fully accessible custom control requires combining label, role, and
-state. Here is a complete example of a custom star rating widget:
+When you have re-described a whole composite with one label, drop its children
+instead of hiding the container:
 
 ```rust,ignore
+use waterui::accessibility::AccessibilityChildren;
 use waterui::prelude::*;
-use waterui::accessibility::AccessibilityRole;
-use waterui::reactive::watch;
+
+hstack((star_icon(), text("4.8"), text("(120)")))
+    .a11y_label("Rated 4.8 out of 5, 120 reviews")
+    .a11y_children(AccessibilityChildren::ExcludeDescendants)
+```
+
+## A custom control, end to end
+
+A star rating needs a role and a label on the container and on each star. Note
+that the filled/empty glyph comes from a mapped signal fed into `text` — not
+from `watch`, which would rebuild the star subtree on every rating change and
+discard its state.
+
+```rust,ignore
+use waterui::accessibility::{AccessibilityRole, AccessibilityState};
+use waterui::prelude::*;
 
 fn star_rating(rating: &Binding<i32>, max: i32) -> impl View {
-    let label = rating.map(move |r| format!("Rating: {r} out of {max}"));
-
     hstack(
-        (0..max).map(|i| {
-            let filled = rating.map(move |r| r > i);
-            let star_label = format!("{} star", i + 1);
+        (0..max)
+            .map(|i| {
+                let glyph = rating.map(move |r| if r > i { "★" } else { "☆" }).computed();
+                let filled = rating.map(move |r| {
+                    AccessibilityState::new().selected(r > i)
+                });
 
-            watch(filled, |is_filled| {
-                if is_filled { text("*") } else { text("o") }
+                text(glyph)
+                    .a11y_label(format!("Rate {} of {max}", i + 1))
+                    .a11y_role(AccessibilityRole::Button)
+                    .a11y_state_signal(filled)
+                    .state(rating)
+                    .on_tap(move |State(r): State<Binding<i32>>| r.set(i + 1))
             })
-            .a11y_label(star_label)
-            .a11y_role(AccessibilityRole::Button)
-            .state(rating)
-            .on_tap(move |State(r): State<Binding<i32>>| r.set(i + 1))
-        }).collect::<Vec<_>>()
+            .collect::<Vec<_>>(),
     )
-    .a11y_role(AccessibilityRole::Slider)
-    .a11y_label(label)
+    .a11y_role(AccessibilityRole::Group)
+    .a11y_label("Rating")
 }
 ```
 
-The container has `Slider` role and a dynamic label. Each star has `Button`
-role with its own label. This gives screen reader users both the overall rating
-and individual star controls.
+The current value reaches the screen reader through each star's `selected`
+state rather than through the container's label. That is deliberate:
+`AccessibilityLabel` wraps a plain `Str`, so labels are fixed when the view is
+built. Only `AccessibilityState` has a reactive form
+(`.a11y_state_signal(...)`). When a value genuinely needs to be *announced* as
+it changes, use a real `Slider` — it reports its own value — instead of
+relabeling a custom composite.
 
-> **Try it yourself:** Build a custom accordion component and use
-> `AccessibilityState` with the `expanded` field to announce whether each
-> section is open or closed.
+## Reduced motion
 
-## Reduced Motion
-
-Some users are sensitive to animation. WaterUI does not yet ship a built-in
-"prefers reduced motion" signal -- the recommended pattern is to define your
-own marker type, install it from the platform layer, and gate animation
-metadata behind it:
+WaterUI does not ship a "prefers reduced motion" signal. Define a marker type,
+install it from your backend integration, and pick the animation from it:
 
 ```rust,ignore
-use waterui::prelude::*;
-use waterui_core::animation::Animation;
 use core::time::Duration;
+use waterui::animation::Animation;
+use waterui::prelude::*;
 
 #[derive(Debug, Clone, Copy)]
 struct PrefersReducedMotion(bool);
 
-fn animated_entrance(env: &Environment) -> impl View {
-    let opacity = Binding::f64(0.0);
+fn entrance(env: &Environment) -> impl View {
+    let opacity = Binding::f32(0.0);
+    let reduced = env.get::<PrefersReducedMotion>().is_some_and(|p| p.0);
 
-    let prefers_reduced = env
-        .get::<PrefersReducedMotion>()
-        .map_or(false, |p| p.0);
-
-    let target_opacity = if prefers_reduced {
-        opacity.clone().computed()
+    let animation = if reduced {
+        Animation::linear(Duration::ZERO)
     } else {
-        opacity
-            .clone()
-            .with_animation(Animation::ease_in_out(Duration::from_millis(300)))
-            .computed()
+        Animation::ease_in_out(Duration::from_millis(300))
     };
 
-    text("Welcome!")
-        .opacity(target_opacity)
+    text("Welcome")
+        .opacity(opacity.with(animation))
         .on_appear(move || opacity.set(1.0))
 }
 ```
 
-> **Note:** Respecting reduced motion is a real accessibility requirement
-> that affects users with vestibular disorders. Wire your platform's
-> reduced-motion API into the environment from your backend integration.
+A zero-duration animation applies the value immediately, so the same code path
+serves both preferences. This matters for users with vestibular disorders —
+wire your platform's reduced-motion API into the environment rather than
+ignoring the preference.
 
-## Accessible Navigation
+## Focus
 
-When using `NavigationView` or `TabView`, WaterUI automatically sets the
-correct navigation landmarks. Screen readers announce tab switches and
-navigation transitions. You can enhance this by adding descriptive labels to
-containers:
+`ViewExt::focused` drives both the visual focus ring and accessibility focus
+from one binding:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::accessibility::AccessibilityRole;
 
-fn sidebar() -> impl View {
-    vstack((
-        text("Menu").headline(),
-        button("Home").action(|| {}),
-        button("Settings").action(|| {}),
-    ))
-    .a11y_role(AccessibilityRole::Navigation)
-    .a11y_label("Main navigation")
+#[derive(Clone, PartialEq, Eq)]
+enum Field {
+    Name,
+    Email,
+}
+
+let focus = Binding::container(None::<Field>);
+let name = Binding::container(Str::from(""));
+
+field("Name", &name).focused(&focus, Field::Name)
+```
+
+Setting `focus` to `Some(Field::Name)` moves VoiceOver or TalkBack focus to
+that field.
+
+## Testing the tree
+
+`waterui-testing` drives views through the Hydrolysis accessibility tree, so an
+interaction test *is* an accessibility test. Query by role and label, then
+assert on the node:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui_testing::{Role, SemanticApp};
+
+fn submit_button() -> impl View {
+    button("Submit").action(|| {}).disabled(true)
+}
+
+#[waterui::test(submit_button)]
+fn submit_is_named_and_reports_disabled(app: &mut SemanticApp) {
+    let element = app.query().role(Role::BUTTON).label("Submit").single();
+    assert!(!element.node().enabled());
 }
 ```
 
-## Focus Management
+`#[waterui::test(...)]` expands to a plain `#[test]`, so these run under the
+normal harness. If a component cannot be reached by role and label, that is a
+bug in the component, not a reason to skip the test.
 
-WaterUI's focus system (covered in the Modifiers chapter) works with
-accessibility. When a view is focused, the accessibility system announces it.
-The `focused()` modifier on `ViewExt` integrates with both the visual focus
-ring and the accessibility focus:
+Pair automated checks with the platform auditors before shipping: Accessibility
+Inspector on iOS and macOS, Accessibility Scanner on Android, VoiceOver
+(Cmd+F5), and Accerciser for AT-SPI on GTK. Ten minutes navigating your own app
+with a screen reader turned on finds things no assertion will.
 
-```rust,ignore
-use waterui::prelude::*;
+## What's next
 
-let focus = Binding::container::<Option<Field>>(None);
-let name = Binding::container(Str::from(""));
-
-field("Name", &name)
-    .focused(&focus, Field::Name)
-```
-
-When `focus` is set to `Some(Field::Name)`, VoiceOver/TalkBack will move focus
-to that field.
-
-## Testing Accessibility
-
-WaterUI's preferred automated check is the `waterui-testing` crate, which
-drives views through the **Hydrolysis accessibility tree**. Because every
-component is expected to expose meaningful accessibility metadata,
-`waterui-testing` doubles as both an interaction harness and an
-accessibility-correctness check. Treat a missing or wrong tree as a bug to fix
-in the component, not a gap to paper over.
-
-For visual smoke checks, render a view with `water preview ... --output preview.png`
-and inspect the result. Pair these with platform-native auditors when shipping:
-
-- **iOS**: Accessibility Inspector in Xcode
-- **Android**: Accessibility Scanner
-- **macOS**: VoiceOver (Cmd+F5)
-- **Linux/GTK**: Accerciser (AT-SPI explorer)
-
-> **Tip:** Spend ten minutes navigating your app with VoiceOver or TalkBack
-> before shipping. Automated checks cannot replace the experience of actually
-> hearing how a screen reader interprets your UI.
-
-## Best Practices
-
-1. **Let defaults work.** Do not add `.a11y_label()` to every view. Built-in
-   components already expose their text content.
-
-2. **Label icons and images.** Any visual element without text needs an
-   explicit label.
-
-3. **Use semantic roles.** A custom `div`-like container should have
-   `Group`, `Navigation`, or `Main` role depending on purpose.
-
-4. **Hide decorative content.** Background images, dividers, and brand marks
-   should not be announced.
-
-5. **Test with a screen reader.** Automated checks cannot replace the
-   experience of navigating your app with VoiceOver or TalkBack.
-
-6. **Provide dynamic labels.** Use reactive bindings to keep accessibility
-   labels in sync with changing content.
-
-## Summary
-
-| API | Purpose |
-|---|---|
-| `.a11y_label(text)` | Override the spoken label |
-| `.a11y_role(role)` | Set the semantic role |
-| `AccessibilityLabel::new(text)` | Create a label value |
-| `AccessibilityRole::Button` | Interactive control role |
-| `AccessibilityRole::Image` | Image role |
-| `AccessibilityRole::Text` | Non-interactive text |
-| `AccessibilityRole::Navigation` | Navigation landmark |
-| `AccessibilityRole::Switch` | Toggle/switch control |
-| `AccessibilityRole::Slider` | Range input |
-| `AccessibilityState` | Disabled, selected, checked, expanded, busy, hidden |
-| `.focused(binding, value)` | Programmatic focus management |
-
-## What's Next
-
-Your app is accessible to users regardless of ability. But what about users
-who speak different languages? In the [next chapter](06-i18n.md), you will
-learn how WaterUI's internationalization system handles translations, plural
-rules, and locale-aware formatting.
+Your app is usable regardless of ability. In the [next chapter](06-i18n.md) you
+will make it readable regardless of language, with translation catalogs, CLDR
+plural rules, and locale-aware formatting.

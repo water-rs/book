@@ -1,20 +1,52 @@
-# Library Authoring
+# Library authoring
 
 > **In this chapter, you will:**
 >
-> - Use `configurable!` and `raw_view!` to create hookable and simple views
-> - Apply the `Type::new` / free-function constructor split that WaterUI uses everywhere
-> - Accept `IntoText`, `IntoLabel`, `IntoSignal<T>`, and `IntoComputed<T>` for ergonomic APIs
+> - Use `configurable!` and `raw_view!` to define hookable and leaf views
+> - Apply the `Type::new` / free-function constructor split WaterUI uses everywhere
+> - Accept `IntoText`, `IntoLabel`, `IntoSignal<T>`, and `IntoComputed<T>` in your APIs
 > - Pass context through the `Environment` and the `Plugin` trait
-> - Follow best practices for composition, testing, and API design
+> - Test a component through its accessibility tree
 
-WaterUI is designed for extensibility. Whether you are building a shared component
-library for your team or an open-source package for the community, the framework provides patterns and macros that help you create clean, composable, and type-safe APIs. This chapter covers the tools and best practices that separate a good WaterUI library from a great one.
+A WaterUI component crate is an ordinary Rust library that follows a handful of
+conventions. Following them is what makes your components compose with the rest
+of the ecosystem instead of sitting beside it.
 
-## The `configurable!` Macro
+## Where a component crate lives
 
-The `configurable!` macro is the standard way to create views that support both
-builder-pattern configuration and environment-based hooking. This is the pattern you want when your view should be customizable by downstream consumers:
+In this repository, component crates sit under a domain folder in `components/`:
+`foundation` (layout, text, controls, form, navigation, shape, icon), `visual`,
+`multimedia`, `data`, `codes`, `assets`, `effects`, `devtools`, and `platform`.
+Your own crate follows the same shape as any of them:
+
+```toml
+[package]
+name = "myco-waterui-widgets"
+edition = "2024"
+rust-version = "1.95"
+
+[dependencies]
+waterui-core.workspace = true
+waterui-layout.workspace = true
+waterui-text.workspace = true
+nami.workspace = true
+
+[features]
+default = []
+
+[lints]
+workspace = true
+```
+
+Two habits worth copying. **Depend on the specific component crates you use**,
+not the `waterui` facade — that is what keeps unused features out of a consuming
+app's artifact. And **keep features granular**, so a consumer disabling `gpu` or
+building for an embedded target drops your GPU code with it.
+
+## The `configurable!` macro
+
+`configurable!` defines a view that carries a config struct and can be
+intercepted by downstream consumers:
 
 ```rust,ignore
 configurable!(Button, ButtonConfig);
@@ -25,406 +57,358 @@ configurable!(Progress, ProgressConfig, |config| match config.style {
 });
 ```
 
-This macro generates:
+It generates the wrapper struct, a `NativeView` impl on the config declaring the
+stretch axis, `ConfigurableView` on the wrapper, `ViewConfiguration` on the
+config, and a `View` impl that checks the environment for a hook before falling
+through to native rendering.
 
-1. A **wrapper struct** (e.g., `Button`) that holds the config.
-2. **`NativeView` impl** on the config type, declaring the stretch axis.
-3. **`ConfigurableView` impl** on the wrapper, exposing `config()`.
-4. **`ViewConfiguration` impl** on the config, with a `render()` method.
-5. **`View` impl** that checks for environment hooks before falling through to
-   native rendering.
-
-The hook mechanism allows library consumers to globally customize how a view
-renders without modifying the library code:
+That hook is how a consumer replaces your view globally without forking your
+crate:
 
 ```rust,ignore
 let mut env = Environment::new();
 env.insert_hook(|env: &Environment, config: ButtonConfig| {
-    // Return a completely custom button implementation
     custom_button(config.label, config.action)
 });
 ```
 
-> **Tip:** Think of `configurable!` as "I am defining this view, but I want consumers to be able to override it." If you do not need that override capability, use `raw_view!` instead.
+### Stretch axis and environment resolution
 
-### Three Stretch Axis Modes
-
-The macro supports three patterns for declaring stretch behavior:
+The third argument declares the stretch axis, either statically or from the
+config:
 
 ```rust,ignore
-// Static: Always the same stretch axis
 configurable!(MyView, MyConfig);                          // StretchAxis::None
-configurable!(MyView, MyConfig, StretchAxis::Horizontal); // Always horizontal
-
-// Dynamic: Depends on configuration at runtime
+configurable!(MyView, MyConfig, StretchAxis::Horizontal); // always horizontal
 configurable!(MyView, MyConfig, |config| {
     if config.is_expanded { StretchAxis::Both } else { StretchAxis::None }
 });
 ```
 
-## The `raw_view!` Macro
+An optional `resolve` clause runs before the config reaches `Native`, which is
+where you fold environment state into the payload the backend receives:
 
-For simpler leaf views that do not need hookability, use `raw_view!`:
+```rust,ignore
+configurable!(MyView, MyConfig, StretchAxis::Horizontal, resolve |config, env| {
+    MyConfig { density: env.get::<Density>().copied().unwrap_or_default(), ..config }
+});
+```
+
+Use `resolve` when the backend needs a value it cannot look up itself. Do not
+use it to snapshot a signal — that would freeze a reactive input at build time.
+
+## The `raw_view!` macro
+
+For leaf views with nothing to hook:
 
 ```rust,ignore
 raw_view!(Divider, StretchAxis::CrossAxis);
 raw_view!(Spacer, StretchAxis::MainAxis);
-raw_view!(Image);  // StretchAxis::None by default
+raw_view!(Image);  // StretchAxis::None
 ```
 
-This implements `NativeView` and `View` without the `ConfigurableView` / `Hook`
-machinery. Use `raw_view!` when:
+This implements `NativeView` and `View` without the `ConfigurableView`/`Hook`
+machinery.
 
-- The view has no meaningful configuration to hook.
-- You want the simplest possible implementation.
-- The view is internal to your library and not meant to be customized.
+## The constructor split
 
-## The Constructor Split
-
-WaterUI is consistent about how public APIs expose construction, and your library
-should follow the same convention:
+WaterUI exposes construction two ways, and libraries should match:
 
 - **`Type::new(...)` is the general constructor.** It takes the most general
-  shape the component can render -- typically a fully open `impl View` for the
-  label slot, plus all the dials a power user might need.
-- **Free function constructors like `button(...)` are ergonomic entry points.**
-  They accept narrower semantic input types (`IntoLabel`, `IntoText`) so that
-  string literals and i18n-friendly text fall into the right semantic pipeline
-  with sensible default accessibility.
-
-Do not introduce parallel `Type::custom(...)` shapes -- if `Type::new(...)` is
-not flexible enough, fix `Type::new`.
+  shape the component can render.
+- **Free functions like `button(...)` are the ergonomic entry points.** They
+  accept narrower semantic inputs so a string literal lands in the i18n-aware
+  text pipeline with correct accessibility defaults.
 
 ```rust,ignore
-// General: arbitrary visual composition for the label, action chained after.
-let custom = Button::new(my_view).action(|env: Environment| { /* ... */ });
+// Ergonomic: the literal becomes semantic text with a default a11y label.
+let save = button("Save").action(|| { /* ... */ });
 
-// Ergonomic: literal flows into the i18n-aware semantic text pipeline,
-// and accessibility defaults are inherited automatically.
-let ergonomic = button("Save");
+// General: arbitrary visual content, with its spoken text stated separately.
+let verified = Button::new(Label::new(
+    "Verified account",
+    hstack((text("Account"), verification_badge)),
+));
 ```
 
-## Flexible Input Types
+Note what `Button::new` takes: a `Label`, not an open `impl View`. A control's
+label is never optional, because an unlabelled control is an inaccessible
+control. `Label::new(semantic_text, content)` is how you supply arbitrary visual
+content while keeping the spoken text intact; `Label`'s semantic-only builders
+(`icon`, `system_icon`, `leading`, `trailing`, `spacing`, `font`) panic on
+custom-content labels rather than silently dropping the decoration.
 
-A great library API does not force users to think about type conversions. WaterUI
-provides traits that accept the widest reasonable input types so callers can pass
-whatever is most natural.
+Do not add a parallel `Type::custom(...)`. If `Type::new` is not general enough,
+widen `Type::new`.
+
+## Flexible input types
 
 ### `IntoText` and `IntoLabel`
 
-Prefer `IntoText` for semantic text and `IntoLabel` for labelled controls
-(buttons, toggles, fields). These traits route literals, `String`, `Str`,
-`StyledStr`, and reactive `Computed<T>` through WaterUI's i18n-aware semantic
-text pipeline -- so accessibility and localization come for free:
+Use `IntoText` for semantic text and `IntoLabel` for control labels. Both route
+literals, `String`, `Str`, `StyledStr`, and reactive `Computed<T>` through the
+i18n-aware pipeline, so localization and accessibility come along automatically:
 
 ```rust,ignore
-use waterui::text::IntoText;
-use waterui::text::font::Caption;
+use waterui_text::{IntoText, Text, font::Caption};
 
 pub fn caption(content: impl IntoText) -> Text {
     Text::new(content).font(Caption)
 }
 
-caption("Saved");                  // &'static str -> SemanticText
-caption(String::from("Saved"));    // String
-caption(text!("Saved at {now}")); // reactive content via text! macro
+caption("Saved");
+caption(String::from("Saved"));
+caption(text!("Saved at {now}"));
 ```
 
-Only fall back to a raw `impl View` when the slot really is "arbitrary visual
-composition," not a textual label.
+Reach for a bare `impl View` only when the slot really is arbitrary visual
+composition rather than a textual label.
 
 ### `IntoSignal<T>` and `IntoComputed<T>`
 
-For non-textual reactive inputs, accept `IntoSignal<T>` (or `IntoComputed<T>`
-when you specifically need a derived value) so callers can pass either a
-constant or a reactive source without wrapping it in `Computed::constant()`:
+For non-textual reactive inputs, accept a signal so callers can pass a constant
+or a live source without wrapping anything:
 
 ```rust,ignore
 pub fn opacity(value: impl IntoComputed<f32>) -> Opacity {
     Opacity { value: value.into_computed() }
 }
 
-opacity(0.5);            // f32 constant
+opacity(0.5);            // constant
 opacity(my_binding);     // Binding<f32>
 opacity(computed_value); // Computed<f32>
 ```
 
+This is not a convenience: an API that takes a plain `f32` where the underlying
+state is dynamic forces the caller into a subtree rebuild to change one number.
+New public surfaces take signals whenever the value can change.
+
 ### `IntoSignalF32`
 
-A specialized trait for `f32` values that also accepts integers:
+`IntoSignalF32` is the numeric-literal-friendly variant. It converts any signal
+whose output is a Rust numeric type into a signal of `f32`:
 
 ```rust,ignore
-pub fn spacing(value: impl IntoSignalF32) -> f32 {
-    value.into_signal_f32()
+use waterui_core::IntoSignalF32;
+
+pub fn spacing(value: impl IntoSignalF32 + 'static) -> Computed<f32> {
+    value.into_signal_f32().computed()
 }
 
-spacing(8)      // i32 -> f32
-spacing(8.0)    // f32
-spacing(8u32)   // u32 -> f32
+spacing(8);          // i32 literal
+spacing(8.0);        // f32 literal
+spacing(my_binding); // Binding<f64>
 ```
 
-## Environment for Context Passing
+It returns a *signal*, not an `f32` — that is what makes `.spacing(binding)`
+re-lay-out instead of freezing the first value.
 
-The `Environment` is a type-indexed key-value store. Libraries can define custom
-environment keys to pass context through the view hierarchy without threading parameters through every function call:
+## Environment for context passing
+
+`Environment` is a type-indexed store. `Store<K, V>` gives you a keyed slot when
+the value type alone is not a unique key:
 
 ```rust,ignore
-use waterui_core::env::Store;
+use waterui_core::{Environment, env::useenv};
 
-// Define a theme token
-pub struct AccentColor;
+pub struct AccentSlot;
 
-// Install into environment
-let mut env = Environment::new();
-env.insert(Store::<AccentColor, Color>::new(Color::blue()));
+let env = Environment::new().store::<AccentSlot, Color>(Color::blue());
 
-// Read in a child view
+// Read it back inside a view.
 pub fn themed_button() -> impl View {
-    use_env(|env: &Environment| {
-        let color = env.query::<AccentColor, Color>()
-            .unwrap_or(&Color::blue());
-        button("Tap me").tint(*color)
+    useenv(|env: Environment| {
+        let color = env.query::<AccentSlot, Color>().cloned().unwrap_or(Color::blue());
+        button("Tap me").foreground(color)
     })
 }
 ```
 
-### The Plugin Trait
-
-For libraries that need to install multiple values, implement `Plugin`:
+`store` is a consuming builder on `Environment`, and `useenv`'s closure takes
+values *extracted* from the environment — `Environment` itself implements
+`Extractor`, so an owned `Environment` parameter works, and so does a tuple of
+extractable types:
 
 ```rust,ignore
-pub trait Plugin {
-    fn install(&self, env: &mut Environment) {
-        // Default: no-op
-    }
-}
+let view = useenv(|(nav, db): (Navigator<Route>, Database)| {
+    button("Load").action(move || { /* ... */ })
+});
+```
+
+Library views should extract what they need rather than making callers thread
+parameters through every function.
+
+### The `Plugin` trait
+
+Bundle a library's setup into one installable value:
+
+```rust,ignore
+use waterui_core::{Environment, plugin::Plugin};
 
 pub struct MyLibraryPlugin {
     pub theme: MyTheme,
 }
 
 impl Plugin for MyLibraryPlugin {
-    fn install(&self, env: &mut Environment) {
-        env.insert(self.theme.clone());
-        env.insert_hook(|env, config: ButtonConfig| {
-            // Custom button styling
+    fn install(self, env: &mut Environment) {
+        env.insert(self.theme);
+        env.insert_hook(|env: &Environment, config: ButtonConfig| {
+            custom_button(config)
         });
     }
 }
 
-// Usage
 let mut env = Environment::new();
 env.install(MyLibraryPlugin { theme: MyTheme::default() });
 ```
 
-> **Tip:** The `Plugin` trait is the recommended way to distribute a library's setup logic. Instead of asking users to call five different `env.insert(...)` lines, give them a single `env.install(MyPlugin { ... })`.
+`install` takes `self` by value. The default implementation just inserts the
+plugin into the environment, so a plugin that is only a bag of settings needs no
+method body at all.
 
-## ViewExt Composition Patterns
+## Composition patterns
 
-WaterUI's modifier system uses extension traits. When creating library components,
-prefer composition over wrapping:
+Prefer a function that composes existing modifiers over a new view type:
 
 ```rust,ignore
-// Prefer: compose with existing modifiers
-pub fn card(content: impl View) -> impl View {
-    content
-        .padding_with(EdgeInsets::all(16.0))
-        .background(waterui::theme::color::Surface)
-        .corner_radius(12.0)
-        .shadow(Shadow::default())
-}
-
-// Avoid: creating a new view type just for styling
-pub struct Card<V> { content: V }
-impl<V: View> View for Card<V> {
-    fn body(self, env: &Environment) -> impl View {
-        self.content
-            .padding_with(EdgeInsets::all(16.0))
-            .background(waterui::theme::color::Surface)
-            // ... same thing but more code
-    }
+// Prefer this.
+pub fn panel(content: impl View) -> impl View {
+    content.padding_with(EdgeInsets::all(16.0)).floating()
 }
 ```
 
-The function approach is simpler and composes naturally with the rest of the
-framework.
+`.floating()` promotes a view to a themed elevated surface — container color,
+clip radius, and both shadows resolved from `FloatingStyle` in the environment.
+It panics if those tokens are absent, which is the fast-fail you want: a missing
+theme is a setup bug, not a reason to render an unstyled box.
 
-### When to Create a Custom View Type
+Create a dedicated struct only when the component needs one:
 
-Create a dedicated struct when:
+- It owns reactive state exposed as `Binding<T>` inputs.
+- It participates in FFI as a native view.
+- It has enough configuration to justify `configurable!`.
+- It must intercept or scope environment values for its subtree.
 
-- The component has internal state (use `Binding<T>`).
-- It needs to participate in FFI (native rendering).
-- It has multiple configuration options (use `configurable!`).
-- It needs to intercept environment values.
+### State belongs to the caller, not the body
 
-## The Extractor Pattern
-
-The `Extractor` trait lets views declare their dependencies declaratively:
-
-```rust,ignore
-use waterui_core::extract::Extractor;
-
-// Use use_env with tuple extraction
-let view = use_env(|(nav, db): (NavigationController, Database)| {
-    // Both values extracted from environment
-    button("Load").on_tap(move || {
-        let data = db.fetch();
-        nav.push(detail_view(data));
-    })
-});
-```
-
-Library views should use `use_env` to access environment values rather than
-requiring users to pass them explicitly. This keeps APIs clean and enables
-dependency injection.
-
-## Testing Strategies
-
-Good libraries are well-tested libraries. WaterUI supports several testing approaches.
-
-### Unit Testing Views
-
-Test view construction without rendering:
+Views are consumed by `body()`. State that must survive a rebuild lives in a
+`Binding` owned above the view, passed in as a parameter:
 
 ```rust,ignore
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use waterui::Environment;
-
-    #[test]
-    fn button_config_has_correct_defaults() {
-        let btn = button("Tap me", || {});
-        let config = btn.config();
-        assert_eq!(config.style, ButtonStyle::Default);
-    }
-
-    #[test]
-    fn view_body_produces_expected_tree() {
-        let env = Environment::new();
-        let view = my_component();
-        let body = view.body(&env);
-        // Assert on the resulting view type
-    }
-}
-```
-
-### Testing Reactive Behavior
-
-Test that signals propagate correctly:
-
-```rust,ignore
-#[test]
-fn counter_increments() {
-    let count = Binding::i32(0);
-    let view = counter_view(count.clone());
-
-    // Simulate action
-    count.set(1);
-    assert_eq!(count.get(), 1);
-}
-```
-
-### Visual Testing with Preview
-
-Use the `#[preview]` macro to render views to PNG for visual regression testing:
-
-```rust,ignore
-#[preview]
-fn my_card_preview() -> impl View {
-    card(text("Preview content"))
-}
-```
-
-Then run:
-
-```bash
-water preview my_card_preview --platform macos --path ./app --output card.png
-```
-
-## Best Practices
-
-### Prefer Composition Over Inheritance
-
-Rust does not have inheritance, and WaterUI leans into this. Build complex
-components by composing simple ones:
-
-```rust,ignore
-// Good: composition
-pub fn labeled_field(label: &str, field: impl View) -> impl View {
-    vstack((text(label).font(waterui::text::font::Caption), field)).spacing(4.0)
-}
-
-// Bad: trying to "inherit" from TextField
-pub struct LabeledTextField { /* reimplements TextField internals */ }
-```
-
-### Leverage the Type System
-
-Use Rust's type system to enforce correctness at compile time:
-
-```rust,ignore
-// Good: type-safe builder
-pub struct FormBuilder<S: FormState> {
-    state: S,
-    fields: Vec<AnyView>,
-}
-
-// Bad: stringly-typed API
-pub fn add_field(form: &mut Form, name: &str, field_type: &str) { /* ... */ }
-```
-
-### Keep Views Stateless
-
-Views should be lightweight, stateless descriptions. Put mutable state in
-`Binding<T>` values that live outside the view tree:
-
-```rust,ignore
-// Good: state separate from view
-pub fn counter() -> impl View {
-    let count = Binding::i32(0);
+pub fn counter(count: &Binding<i32>) -> impl View {
     vstack((
-        text(count.map(|c| format!("Count: {c}"))),
-        button("+", {
-            let count = count.clone();
-            move || count.set(count.get() + 1)
-        }),
+        text!("Count: {count}"),
+        button("+1")
+            .action(|State(count): State<Binding<i32>>| *count.get_mut() += 1)
+            .state(count),
     ))
 }
 ```
 
-### Document with Previews
+Two things this example is showing. Handlers receive state through typed
+`State<T>` extractor parameters paired with `.state(...)` calls, one per
+injected value — bundle them into a single `#[derive(Clone)]` struct once you
+reach four. And `text!` reads the binding reactively; calling `.get()` inside a
+body would read once and never update.
 
-Every public component should have a `#[preview]` function in its module:
+There is no renderer-provided local state slot to reach for. Component identity
+is not inferred from call order, so if your component seems to need one, the
+state is being owned at the wrong level.
+
+## Theming
+
+Backends resolve `Foreground`, `Background`, `Surface`, `SurfaceVariant`,
+`Border`, `Accent`, `AccentContainer`, `AccentForeground`, `MutedForeground`,
+`Tertiary`, and `TertiaryContainer` from the environment. Read those tokens
+instead of naming concrete colors, and your component adapts to light/dark mode
+and to whatever theme the host app installed.
+
+An unresolvable token panics with the slot name rather than rendering
+transparent, so a missing token surfaces at first render instead of as an
+invisible widget.
+
+## Testing
+
+### Accessibility-first component tests
+
+`waterui-testing` renders a view headlessly and queries the accessibility tree
+it produces. `#[waterui::test(view_fn)]` expands to a plain `#[test]`, so these
+run under the normal harness:
+
+```rust,ignore
+use waterui::ViewExt as _;
+use waterui::accessibility::AccessibilityRole;
+use waterui_testing::{Role, SemanticApp};
+
+fn glyph_view() -> impl waterui::View {
+    IconGlyph::new('\u{2605}', "Helvetica")
+        .with_size(24.0)
+        .a11y_role(AccessibilityRole::Image)
+        .a11y_label("Glyph icon")
+}
+
+#[waterui::test(glyph_view)]
+fn glyph_exposes_accessibility_image(app: &mut SemanticApp) {
+    app.query().role(Role::IMAGE).label("Glyph icon").assert_exists();
+}
+```
+
+This is simultaneously an interaction test and an accessibility test. A
+component that cannot be queried this way has an accessibility bug, not an
+untestable design.
+
+Controls spawn local tasks internally, so a plain `#[test]` that constructs one
+directly needs a local executor installed first.
+
+### Snapshots and previews
+
+`TestHost::capture_snapshot` writes PNG artifacts under the canonical
+`<suite>/<case>/<stage>.png` layout when `WATERUI_TEST_ARTIFACTS_DIR` is set.
+
+For a visual check during development, give each public component a `#[preview]`
+function:
 
 ```rust,ignore
 #[preview]
 fn button_styles() -> impl View {
     vstack((
-        button("Default", || {}),
-        button("Destructive", || {}).style(ButtonStyle::Destructive),
-        button("Plain", || {}).style(ButtonStyle::Plain),
+        button("Automatic"),
+        button("Prominent").style(ButtonStyle::BorderedProminent),
+        button("Plain").style(ButtonStyle::Plain),
     ))
     .spacing(8.0)
 }
 ```
 
-This serves as both documentation and a visual test.
-
-### Minimize Public API Surface
-
-Export only what users need. Keep internal types private:
-
-```rust,ignore
-// lib.rs
-pub use button::{button, Button, ButtonStyle};
-// ButtonConfig, ButtonInner, etc. stay private
+```bash
+water preview button_styles --platform macos --path ./app --output button.png
 ```
 
-Use `#[doc(hidden)]` for types that must be public for technical reasons (macro
-expansion) but should not appear in documentation.
+Preview symbols are `waterui_preview_<crate_name>_<function_name>`, so names
+must be unique within a crate.
 
-## What's Next
+## Public API shape
 
-You have now seen WaterUI from the inside out -- rendering, FFI, layout, backends, and library authoring. The [next chapter](../09-philosophy.md) steps back from the code to explore the design philosophy that ties all these pieces together.
+Export the constructors, the view types, and the style enums; keep configs and
+internals private:
+
+```rust,ignore
+pub use button::{Button, ButtonStyle, button};
+// ButtonConfig and friends stay crate-private.
+```
+
+When a type must be public for macro expansion but has no business in the docs,
+mark it `#[doc(hidden)]`.
+
+One rule to hold onto: never degrade a public trait to make it object-safe.
+Expose the friendliest signature — `-> impl Future`, `-> impl View`, generic
+methods — and if you need dynamic dispatch internally, add a private object-safe
+shim trait with a blanket impl and store `Box<dyn XxxImpl>` behind a public
+wrapper. `CustomViewRenderer` in `waterui-core` is the reference: implementors
+write a plain `async fn render_to_rgba`, and the boxing lives out of sight
+behind `ViewRenderer`.
+
+## What's next
+
+The [next chapter](../09-philosophy.md) steps back from the code to the design
+principles these conventions come from.

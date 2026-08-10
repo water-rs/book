@@ -1,275 +1,263 @@
-# Barcodes and QR Codes
+# Barcodes and QR codes
 
 > **In this chapter, you will:**
-> - Generate QR codes and Code 128 barcodes from any string
-> - Customize colors with solid fills, gradients, and GPU content
-> - Understand how the GPU-based rendering pipeline keeps codes crisp at any size
-> - Build a shareable QR code component for your app
+> - Render QR codes and Code 128 barcodes from any string
+> - Tint modules with solid colors, gradients, and live reactive colors
+> - Fill a code with arbitrary GPU content through `fill_gpu`
+> - Size a code so that scanners can actually read it
 
-Need to let users share a link by scanning their phone, or display a product barcode in a retail app? The `waterui-barcode` crate renders barcodes and QR codes entirely on the GPU. Module data is encoded on the CPU, packed into a bit buffer, and rasterized by a fragment shader -- producing crisp output at any resolution with no CPU rasterization overhead.
+`waterui-barcode` encodes module data on the CPU once, packs it into a bit
+buffer, and rasterizes it in a fragment shader. There is no CPU rasterization
+path — every barcode is drawn on the GPU, so a code stays sharp at any size.
 
-> **Feature flag:** Barcodes live behind the `barcode` feature on `waterui`. Enable it in `Cargo.toml` (`waterui = { version = "...", features = ["barcode"] }`) before importing `waterui::barcode`.
+> **Feature flag:** barcodes require the `barcode` feature on `waterui`
+> (`waterui = { version = "...", features = ["barcode"] }`). The crate is then
+> re-exported as `waterui::barcode`.
 
 ![QR code rendered by WaterUI for https://book.waterui.dev](../assets/visuals/04-rich/barcode-qr-book-waterui-dev.png)
 
 *A QR code rendered from the pinned WaterUI barcode component. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
-## Quick Start
+## Quick start
 
 ```rust,ignore
+use waterui::prelude::*;
 use waterui::barcode::Barcode;
 
-// QR code
-fn my_qr() -> impl View {
-    Barcode::qr("https://waterui.dev")
+fn share_link() -> impl View {
+    Barcode::qr("https://book.waterui.dev").size(280.0, 280.0)
 }
 
-// 1D barcode
-fn my_barcode() -> impl View {
-    Barcode::code128("HELLO-WATERUI")
+fn product_label() -> impl View {
+    Barcode::code128("WATERUI-BOOK").size(250.0, 92.0)
 }
 ```
 
-Both `Barcode::qr` and `Barcode::code128` return a `Barcode` struct that
-implements `View` and can be placed directly in your view hierarchy.
+`Barcode::qr` and `Barcode::code128` both return a `Barcode`, which implements
+`View`. The free functions `qr_code(content)` and `code128(content)` are
+equivalent ergonomic entry points.
 
----
+### Give the code a size
 
-## Supported Symbologies
+A `Barcode` renders through a GPU surface, and GPU surfaces stretch to fill
+whatever size their parent proposes. Inside a stack that offers no bounded
+height, that means the code can collapse. Pin it with `.size(width, height)`,
+and keep QR codes square — a stretched QR matrix is much harder for a scanner
+to lock onto.
 
-| Symbology | Constructor | Dimensions | Description |
+## Supported symbologies
+
+| Symbology | Constructor | Shape | Typical use |
 |---|---|---|---|
-| QR Code | `Barcode::qr(content)` | 2D | Square matrix, widely used for URLs, text, and data |
-| Code 128 | `Barcode::code128(content)` | 1D | High-density linear barcode for alphanumeric data |
+| QR Code | `Barcode::qr(content)` | 2D matrix | URLs, tokens, arbitrary text |
+| Code 128 | `Barcode::code128(content)` | 1D bars | Alphanumeric product and asset codes |
 
-The `BarcodeSymbology` enum represents these:
+`BarcodeSymbology` (`Qr` / `Code128`) is `#[non_exhaustive]`, so any `match`
+you write against it needs a wildcard arm to survive future symbologies.
 
-```rust,ignore
-pub enum BarcodeSymbology {
-    Qr,
-    Code128,
-}
-```
+Encoding runs when the view builds its body. Content the encoder rejects — a
+payload too large for a QR symbol, or characters outside Code 128's charset —
+panics with the encoder's error instead of quietly rendering an empty code.
+Validate untrusted input before handing it to `Barcode`.
 
-`Barcode::new(content)` is an alias for `Barcode::qr(content)`.
-
----
-
-## Customizing Colors
-
-The default black-and-white look works fine, but you can match your app's branding with custom colors.
+## Coloring modules
 
 ![WaterUI barcode preview with a gradient QR code and green Code128 barcode](../assets/visuals/04-rich/barcode-custom-colors.png)
 
 *A Hydrolysis preview of custom barcode colors and gradient fills. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
-### Dark Module Color
-
-By default, dark modules are black. Change them with `dark_color`. `Srgb::new`
-takes three linear-light channels in `0.0..=1.0`:
+Dark modules default to black, light modules and the quiet zone to white.
+`dark_color` and `light_color` override them:
 
 ```rust,ignore
+use waterui::prelude::*;
 use waterui::barcode::Barcode;
-use waterui::graphics::color::Srgb;
 
-fn blue_qr() -> impl View {
-    Barcode::qr("https://waterui.dev")
-        .dark_color(Srgb::new(0.0, 0.3, 0.8))
+fn branded_qr() -> impl View {
+    Barcode::qr("https://book.waterui.dev")
+        .dark_color(Color::srgb(12, 26, 45))
+        .light_color(Color::srgb(246, 250, 255))
+        .size(280.0, 280.0)
 }
 ```
 
-### Light Module / Background Color
+Keep the contrast high. Scanners threshold the image, so a dark-on-dark palette
+that looks tasteful on screen may not decode at all.
 
-Change the background (light modules and quiet zone):
+### Gradient fill
 
-```rust,ignore
-fn dark_mode_qr() -> impl View {
-    Barcode::qr("https://waterui.dev")
-        .dark_color(Srgb::WHITE)
-        .light_color(Srgb::new(0.1, 0.1, 0.1))
-}
-```
-
-### Gradient Fill
-
-Apply a linear gradient to the dark modules for a more eye-catching look:
+`linear_gradient` replaces the solid dark fill with a two-stop gradient:
 
 ```rust,ignore
+use waterui::prelude::*;
 use waterui::barcode::Barcode;
-use waterui::graphics::color::Srgb;
 
 fn gradient_qr() -> impl View {
-    Barcode::qr("https://waterui.dev")
+    Barcode::qr("https://book.waterui.dev")
         .linear_gradient(
-            Srgb::new(0.0, 0.5, 1.0), // start color (blue)
-            Srgb::new(1.0, 0.0, 0.5), // end color (pink)
-            [0.0, 0.0],               // start point (top-left)
-            [1.0, 1.0],               // end point (bottom-right)
+            Color::srgb(0, 108, 255),   // start color
+            Color::srgb(255, 62, 122),  // end color
+            [0.0, 0.0],                 // start point: top-left
+            [1.0, 1.0],                 // end point: bottom-right
         )
+        .size(280.0, 280.0)
 }
 ```
 
-Gradient coordinates are normalized to the barcode's bounding square:
-- `[0.0, 0.0]` is the top-left corner
-- `[1.0, 1.0]` is the bottom-right corner
+The two endpoints are `UnitPoint`s normalized to the barcode square, so
+`[0.0, 0.0]` is the top-left corner and `[1.0, 1.0]` the bottom-right. The
+named constants work too: `UnitPoint::TOP_LEADING`, `UnitPoint::CENTER`,
+`UnitPoint::BOTTOM_TRAILING`, and friends.
 
----
+### Reactive colors
 
-## GPU-Content Fill
-
-For advanced effects -- imagine a QR code filled with an animated gradient, or modules that shimmer with a particle effect -- use `fill_gpu`. Any type implementing `GpuView` can serve as the fill source:
+Every color argument takes `impl IntoComputed<Color>`, not a frozen `Color`.
+Pass a `Binding` or a `Computed` and the renderer re-tints in place — no view
+reconstruction, no re-encoding of the matrix:
 
 ```rust,ignore
+use waterui::prelude::*;
 use waterui::barcode::Barcode;
 
-fn artistic_qr(animated_renderer: impl GpuView) -> impl View {
-    Barcode::qr("https://waterui.dev")
-        .fill_gpu(animated_renderer)
-        .light_color(Srgb::WHITE)
+fn invertible_qr() -> impl View {
+    let inverted = Binding::new(false);
+
+    vstack((
+        Barcode::qr("https://book.waterui.dev")
+            .dark_color(inverted.map(|inverted| {
+                if inverted { Color::srgb(255, 255, 255) } else { Color::srgb(12, 26, 45) }
+            }))
+            .light_color(inverted.map(|inverted| {
+                if inverted { Color::srgb(12, 26, 45) } else { Color::srgb(255, 255, 255) }
+            }))
+            .size(280.0, 280.0),
+        toggle("Invert for dark mode", &inverted),
+    ))
+    .spacing(16.0)
 }
 ```
 
-This creates a `BarcodeGpuFill<V>` view that:
+`SignalExt::map` borrows the binding, so the same `inverted` still drives the
+`toggle`. Flipping it uploads two new colors to the shader's uniform buffer and
+requests a redraw; the packed matrix buffer is untouched.
 
-1. Renders the fill content to an offscreen texture.
-2. Applies a barcode mask effect where dark modules sample from the fill
-   texture and light modules use the configured light color.
+### `BarcodeFill`
 
-The mask is applied via the `BarcodeMaskEffect` shader, which runs the same
-packed-matrix lookup as the standard renderer but composites the fill texture
-instead of a flat color.
+Solid and gradient fills are both values of the `BarcodeFill` enum, built with
+`BarcodeFill::solid(color)` and `BarcodeFill::linear_gradient(start, end,
+from, to)`. `dark_color` and `linear_gradient` construct it for you — you only
+need it when driving `BarcodeRenderer` directly.
 
----
+## Filling a code with GPU content
 
-## The `BarcodeFill` Enum
-
-Under the hood, the fill style for solid colors and gradients is represented
-as `BarcodeFill`:
+`fill_gpu` swaps the flat fill for any `GpuView`: an animated shader, a
+particle system, a rendered scene.
 
 ```rust,ignore
-pub enum BarcodeFill {
-    Solid(Srgb),
-    LinearGradient {
-        start_color: Srgb,
-        end_color: Srgb,
-        start_point: [f32; 2],
-        end_point: [f32; 2],
-    },
+use waterui::prelude::*;
+use waterui::barcode::Barcode;
+use waterui::graphics::GpuView;
+
+fn artistic_qr(animated: impl GpuView) -> impl View {
+    Barcode::qr("https://book.waterui.dev")
+        .fill_gpu(animated)
+        .light_color(Color::srgb(255, 255, 255))
+        .size(280.0, 280.0)
 }
 ```
 
-You do not need to construct this directly -- `dark_color` and
-`linear_gradient` produce the appropriate variant for you.
+This returns a `BarcodeGpuFill<V>`, which renders in two passes: the fill view
+draws into an offscreen texture, then `BarcodeMaskEffect` composites it —
+sampling the fill texture where a module is dark and painting the light color
+everywhere else. `light_color` is the only modifier left on `BarcodeGpuFill`,
+since the dark modules now come from your GPU view.
 
----
+## How it works
 
-## How It Works
+### Matrix generation
 
-Understanding the rendering pipeline helps you appreciate why QR codes stay perfectly sharp at any zoom level.
+QR matrices come from `fast_qr`; the matrix side length depends on payload
+length and error-correction level. Code 128 comes from `barcoders`, and its 1D
+bar pattern is repeated on every row so both symbologies feed the same square
+shader path. Both run once, when the `BarcodeSource` is constructed.
 
-### Matrix Generation
+### Bit packing
 
-When a `Barcode` view renders, it first generates the module matrix:
+The matrix is packed into a `Vec<u32>` with one bit per module — `1` dark, `0`
+light. A 25×25 QR code is 625 modules, so 20 words. That buffer is uploaded
+once as a read-only GPU storage buffer.
 
-- **QR codes** use the `fast_qr` crate. The QR matrix dimension depends on
-  the content length and error correction level.
-- **Code 128** uses the `barcoders` crate. The 1D bar pattern is repeated on
-  every row to produce a square matrix compatible with the same GPU shader.
+### Fragment shader
 
-### Bit Packing
+`qr_render.wgsl` binds the packed matrix plus a uniform block holding the
+matrix dimension, quiet-zone width, output resolution, and color or gradient
+parameters. Per fragment it maps the pixel to a module coordinate, reads that
+one bit, and emits the dark color, the gradient sample, or the light color.
+Because the lookup is resolution-independent, scaling the view resizes modules
+rather than resampling pixels.
 
-The matrix is packed into a `Vec<u32>` where each `u32` holds 32 modules as
-individual bits:
+### Quiet zones
 
-- Bit value `1` = dark module
-- Bit value `0` = light module
-
-For a 25x25 QR code, the total is 625 modules requiring 20 u32 words. This
-compact representation is uploaded as a GPU storage buffer.
-
-### Fragment Shader Rasterization
-
-The shader (`qr_render.wgsl`) receives:
-- A uniform buffer with the matrix dimension, quiet zone size, output
-  resolution, and color/gradient parameters
-- A read-only storage buffer with the packed matrix bits
-
-For each fragment, the shader:
-1. Maps the pixel position to a module coordinate (accounting for quiet zone)
-2. Looks up the corresponding bit in the packed buffer
-3. Outputs the dark or light color (or gradient-interpolated color)
-
-This approach renders at any resolution without aliasing artifacts because the
-module lookup is resolution-independent.
-
-### Quiet Zones
-
-Each symbology includes an appropriate quiet zone (margin):
-
-| Symbology | Quiet Zone (modules) |
+| Symbology | Quiet zone (modules) |
 |---|---|
 | QR Code | 4 |
 | Code 128 | 10 |
 
-The quiet zone is rendered in the light color and is included automatically.
+The quiet zone is drawn in the light color and added automatically — you do not
+need to pad the view yourself.
 
----
-
-## API Reference Summary
+## API reference
 
 ### `Barcode`
 
 | Method | Description |
 |---|---|
-| `Barcode::new(content)` | Create a QR code (alias for `qr`) |
-| `Barcode::qr(content)` | Create a QR code |
-| `Barcode::code128(content)` | Create a Code 128 barcode |
-| `.dark_color(color)` | Set solid dark module color |
-| `.light_color(color)` | Set light module / background color |
-| `.linear_gradient(start, end, from, to)` | Apply gradient to dark modules |
-| `.fill_gpu(gpu_view)` | Fill dark modules with GPU-rendered content |
+| `Barcode::qr(content)` | QR code from any `impl Into<Str>` |
+| `Barcode::code128(content)` | Code 128 barcode |
+| `.dark_color(color)` | Solid dark-module fill, reactive |
+| `.light_color(color)` | Light-module and quiet-zone color, reactive |
+| `.linear_gradient(start, end, from, to)` | Gradient across dark modules, reactive colors |
+| `.fill_gpu(gpu_view)` | Fill dark modules with GPU content, returns `BarcodeGpuFill<V>` |
+
+Free functions `qr_code(content)` and `code128(content)` mirror the two
+constructors.
 
 ### `BarcodeGpuFill<V>`
 
 | Method | Description |
 |---|---|
-| `.light_color(color)` | Set light module / background color |
+| `.light_color(color)` | Light-module and quiet-zone color, reactive |
 
 ### `BarcodeRenderer`
 
-For direct GPU pipeline integration:
+For direct GPU pipeline work. It implements `GpuView`, so wrap it in
+`GpuSurface::new` to place it in a view tree — which is exactly what `Barcode`
+does internally.
 
 | Method | Description |
 |---|---|
-| `BarcodeRenderer::new(source)` | Create with default black/white colors |
-| `BarcodeRenderer::new_with_colors(source, dark, light)` | Create with custom solid colors |
-| `BarcodeRenderer::new_with_fill(source, fill, light)` | Create with a `BarcodeFill` |
-
-The renderer implements `GpuRenderer`, so it can be used with `GpuSurface`
-and the rest of the graphics pipeline.
+| `BarcodeRenderer::new(source)` | Black modules on white, from a `BarcodeSource` |
+| `.with_fill(fill)` | Override with a `BarcodeFill` |
+| `.with_light_color(color)` | Override the light color, reactive |
 
 ### `BarcodeSource`
 
 | Method | Description |
 |---|---|
-| `BarcodeSource::qr(content)` | Create a QR source |
-| `BarcodeSource::code128(content)` | Create a Code 128 source |
-| `.set_size(pixels)` | Set the output size (default: 256) |
-| `.size()` | Get the current output size |
-| `.symbology()` | Get the symbology type |
-| `.quiet_zone()` | Get the quiet zone width in modules |
-| `.matrix()` | Get or generate the packed `BarcodeMatrix` |
+| `BarcodeSource::qr(content)` | Encode a QR matrix now |
+| `BarcodeSource::code128(content)` | Encode a Code 128 matrix now |
+| `.symbology()` | The `BarcodeSymbology` this source carries |
+| `.quiet_zone()` | Quiet-zone width in modules |
+| `.set_size(pixels)` / `.size()` | Pixel size used when the source is rasterized offscreen (default 256) |
 
----
+The encoded matrix itself is internal: get pixels through `Barcode` or
+`BarcodeRenderer` rather than reaching for the buffer.
 
-## Complete Example
-
-A settings page with a shareable QR code:
+## Complete example
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::barcode::Barcode;
-use waterui::graphics::color::Srgb;
 
 fn share_page() -> impl View {
     let url = "https://book.waterui.dev";
@@ -277,56 +265,24 @@ fn share_page() -> impl View {
     vstack((
         text("Scan to join"),
         Barcode::qr(url)
-            .dark_color(Srgb::new(0.15, 0.15, 0.15))
-            .light_color(Srgb::WHITE),
+            .dark_color(Color::srgb(38, 38, 38))
+            .light_color(Color::srgb(255, 255, 255))
+            .size(280.0, 280.0),
         text(url),
-        Spacer::flexible(),
+        spacer(),
     ))
+    .spacing(12.0)
 }
 ```
 
-A branded QR code with a gradient:
+## Scanning is not included
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::barcode::Barcode;
-use waterui::graphics::color::Srgb;
+This crate generates codes; it does not read them. Decoding a barcode from the
+camera is not part of `waterui-barcode` at the pinned commit, and nothing in
+the current API exposes a scanner. If you need scanning today, drive the
+platform camera API yourself through your backend.
 
-fn branded_qr() -> impl View {
-    Barcode::qr("https://waterui.dev")
-        .linear_gradient(
-            Srgb::new(0.0, 0.4, 0.9), // brand blue
-            Srgb::new(0.0, 0.8, 0.6), // brand green
-            [0.0, 0.0],
-            [1.0, 1.0],
-        )
-        .light_color(Srgb::new(0.98, 0.98, 0.98))
-}
-```
+## What's next
 
----
-
-## Platform Considerations
-
-The barcode component is fully cross-platform because it renders entirely
-through WaterUI's GPU pipeline (wgpu). There is no dependency on platform-
-specific barcode libraries.
-
-| Feature | All Platforms |
-|---|---|
-| QR code generation | `fast_qr` crate (pure Rust) |
-| Code 128 generation | `barcoders` crate (pure Rust) |
-| Rendering | Fragment shader via wgpu |
-| Gradient fills | GPU shader |
-| GPU content fill | `BarcodeMaskEffect` post-processing shader |
-| Scanning / camera decode | Not yet available (planned) |
-
-> **Note:** Barcode *scanning* (using the device camera to decode barcodes) is
-> not currently part of this crate. It is planned for a future release as part
-> of the WaterKit camera integration.
-
----
-
-## What's Next
-
-That wraps up the Rich Content section. You have learned how to display media, embed maps, render web content, and generate barcodes -- all from Rust. In the next section, [Graphics](../05-graphics/01-canvas.md), you will dive into the GPU and start drawing custom shapes, shaders, and visual effects.
+Next comes [Graphics](../05-graphics/01-canvas.md), where you write the shaders
+and canvas drawing code that a barcode fill like `fill_gpu` consumes.

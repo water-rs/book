@@ -1,16 +1,16 @@
 # Conditional rendering
 
 > **In this chapter, you will:**
-> - Show and hide views reactively with the `when` function
-> - Chain conditions with `.or()` and `.otherwise()` for multi-branch logic
-> - Derive boolean conditions from signals using `.map()` and `.equal_to()`
-> - Pick between `when` and `match` + `.anyview()` for complex branching
+> - Swap views reactively with `when`, `.or()`, and `.otherwise()`
+> - Derive boolean conditions from signals without calling `.get()`
+> - Understand that a branch switch destroys the old subtree — and why that is correct
+> - Choose between `when`, `.visible()`, a signal-taking API, and a `match` + `.anyview()`
 
-Think about the screens in a typical app: a loading spinner while data fetches, a "Welcome back!" message when the user is logged in, a "Please log in" prompt when they are not. Your UI needs to show different things based on conditions that can change at any moment. WaterUI provides the `when` function for exactly this — unlike Rust's built-in `if`/`else` (which evaluates once at build time), `when` creates reactive branches that automatically swap views as conditions change.
+Rust's `if`/`else` runs once, while the view tree is being built. `when` builds a reactive branch instead: the condition is a signal, and the rendered branch follows it.
 
 ## Basic usage
 
-`when` takes a reactive boolean condition and a builder closure that returns the view to show when the condition is `true`:
+`when` takes a reactive boolean and a builder closure for the `true` case:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -21,11 +21,11 @@ fn maybe_message(show_message: &Binding<bool>) -> impl View {
 }
 ```
 
-When `show_message` is `false`, nothing is rendered. The UI updates automatically whenever the binding changes.
+With no `.otherwise()`, a false condition renders nothing.
 
-## Adding a fallback with `.otherwise()`
+## Fallbacks and chains
 
-Use `.otherwise()` to provide an alternative view when the condition is `false`:
+`.otherwise()` supplies the `false` branch:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -37,11 +37,7 @@ fn login_state(is_logged_in: &Binding<bool>) -> impl View {
 }
 ```
 
-This is the reactive equivalent of an `if`/`else` expression — but it responds to signal changes at runtime.
-
-## Chaining conditions with `.or()`
-
-For multi-branch logic (analogous to `if`/`else if`/`else`), chain `.or()` calls. Each `.or()` adds another conditional branch; the chain must end with `.otherwise()`:
+`.or()` adds further branches, and the chain must be closed with `.otherwise()`:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -55,86 +51,36 @@ fn status_text(state: &Binding<i32>) -> impl View {
 }
 ```
 
-The first matching condition wins — subsequent branches are not evaluated.
+Conditions are checked in order and the first match wins. The chain compiles into a single combined `Computed<Option<usize>>` — the index of the matching branch — so adding branches costs one more zipped signal, not one more subscription per rendered view.
 
-> **Note:** Think of this as a reactive `match`. The conditions are checked
-> in order, and only the first matching branch renders.
+## Building conditions
 
-## Condition types
-
-`when` accepts any type that implements `IntoComputed<bool>`. In practice you will use a handful of common patterns.
-
-### `Binding<bool>`
-
-The simplest case — a boolean binding directly:
+`when` accepts anything implementing `IntoComputed<bool>`.
 
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
-fn visible(show: &Binding<bool>) -> impl View {
-    when(show.clone(), || text("Visible"))
+fn examples(show: &Binding<bool>, count: &Binding<i32>, name: &Binding<Str>) -> impl View {
+    vstack((
+        // A boolean binding directly.
+        when(show.clone(), || text("Visible")),
+        // Negation: Binding<bool> implements Not and yields a new signal.
+        when(!show.clone(), || text("Hidden content revealed")),
+        // Any derived Computed<bool>.
+        when(count.map(|n| n > 0).computed(), || text("Count is positive")),
+        // SignalExt comparison helpers.
+        when(name.is_empty(), || text("Please enter your name")),
+        when(count.equal_to(42), || text("The answer")),
+    ))
 }
 ```
 
-### Negated binding
+Never call `.get()` to build a condition. `.get()` reads a value once and drops the dependency, so the branch freezes at construction time. `.map()`, `.equal_to()`, `.is_empty()`, and the rest of `SignalExt` keep the dependency intact.
 
-`Binding<bool>` implements `Not`, which produces a new signal:
+### Static conditions fold away
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::condition::when;
-
-fn hidden(show: &Binding<bool>) -> impl View {
-    // Show only when the binding is `false`.
-    when(!show.clone(), || text("Hidden content revealed"))
-}
-```
-
-### Derived `Computed<bool>`
-
-Any `Computed<bool>` works as a condition. Build one with `SignalExt::map`:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::condition::when;
-
-fn positive_indicator(count: &Binding<i32>) -> impl View {
-    let is_positive = count.map(|n| n > 0).computed();
-    when(is_positive, || text("Count is positive"))
-}
-```
-
-### Derived conditions with `SignalExt`
-
-`SignalExt` ships with comparison helpers that produce `Computed<bool>` directly. They are the most readable way to turn a value into a condition:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::condition::when;
-
-fn name_status(name: &Binding<Str>) -> impl View {
-    when(name.is_empty(), || text("Please enter your name"))
-        .otherwise(|| text!("Hello, {name}!"))
-}
-```
-
-### `.equal_to()` for value comparison
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::condition::when;
-
-fn tab_content(selected_tab: &Binding<i32>) -> impl View {
-    when(selected_tab.equal_to(0), || text("Home"))
-        .or(selected_tab.equal_to(1), || text("Settings"))
-        .otherwise(|| text("Unknown tab"))
-}
-```
-
-### Static `bool`
-
-Plain `bool` values also work. When all conditions in a chain are static booleans, the framework picks the matching branch at construction time, so the unused branches never cost anything at runtime:
+A plain `bool` is also a signal. When *every* condition in a chain is a static `bool`, the matching branch is selected at construction time and the others are never built:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -146,11 +92,77 @@ fn debug_only() -> impl View {
 }
 ```
 
-> **Tip:** Use this pattern for feature flags and debug-only UI.
+This is the pattern for feature flags and debug-only UI. Mixing one reactive condition into the chain disables the folding for the whole chain.
 
-## When to reach for `.anyview()` instead
+## What a branch switch actually does
 
-`when().or().otherwise()` chains are great for two or three branches. For richer matching — especially when each arm constructs a different concrete view type — destructure the value with `match` and erase each arm with `.anyview()`:
+`When` lowers to `Dynamic::watch` over the combined branch-index signal. When the index changes:
+
+1. The previous subtree is removed.
+2. The new branch's builder closure runs.
+3. The resulting view is inserted.
+
+**State owned inside a branch is discarded when that branch is replaced.** This is deliberate, not a leak: a new branch is a new component instance, and WaterUI does not infer component identity from call position. Anything that must survive a toggle belongs to a `Binding` owned by the parent and passed in:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::widget::condition::when;
+
+fn settings_panel() -> impl View {
+    let show_advanced = Binding::bool(false);
+    // Owned by the parent, so the value survives collapsing and re-expanding.
+    let quality = Binding::f64(0.5);
+
+    vstack((
+        toggle("Show Advanced", &show_advanced),
+        when(show_advanced.clone(), {
+            let quality = quality.clone();
+            move || {
+                vstack((
+                    text("Advanced Settings").headline(),
+                    slider("Quality", &quality).range(0.0..=1.0),
+                ))
+            }
+        }),
+    ))
+}
+```
+
+`Accordion` behaves the same way for the same reason — collapsing it discards the content's state, because collapsing destroys the content.
+
+Branch closures run every time their branch is entered, so keep them free of side effects and cheap to call.
+
+## When *not* to reach for `when`
+
+`when` changes view *structure*. Most reactive UI does not.
+
+| The thing that changes | Use | Not |
+|---|---|---|
+| A displayed value | `text!("{status}")` | `when` / `watch` around two `text()` calls |
+| A parameter of a live view | a signal-taking input, e.g. `.blur(amount.clone())` | rebuilding the view |
+| The membership of a collection | `ForEach` / `List` over a reactive collection | `watch` over a `Vec` |
+| Whether a subtree is on screen but should keep its state | `.visible(signal)` | `when` |
+| Which kind of view is on screen | `when` / `Dynamic::watch` | — |
+
+`watch(binding_of_vec, …)` rebuilds and re-dispatches the entire watched subtree on every change, and can escalate into a full-window structural rebuild. A dynamic set of views is a collection, so render it with `ForEach` or `List` and let membership diff by id — see [the lists chapter](05-lists.md).
+
+### `.visible()` keeps the subtree alive
+
+`.visible(signal)` from `ViewExt` does not swap anything. It drives opacity, hit-testing, and the accessibility hidden state from one signal, so the subtree stays mounted and keeps every piece of state it owns:
+
+```rust,ignore
+use waterui::prelude::*;
+
+fn draft_banner(has_draft: &Binding<bool>) -> impl View {
+    text("Draft saved").visible(has_draft.clone())
+}
+```
+
+The trade-off is that the hidden subtree still costs layout and memory. Use `.visible()` for something that toggles often and must not lose state; use `when` for something that is genuinely absent.
+
+## Many branches: `match` plus `.anyview()`
+
+Once each arm produces a different concrete view type, or the ladder grows past three or four rungs, a `match` over an enum reads better than a `when` chain. `.anyview()` erases the arms to a common type:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -167,99 +179,18 @@ fn render(mode: Mode) -> AnyView {
 }
 ```
 
-Use `.anyview()` whenever you need uniform view types across branches and the boolean ladder of `when` is starting to feel like an enum match.
-
-## Rendering mechanics
-
-Understanding how `when` works under the hood helps you write efficient conditional views. Internally, `When` uses the `Dynamic` view to swap content:
-
-1. The combined condition signal re-evaluates.
-2. The framework determines which branch index matched.
-3. The previous view is removed and the matching branch's builder is called.
-4. The new view is inserted into the tree.
-
-Each branch closure runs **every time** the condition switches into that branch, so keep them lightweight. State that should survive a branch toggle must live outside the branch — typically in a `Binding` owned by the parent.
-
-## Patterns and examples
-
-### Show / hide with a toggle
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::condition::when;
-
-fn settings_panel() -> impl View {
-    let show_advanced = Binding::bool(false);
-    let value = Binding::f64(0.5);
-
-    vstack((
-        toggle("Show Advanced", &show_advanced),
-        when(show_advanced.clone(), {
-            let value = value.clone();
-            move || {
-                vstack((
-                    text("Advanced Settings").headline(),
-                    slider(&value).range(0.0..=1.0),
-                ))
-            }
-        }),
-    ))
-}
-```
-
-### Loading states
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::condition::when;
-
-fn data_view(loading: &Binding<bool>, data: &Binding<Str>) -> impl View {
-    let data = data.clone();
-    when(loading.clone(), || text("Loading..."))
-        .otherwise(move || text!("{data}"))
-}
-```
-
-### Multi-state status indicator
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::widget::condition::when;
-
-fn status_indicator(status: &Binding<i32>) -> impl View {
-    when(status.equal_to(0), || text("Idle").color(Grey))
-        .or(status.equal_to(1), || text("Running").color(Green))
-        .or(status.equal_to(2), || text("Warning").color(Yellow))
-        .otherwise(|| text("Error").color(Red))
-}
-```
-
-## Best practices
-
-1. **Always end chains with `.otherwise()`.** A bare `when()` without
-   `.otherwise()` renders nothing when the condition is false. Multi-branch
-   chains require `.otherwise()` to close.
-2. **Use signal combinators, not `.get()`.** Calling `.get()` inside a `when`
-   condition or branch closure breaks reactivity. Prefer `.map()`,
-   `.is_empty()`, `.equal_to()`, and friends.
-3. **Keep branch closures pure.** Branches return views without side effects.
-   They may run multiple times as conditions toggle.
-4. **Prefer `when` over Rust `if`/`else` in view bodies.** Rust's `if`
-   evaluates once at construction time; `when` updates as conditions change.
-5. **Switch to `.anyview()` when branches diverge.** Once you reach four or
-   more arms, or each arm produces a different concrete view type, a `match`
-   plus `.anyview()` is clearer than a long `when` chain.
+To make that reactive, wrap it in `Dynamic::watch(mode_signal, render)` — the same mechanism `when` uses, written directly. The state-loss rule is identical.
 
 ## Quick reference
 
-| Pattern                                           | Purpose                                |
-|---------------------------------------------------|----------------------------------------|
-| `when(cond, \|\| view)`                           | Show view when condition is true       |
-| `when(cond, \|\| v).otherwise(\|\| w)`            | If/else                                |
-| `when(a, \|\| v).or(b, \|\| w).otherwise(\|\| x)` | If/else-if/else                        |
-| `when(!binding, \|\| view)`                       | Show when binding is false             |
-| `when(sig.equal_to(val), \|\| view)`              | Compare signal to value                |
-| `when(sig.map(\|v\| ...), \|\| view)`             | Derived boolean condition              |
-| `match value { Mode::A => a().anyview(), ... }`   | Multi-branch over an enum              |
+| Pattern | Purpose |
+|---|---|
+| `when(cond, \|\| view)` | Show a view while the condition is true |
+| `when(cond, \|\| v).otherwise(\|\| w)` | If / else |
+| `when(a, \|\| v).or(b, \|\| w).otherwise(\|\| x)` | If / else-if / else |
+| `when(!binding, \|\| view)` | Show while the binding is false |
+| `when(sig.equal_to(val), \|\| view)` | Compare a signal to a value |
+| `view.visible(sig)` | Hide without unmounting |
+| `Dynamic::watch(sig, \|v\| …)` | Structural swap driven by any signal |
 
-You now have the tools to build dynamic, condition-driven interfaces. The final piece of the UI puzzle is navigation — how do you move between screens, manage a navigation stack, and organize your app with tabs? That is exactly what the [next chapter](07-navigation.md) covers.
+The last piece of the UI puzzle is moving between screens. The [next chapter](07-navigation.md) covers navigation stacks, tabs, and split views.

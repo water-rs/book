@@ -8,3 +8,6 @@ edition = "2024"
 
 [dependencies]
 waterui = { path = "waterui", features = ["barcode", "map", "particle", "chart"] }
+
+[dev-dependencies]
+waterui-testing = { path = "waterui/testing" }

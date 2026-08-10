@@ -1,13 +1,13 @@
 # Forms and data entry
 
 > **In this chapter, you will:**
-> - Generate a complete form UI from a Rust struct with `#[derive(FormBuilder)]`
-> - Understand how Rust types map to UI controls automatically
-> - Use pickers, date pickers, color pickers, and secure fields
-> - Validate user input with composable validators
-> - Build a registration form from scratch
+> - Generate a whole form UI from a Rust struct with `#[form]`
+> - Know exactly which Rust types map to which control
+> - Reach for pickers, calendars, and secure fields when the mapping is not enough
+> - Compose validators and understand what the validation surface does *not* yet cover
+> - Build a registration form end to end
 
-Every app that collects user data needs forms — registration screens, settings panels, profile editors. Building these by hand means wiring up a text field for each string, a toggle for each boolean, a stepper for each number. WaterUI's form system solves this by generating UI controls from your Rust data structures. Derive a single trait, and your struct becomes an editable form.
+WaterUI generates form controls from your data structures. Derive one attribute and a struct becomes an editable form; every field gets a control chosen by its type, a label derived from its name, and a binding wired straight back into the struct.
 
 ![WaterUI form preview with field toggle stepper slider and accent color swatch](../assets/visuals/03-ui/forms-data-entry-sample.png)
 
@@ -15,7 +15,7 @@ Every app that collects user data needs forms — registration screens, settings
 
 ## The `FormBuilder` trait
 
-The `FormBuilder` trait is the foundation of the form system. It maps a type to a view that can edit a `Binding` of that type:
+`FormBuilder` maps a type to a view that edits a `Binding` of that type:
 
 ```rust,ignore
 pub trait FormBuilder: Sized {
@@ -36,16 +36,16 @@ pub trait FormBuilder: Sized {
 }
 ```
 
-You can implement this trait manually for full control, but in most cases the derive macro does the work for you.
+The derive macro implements it for your struct by projecting the struct binding into per-field bindings and calling `FormBuilder::view` on each field type.
 
-## The derive macro
+## The `#[form]` attribute
 
-Annotate your struct with `#[derive(FormBuilder)]`, and each field generates an appropriate control:
+`#[form]` derives `Default`, `Clone`, `Debug`, `FormBuilder`, and `Project` in one step. `Project` is what supplies the per-field bindings, so `FormBuilder` cannot be derived without it:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-#[derive(Default, Clone, Debug, FormBuilder, Project)]
+#[form]
 pub struct UserProfile {
     /// Display name
     pub name: String,
@@ -56,93 +56,57 @@ pub struct UserProfile {
 }
 ```
 
-That is it — three lines of fields, and WaterUI knows how to render a text field, a toggle, and a stepper. The derive macro relies on the `Project` derive to expose per-field bindings; you can either derive both or use the `#[form]` attribute, which derives `Default`, `Clone`, `Debug`, `FormBuilder`, and `Project` in one step.
-
-### Rendering a form
-
-Use the `form()` function to create a view from a binding:
+Render it with `form()`:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-# #[derive(Default, Clone, Debug, FormBuilder, Project)] struct UserProfile { name: String }
+# #[form] pub struct UserProfile { pub name: String }
 fn profile_editor() -> impl View {
     let profile = UserProfile::binding();
     form(&profile)
 }
 ```
 
-Pre-fill with initial data by constructing the binding directly:
+`UserProfile::binding()` starts from `Default`. To pre-fill, build the binding yourself:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-# #[derive(Default, Clone, Debug, FormBuilder, Project)] struct UserProfile { name: String }
+# #[form] pub struct UserProfile { pub name: String }
 fn edit_profile(initial: UserProfile) -> impl View {
     let profile = Binding::container(initial);
     form(&profile)
 }
 ```
 
-> **Tip:** Try it yourself — define a struct with a mix of `String`, `bool`,
-> and `i32` fields, derive the form, and watch the controls appear.
+## Type-to-control mapping
 
-## Type-to-component mapping
+`FormBuilder` is implemented for exactly these types:
 
-The derive macro maps Rust types to controls automatically:
+| Rust type | Control | Notes |
+|---|---|---|
+| `String` | `TextField` | Doc comment becomes the prompt |
+| `Str` | `TextField` | WaterUI's interned string type |
+| `bool` | `Toggle` | |
+| `i32` | `Stepper` | Range `i32::MIN..=i32::MAX` |
+| `f64` | `Slider` | Range `0.0..=1.0` |
+| `f32` | `Slider` | Mapped through `f64`, same range |
+| `Color` | `ColorPicker` | Platform-native color selector |
 
-| Rust type   | UI component   | Notes                            |
-|-------------|----------------|----------------------------------|
-| `String`    | `TextField`    | Doc comment becomes placeholder   |
-| `Str`       | `TextField`    | WaterUI's interned string type   |
-| `bool`      | `Toggle`       | Switch-style control             |
-| `i32` (and other integers) | `Stepper` | With `+/-` buttons      |
-| `f64` / `f32` | `Slider`     | Range `0.0..=1.0` by default     |
-| `Color`     | `ColorPicker`  | Platform-native color selector   |
+Any other field type — `u32`, `i64`, `Option<T>`, an enum, a nested struct — has no `FormBuilder` impl and will not compile inside a derived form. Write a manual implementation for those, or narrow the field to one of the types above.
 
-### Field labels and placeholders
+The macro converts each field name from `snake_case` to `"Title Case"` for the label, and joins the field's doc comment into the `placeholder` argument. Only `TextField` currently uses the placeholder; the other controls ignore it.
 
-The derive macro converts each field name from `snake_case` to a `"Title Case"` label. A doc comment on the field becomes the placeholder argument passed to `FormBuilder::view`:
+## Manual implementations
 
-```rust,ignore
-use waterui::prelude::*;
-
-#[form]
-pub struct ContactForm {
-    /// Enter your email address
-    pub email: String,
-}
-```
-
-For a `String` field, that doc comment surfaces as the `TextField`'s prompt.
-
-### Numeric fields
-
-- `i32` (and other integer widths) maps to a `Stepper` with the full `i32::MIN..=i32::MAX` range.
-- `f64` and `f32` map to a `Slider` with range `0.0..=1.0`.
-
-If you need different ranges or formatting, use a manual implementation (below).
-
-### Color fields
-
-`Color` fields produce a `ColorPicker` with platform-native UI:
+When you need a custom layout, a field type outside the table, or a control the mapping cannot express, implement `FormBuilder` yourself. `Project` still does the heavy lifting:
 
 ```rust,ignore
 use waterui::prelude::*;
-
-#[form]
-pub struct ThemeConfig {
-    pub accent_color: Color,
-}
-```
-
-## Manual form implementation
-
-For custom layouts or fields outside the automatic mapping, implement `FormBuilder` yourself:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::form::secure::{Secure, secure};
+use waterui::component::TextField;
+use waterui::form::secure::{Secure, SecureField, secure};
+use waterui::layout::stack::VStack;
 
 #[derive(Clone, Project)]
 struct LoginForm {
@@ -151,10 +115,9 @@ struct LoginForm {
 }
 
 impl FormBuilder for LoginForm {
-    type View = waterui::layout::stack::VStack<((waterui::component::TextField, waterui::form::SecureField),)>;
+    type View = VStack<((TextField, SecureField),)>;
 
     fn view<L: IntoLabel>(binding: &Binding<Self>, label: L, placeholder: Str) -> Self::View {
-        // Project the struct binding into per-field bindings.
         let projected = binding.project();
         vstack((
             <String as FormBuilder>::view(&projected.username, label, placeholder),
@@ -164,60 +127,19 @@ impl FormBuilder for LoginForm {
 }
 ```
 
-The key trick is `Project`. Deriving it (or using `#[form]`) gives you a `LoginForm::project(binding)` helper that returns a struct of per-field `Binding`s, so each control sees only the slice of state it needs.
+`vstack(contents)` returns `VStack<(C,)>`, which is why the associated type wraps the field tuple one level deeper than you might expect.
 
-## Individual form controls
+## Controls beyond the mapping
 
-Beyond the automatic mapping, WaterUI provides specialised controls for specific data entry tasks. You can use these in both auto-generated and manually built forms.
+These compose into derived forms as well as hand-built ones. Every one of them takes a label at construction, because assistive technology needs something to announce; use `.hide_label()` when the label should not be visible.
 
-### Color picker
+### Picker
 
-`ColorPicker` provides a platform-native color selection interface:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::form::picker::color::ColorPicker;
-
-fn accent_picker(accent: &Binding<Color>) -> impl View {
-    ColorPicker::new("Accent Color", accent).with_alpha()
-}
-```
-
-`.with_alpha()` enables the alpha channel; `.with_hdr()` enables HDR color selection.
-
-### Date picker
-
-`DatePicker` adapts to the bound type — `jiff::civil::Date`, `Time`, or `DateTime` — and supports several picker layouts:
+Each item is a `text(label).tag(value)` pair — the label is shown, the tag is written into the binding. The value type must be `Ord + Clone`:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::form::picker::date::{DatePicker, DatePickerType};
-use jiff::civil::Date;
-
-fn birthday_picker(date: &Binding<Date>) -> impl View {
-    DatePicker::new(date)
-        .label("Birthday")
-        .ty(DatePickerType::Date)
-}
-```
-
-Date picker types:
-
-| Type                          | Shows                                  |
-|-------------------------------|----------------------------------------|
-| `DatePickerType::Date`        | Date only                              |
-| `HourAndMinute`               | Hour and minute                        |
-| `HourMinuteAndSecond`         | Hour, minute, and second               |
-| `DateHourAndMinute`           | Date, hour, and minute                 |
-| `DateHourMinuteAndSecond`     | Date, hour, minute, and second         |
-
-### Picker (selection list)
-
-`Picker` lets users select from a list of options. Each item is a `text(label).tag(value)` — the label is what the user sees, the tag is the value written back into the binding:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::form::picker::{Picker, PickerStyle};
+use waterui::form::{Picker, PickerStyle};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Plan { Free, Pro, Team }
@@ -232,17 +154,55 @@ fn plan_picker(selection: &Binding<Plan>) -> impl View {
 }
 ```
 
-Picker styles:
+`Picker` takes `impl IntoComputed<Vec<PickerItem<T>>>`, so a reactive item list is a `Computed<Vec<_>>` rather than an array. Item labels re-resolve when the locale changes.
 
-| Style       | Appearance                            |
-|-------------|---------------------------------------|
-| `Automatic` | Platform default (segmented on iOS)   |
-| `Menu`      | Dropdown menu button                  |
-| `Radio`     | Vertical radio button group           |
+| Style | Appearance |
+|---|---|
+| `Automatic` | Platform default |
+| `Menu` | Dropdown menu button |
+| `Radio` | Vertical radio group |
+| `Segmented` | Horizontal mutually exclusive segments |
+
+`.segmented()` is shorthand for `.style(PickerStyle::Segmented)`.
+
+### Date picker
+
+`DatePicker::new(label, binding)` dispatches on the binding's type — `jiff::civil::Date`, `Time`, or `DateTime` — and picks a matching default layout. It stores a full `DateTime` internally so hidden components survive a round trip:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::form::picker::date::{DatePicker, DatePickerType};
+use jiff::civil::Date;
+
+fn birthday_picker(date: &Binding<Date>) -> impl View {
+    DatePicker::new("Birthday", date).ty(DatePickerType::Date)
+}
+```
+
+`DatePickerType` is `Date`, `HourAndMinute`, `HourMinuteAndSecond`, `DateHourAndMinute` (the default), or `DateHourMinuteAndSecond`. `.range(start..=end)` clamps the binding into the allowed span.
+
+For a month grid instead of a spinner, `Calendar::new(label, &date, &visible_month)` renders a selectable calendar; `.decorated(dates)` marks days with a passive dot, and the caller owns the visible month so navigation state stays outside the view. `MultiDatePicker` covers multi-selection over a `BTreeSet<Date>`.
+
+### Color picker
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::form::picker::color::ColorPicker;
+
+fn accent_picker(accent: &Binding<Color>) -> impl View {
+    ColorPicker::new("Accent Color", accent).with_alpha()
+}
+```
+
+`.with_alpha()` enables the alpha channel and `.with_hdr()` enables HDR selection.
+
+### File picker
+
+`waterui::form::picker::file::FilePicker` binds a `Vec<Url>`. `FilePicker::open(label, &binding)` references files in place; `FilePicker::import(label, &binding)` copies them into your app's storage. `.max_count(n)` caps the selection.
 
 ### Secure field
 
-`SecureField` masks input and uses automatic memory zeroing (via `zeroize`) for password-grade security. Use it for passwords, API keys, and other sensitive data:
+`SecureField` masks its input and stores it in a `Secure`, which zeroes its buffer on drop and redacts itself in `Debug` output:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -253,18 +213,11 @@ fn password_field(password: &Binding<Secure>) -> impl View {
 }
 ```
 
-The `Secure` type wraps a `String` with:
+`Secure::expose()` returns the raw `&str` and `Secure::hash()` produces a bcrypt hash at the default cost.
 
-- **Display redaction:** `Debug` output shows `Secure(****)`.
-- **Memory zeroing:** the inner string is zeroed on drop.
-- **Hashing helper:** `.hash()` produces a bcrypt hash.
+> **Warning:** Never persist or transmit the exposed string. Hash it first.
 
-> **Warning:** Never store raw passwords. Always use `.hash()` before
-> persisting to a database or sending over the network.
-
-## Building a registration form
-
-Here is a complete example that ties auto-generation, a submit button, and reactive state together:
+## A registration form
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -282,17 +235,13 @@ fn registration_form() -> impl View {
 
     vstack((
         text("Create Account").title(),
-
-        // Auto-generated form
         form(&form_data),
-
-        // Submit button: capture the form state and read it on click.
         button("Register")
             .bordered_prominent()
             .action(|State(data): State<Binding<Registration>>| {
                 let registration = data.get();
                 waterui::log::info!(
-                    username = %registration.username.as_str(),
+                    username = %registration.username,
                     "registration submitted"
                 );
             })
@@ -301,69 +250,11 @@ fn registration_form() -> impl View {
 }
 ```
 
-## Validation
+Reading `data.get()` inside the action handler is fine — handlers run in response to an event, not during body evaluation. Calling `.get()` in a view body is what breaks reactivity.
 
-A form is only as good as the data it collects. WaterUI provides a composable validation system through the `Validator` trait and the `Validatable` extension. `Range<T>`, `regex::Regex`, and the marker `Required` come out of the box:
+## Reading form data
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::form::valid::{Required, Validator};
-use regex::Regex;
-
-fn build_validators() {
-    // Range validator (note: `Range<T>`, exclusive end)
-    let age_validator = 18i32..100;
-    assert!(age_validator.validate(42).is_ok());
-
-    // Regex validator (validates `&str` and `String`).
-    let email_validator = Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
-        .expect("email validator regex must compile");
-    assert!(email_validator.validate("reader@waterui.dev").is_ok());
-
-    // Combine validators with `.and()` and `.or()`.
-    let required_email = Required.and(
-        Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
-            .expect("email validator regex must compile"),
-    );
-    assert!(required_email.validate("").is_err());
-}
-```
-
-### Built-in validators
-
-| Validator   | Validates                                          |
-|-------------|----------------------------------------------------|
-| `Range<T>`  | Value falls within `start..end` (exclusive end)    |
-| `Regex`     | String matches a regular expression                 |
-| `Required`  | Value is `Some(...)` for `Option<T>`, or non-empty for `&str` |
-
-### Combinators
-
-- `validator_a.and(validator_b)` — both must pass; short-circuits on first failure.
-- `validator_a.or(validator_b)` — at least one must pass.
-
-### `ValidatableView`
-
-Wrap a form control with validation to get automatic error display:
-
-```rust,ignore
-use waterui::prelude::*;
-use waterui::form::valid::ValidatableView;
-use regex::Regex;
-
-fn validated_email(value: &Binding<Str>) -> impl View {
-    ValidatableView::new(
-        TextField::new(value),
-        Regex::new(r"^[^@]+@[^@]+\.[^@]+$").unwrap(),
-    )
-}
-```
-
-`ValidatableView` filters the binding (rejecting invalid values from being committed) and displays the validation error message below the control.
-
-## Accessing form data
-
-The binding returned by `FormBuilder::binding()` provides field-level access through projection:
+Project the binding to reach individual fields, and pass the projected bindings — not their current values — into views so they stay live:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -371,26 +262,60 @@ use waterui::prelude::*;
 # #[form] pub struct Registration { pub username: String }
 fn show_summary() -> impl View {
     let form_data = Registration::binding();
-    let projected = Registration::project(&form_data);
+    let projected = form_data.project();
 
     vstack((
-        // Read a field value.
-        text(projected.username.get()),
-        // Display reactive values.
+        text(projected.username.clone()),
         text!("Name: {username}", username = projected.username.clone()),
     ))
 }
 ```
 
-## Form layout tips
+## Validation
 
-1. **Use `vstack` for vertical forms.** Stack form controls vertically for a
-   natural settings-screen layout.
-2. **Mix auto-generated and manual controls.** Use `form()` for the basic
-   fields, then add custom controls (pickers, buttons) manually around it.
-3. **Validate before submission.** Use the `Validator` combinators to check
-   all fields before processing the form data.
-4. **Pre-fill with initial data.** Pass an initial struct to
-   `Binding::container()` instead of relying on `Default`.
+The `Validator<T>` trait has one method, `validate(&self, value: T) -> Result<(), Self::Err>`, plus `.and()` and `.or()` combinators. Three implementations ship with the crate:
 
-You now know how to collect structured data from users. But what about displaying collections of data *back* to them? In the [next chapter](05-lists.md), you will learn how to render dynamic lists and collections efficiently.
+| Validator | Validates |
+|---|---|
+| `Range<T>` | `start..end`, exclusive end, for `T: Display + Debug + Ord + Clone` |
+| `Regex` | Any `AsRef<str>` matches the pattern |
+| `Required` | `Option<T>` is `Some` |
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::form::valid::Validator;
+use regex::Regex;
+
+fn check() {
+    let age = 18i32..100;
+    assert!(age.validate(42).is_ok());
+
+    let email = Regex::new(r"^[^@]+@[^@]+\.[^@]+$")
+        .expect("email validator regex must compile");
+    assert!(email.validate("reader@waterui.dev").is_ok());
+    assert!(email.validate("not-an-address").is_err());
+}
+```
+
+`a.and(b)` short-circuits on the first failure; `a.or(b)` succeeds if either passes and reports both errors otherwise.
+
+### Wiring a validator to a control
+
+`ValidatableView::new(view, validator)` filters the view's binding so invalid values are never committed, and renders the error message underneath. It requires the view to implement `Validatable`, which exposes the binding to be filtered:
+
+```rust,ignore
+pub trait Validatable: View + Sized {
+    type Value;
+    fn validable(&mut self) -> &mut Binding<Self::Value>;
+}
+```
+
+> **Not yet available:** no built-in control implements `Validatable` at the
+> pinned commit, so `ValidatableView` only works with a wrapper you implement
+> yourself. Until that lands, validate on submit — run the validators against
+> the projected bindings inside the action handler and surface the result
+> through a snackbar or an error label.
+
+## Where to go next
+
+Forms collect structured data. Displaying collections back to the user is the [next chapter](05-lists.md), which covers lazy lists, sections, and reactive collections.

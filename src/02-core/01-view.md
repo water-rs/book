@@ -1,18 +1,14 @@
 # The view system
 
 > **In this chapter, you will:**
-> - Understand the `View` trait and how WaterUI builds UIs from composable pieces
-> - Learn to create views using functions, structs, and built-in types
-> - Discover how `AnyView` solves Rust's type system challenges for dynamic UIs
-> - See how raw views and composite views work together to form the rendering tree
+> - Read the `View` trait and understand why `body` consumes `self`
+> - Build views as plain functions and as structs
+> - Know which standard Rust types are already views
+> - Tell raw (leaf) views apart from composite views, and know when `AnyView` is worth its cost
 
-Every piece of UI you see on screen -- a text label, a button, a card, an entire page -- is a `View` in WaterUI. Views are composable, declarative descriptions of what the screen should look like. You describe *what* you want, and the framework figures out *how* to render it.
-
-If you have used SwiftUI or Jetpack Compose, this will feel familiar. If not, do not worry -- the concept is straightforward, and this chapter will walk you through it from the ground up.
+Every piece of UI in WaterUI -- a label, a button, a card, a whole page -- is a `View`. A view is a description, not a widget: you build a value that says what the screen should contain, and the backend turns it into native widgets.
 
 ## The View trait
-
-At the heart of WaterUI lies a single trait:
 
 ```rust,ignore
 pub trait View: 'static {
@@ -20,52 +16,48 @@ pub trait View: 'static {
 }
 ```
 
-A `View` consumes itself and, given an `Environment`, produces another `View`. The framework calls `body()` recursively until it reaches a **raw view** -- a leaf node that the native backend knows how to render (such as `Text`, `Button`, or `Color`).
+`body` consumes the view and returns another view. The framework calls it recursively until it reaches a **raw view** -- a leaf the backend knows how to render, such as `Str`, `Color`, or `ButtonConfig`.
 
-Key properties:
+Three consequences follow from that signature:
 
-- **Consuming**: `body` takes `self` by value. Views are cheap descriptors, created and consumed during rendering.
-- **Contextual**: The `Environment` carries dependency-injected values such as theme tokens, locale, and your own configuration.
-- **Recursive**: Composite views return other views, which themselves have bodies. The recursion terminates at raw views.
-- **`'static` bound**: Views own all their data. No borrowed references, which keeps the lifecycle simple.
-
-> **Note:** `'static` does not mean "lives forever". It means views cannot hold temporary references. Wrap shared mutable data in a `Binding`.
+- **`self` by value.** Views are cheap descriptors, created and consumed once. There is no persistent widget object to mutate.
+- **`&Environment`.** Every view receives the ambient context: theme tokens, locale, injected services. See [the Environment chapter](03-environment.md).
+- **`'static`.** A view owns its data and cannot hold borrowed references. Share mutable data through a `Binding` instead.
 
 ## Function views
 
-The simplest way to create a view is with a plain function. Any `FnOnce() -> V` where `V: View` automatically implements `View`:
+Any `FnOnce() -> V where V: View` is itself a view, so the shortest component is a function:
 
 ```rust,ignore
 use waterui::prelude::*;
 
 fn greeting() -> impl View {
-    "Hello, World!" // &'static str implements View
+    "Hello, World!" // &'static str is a View
 }
 ```
 
-Function views are the recommended starting point. They compose naturally and work with Rust's type inference:
+Function views compose naturally and need no boilerplate:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::widget::condition::when;
 
 fn counter(count: Binding<i32>) -> impl View {
     vstack((
         text!("Count: {count}"),
         button("Increment")
-            .action(|State(count): State<Binding<i32>>| count.set(count.get() + 1))
+            .action(|State(count): State<Binding<i32>>| *count.get_mut() += 1)
             .state(&count),
     ))
 }
 ```
 
-`text!("Count: {count}")` captures the `count` binding from scope and rebuilds the rendered text whenever it changes. There is no need to wrap text construction in `Dynamic::watch` -- the macro already takes care of subscribing to the signal.
+Two things are happening here. `text!("Count: {count}")` captures the `count` binding by name and re-renders only that label when the value changes -- no `watch`, no manual subscription. And `.state(&count)` injects the binding into the button's environment so the handler can pull it back out with the `State<T>` extractor; `.get_mut()` returns a guard that writes back on drop, which is the idiomatic way to mutate a binding.
 
-> **Tip:** Start with function views. Most components never need to become structs.
+Start with function views. Most components never need to be anything else.
 
 ## Struct views
 
-When a component needs named configuration fields or builder-pattern ergonomics, define it as a struct:
+Reach for a struct when a component has several named parameters or wants builder methods:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -73,59 +65,43 @@ use waterui::widget::condition::when;
 
 struct ProfileCard {
     name: Binding<String>,
-    avatar_url: Str,
+    bio: Binding<String>,
     show_bio: bool,
 }
 
 impl View for ProfileCard {
     fn body(self, env: &Environment) -> impl View {
-        let Self { name, avatar_url, show_bio } = self;
+        let Self { name, bio, show_bio } = self;
         vstack((
-            text!("{name}"),
-            when(show_bio, || text!("Bio goes here")),
+            text!("{name}").bold(),
+            when(show_bio, || text!("{bio}")),
         ))
     }
 }
 ```
 
-Struct views shine when:
+Destructuring `self` up front is the usual first line: `body` takes ownership, so you may as well move the fields out.
 
-- The component has multiple configuration parameters.
-- You want a clear, self-documenting API surface.
-- The component is reused across many call sites with varying configurations.
+## Types that are already views
 
-## Built-in view implementations
-
-You do not always need to define your own views. Several standard types implement `View` directly:
+You do not have to wrap everything:
 
 | Type | Behavior |
 |------|----------|
-| `()` | Empty view (renders nothing). Useful as a placeholder. |
-| `&'static str`, `String`, `Cow<'static, str>` | Render as text via `Str`. |
-| `Option<V: View>` | Renders the inner view if `Some`, nothing if `None`. |
-| `Result<V: View, E: View>` | Renders the `Ok` or `Err` view. |
-| `(V,)` | Single-element tuple renders the contained view. |
-| `FnOnce() -> V` | Calls the closure and renders the returned view. |
-| `Computed<V: View>` | Re-renders whenever the computed signal emits. |
+| `()` | Renders nothing. A raw view, useful as a placeholder. |
+| `&'static str`, `String`, `Cow<'static, str>` | Convert to `Str` and render as text. |
+| `Option<V: View>` | Renders the inner view, or nothing for `None`. |
+| `Result<V: View, E: View>` | Renders whichever side is present. |
+| `(V,)` | A one-element tuple renders its content. |
+| `FnOnce() -> V` | Calls the closure and renders the result. |
 
-> **Tip:** `Option<V>` is the simplest way to conditionally render. For full if/elif/else, use `when(...).or(...).otherwise(...)` from `waterui::widget::condition` instead of branching to `AnyView`.
+`Option<V>` is the cheapest conditional. For if/else-if/else, use `when(...).or(...).otherwise(...)` from `waterui::widget::condition` rather than branching into `AnyView`.
 
-## The `IntoView` trait
+Note that a *signal* is not a view: `Computed<T>` does not implement `View`. Feed reactive values into signal-aware inputs (`text!`, `.opacity(...)`, `.background(...)`) instead of trying to render a signal directly.
 
-`IntoView` converts arbitrary types into views within a given environment:
+## Passing several children
 
-```rust,ignore
-pub trait IntoView {
-    type Output: View;
-    fn into_view(self, env: &Environment) -> Self::Output;
-}
-```
-
-Every `View` automatically implements `IntoView` (returning itself). The trait is useful for APIs that want to accept "anything that can become a view" while still allowing environment-aware conversions.
-
-## The `TupleViews` trait
-
-When you build layouts, you often want to pass multiple children of different types to a container. `TupleViews` converts tuples of views (and `Vec<V>` / `[V; N]`) into a `Vec<AnyView>`:
+Layout containers do not take one child, they take a `TupleViews`:
 
 ```rust,ignore
 pub trait TupleViews {
@@ -133,43 +109,33 @@ pub trait TupleViews {
 }
 ```
 
-It is implemented for tuples up to 15 elements:
+It is implemented for tuples up to 15 elements, and for `Vec<V>` and `[V; N]`:
 
 ```rust,ignore
 use waterui::prelude::*;
 
+// Heterogeneous: every element may be a different type
 vstack((
     text!("Title"),
     button("Click me").action(|| {}),
     Color::red().height(2.0),
-))
+));
+
+// Homogeneous: one element type, so erase to AnyView if the types differ
+let rows: Vec<_> = (0..5).map(|i| text!("Row {i}").anyview()).collect();
+vstack(rows);
 ```
 
-Layout containers also accept `Vec<V>` and `[V; N]` as children of a uniform type:
-
-```rust,ignore
-use waterui::prelude::*;
-
-let items: Vec<_> = (0..5).map(|i| text!("Row {i}").anyview()).collect();
-vstack(items)
-```
-
-> **Note:** Tuples allow heterogeneous children (each element can be a different type). `Vec` and arrays require a single element type, so erase to `AnyView` if needed.
+For a collection whose *membership* changes at runtime, neither of these is right -- use `ForEach` or `List` so the framework can diff by identity. That is covered in [Reactive state](02-reactive.md).
 
 ## `AnyView`: type erasure
 
-Rust requires every branch of an `if`/`match` to return the same type. `AnyView` erases the concrete type so heterogeneous branches can share a return type:
-
-```rust,ignore
-pub struct AnyView(Box<dyn AnyViewImpl>);
-```
-
-Create one with `AnyView::new` or the `.anyview()` modifier from `ViewExt`:
+Rust requires both arms of an `if` to have the same type. `AnyView` boxes a view so heterogeneous arms unify:
 
 ```rust,ignore
 use waterui::prelude::*;
 
-fn conditional_view(show_detail: bool) -> AnyView {
+fn detail(show_detail: bool) -> AnyView {
     if show_detail {
         text!("Detailed information here").anyview()
     } else {
@@ -178,52 +144,44 @@ fn conditional_view(show_detail: bool) -> AnyView {
 }
 ```
 
-`AnyView::new` automatically unwraps a nested `AnyView`, so wrapping is idempotent. It also supports inspection and downcasting:
+`AnyView::new` unwraps a nested `AnyView`, so erasing twice costs nothing extra. The wrapper also supports inspection, which backends and tests use:
 
 ```rust,ignore
 use core::any::TypeId;
 use waterui::prelude::*;
+use waterui::text::Text;
 
 let view = text("hello").anyview();
 
-assert!(view.is::<waterui::text::Text>());
-assert_eq!(view.type_id(), TypeId::of::<waterui::text::Text>());
+assert!(view.is::<Text>());
+assert_eq!(view.type_id(), TypeId::of::<Text>());
 
-if let Some(text_view) = view.downcast_ref::<waterui::text::Text>() {
+if let Some(text_view) = view.downcast_ref::<Text>() {
     let _ = text_view;
 }
 ```
 
-> **Tip:** Prefer `when(...).otherwise(...)` over `if/else` with `.anyview()`. `AnyView` incurs a heap allocation and dynamic dispatch -- reach for it only when you really do need heterogeneous storage.
+Each `AnyView` is a heap allocation plus dynamic dispatch. Prefer `when(...).otherwise(...)`, which keeps the concrete types.
 
-## Raw views vs composite views
+## Raw views and composite views
 
-WaterUI distinguishes two categories of views.
+**Raw views** are leaves. Their `body()` wraps the value in `Native<T>`, which the renderer intercepts before recursing, and the backend maps them onto a platform widget. `Str`, `Color`, `Spacer`, `Divider`, and configuration structs such as `ButtonConfig` are raw views.
 
-### Raw views (leaf nodes)
-
-Raw views are recognized by the backend and mapped to platform widgets. Their `body()` wraps the value in `Native<T>`, which the renderer intercepts before recursion. Examples: `Str`, `Color`, `Spacer`, `Divider`, and configuration structs like `ButtonConfig`.
-
-The `raw_view!` macro implements both `NativeView` and `View` for a type:
+The `raw_view!` macro implements `NativeView` and `View` for a type, optionally declaring how it stretches:
 
 ```rust,ignore
-// Default stretch axis (None) -- content-sized
-raw_view!(MyCustomLeaf);
-
-// Explicit stretch axis -- fills available space
-raw_view!(Color, StretchAxis::Both);
-raw_view!(Spacer, StretchAxis::MainAxis);
+raw_view!(MyCustomLeaf);                  // content-sized (StretchAxis::None)
+raw_view!(Color, StretchAxis::Both);      // fills available space
+raw_view!(Spacer, StretchAxis::MainAxis); // fills along the stack axis
 ```
 
-### Composite views
+**Composite views** are everything else: their `body()` returns other views, and the framework expands them until only raw views remain. Every function view and every hand-written `impl View` is composite.
 
-Composite views have a meaningful `body()` that returns other views. The framework calls `body()` to expand them, recursing until it reaches raw views. Every function view and every struct that implements `View` manually is composite.
+If it helps, think HTML: raw views are `<input>` and `<img>`, composite views are your own components.
 
-> **Tip:** Think HTML: raw views are native elements (`<div>`, `<input>`, `<img>`), composite views are your custom components.
+## Hookable views
 
-## `ConfigurableView` and `ViewConfiguration`
-
-Some raw views support **hook-based theming** through `ConfigurableView` and `ViewConfiguration`. This is how WaterUI lets you restyle built-in components without modifying their source.
+Some raw views can be restyled globally without touching their call sites. Such a view implements `ConfigurableView`, and its configuration implements `ViewConfiguration`:
 
 ```rust,ignore
 pub trait ConfigurableView: View {
@@ -237,40 +195,32 @@ pub trait ViewConfiguration: 'static {
 }
 ```
 
-When a configurable view's `body()` runs:
+When such a view's `body()` runs, it extracts its `Config`, looks for `Hook<Config>` in the environment, and hands the configuration to the hook if one is installed; otherwise it falls through to the default native rendering. A theme is exactly a bundle of hooks for `ButtonConfig`, `ToggleConfig`, and friends -- see [Hooks](03-environment.md#hooks-intercepting-view-configuration).
 
-1. It extracts its `Config`.
-2. It looks up `Hook<Config>` in the `Environment`.
-3. If a hook is present, the hook returns the custom view.
-4. Otherwise the default native rendering is used.
-
-A theme plugin installs hooks for `ButtonConfig`, `ToggleConfig`, etc., and the rest of your app stays untouched.
-
-## The `configurable!` macro
-
-`configurable!` generates the boilerplate for a hookable raw view:
+The `configurable!` macro writes that boilerplate:
 
 ```rust,ignore
-// Basic -- content-sized view
+// Content-sized
 configurable!(Button, ButtonConfig);
 
-// With explicit stretch axis
+// Explicit stretch axis
 configurable!(Slider, SliderConfig, StretchAxis::Horizontal);
 
-// With dynamic stretch axis based on configuration
+// Stretch axis derived from the configuration
 configurable!(Progress, ProgressConfig, |config| match config.style {
     ProgressStyle::Linear => StretchAxis::Horizontal,
     ProgressStyle::Circular => StretchAxis::None,
 });
+
+// Resolve the configuration against the environment before it reaches the backend
+configurable!(Toggle, ToggleConfig, StretchAxis::Horizontal, resolve |config, env| config.resolve(env));
 ```
 
-It generates the wrapper struct, the `ConfigurableView` and `ViewConfiguration` impls, the `NativeView` impl, the `View` impl that consults `Hook<Config>`, and the `From<Config>` conversion.
+That last form is how a control folds environment state -- an enclosing `.disabled(...)` scope, for instance -- into the configuration the backend receives.
 
-> **Note:** You will rarely call `configurable!` in application code. It is primarily for building component libraries or custom backends.
+You will rarely call `configurable!` in application code; it is for component libraries and backends.
 
 ## Putting it together
-
-Here is a small example combining function views, struct views, conditionals, and reactive state:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -303,17 +253,14 @@ impl View for ItemRow {
 }
 
 fn shopping_list() -> impl View {
-    let apples = Binding::i32(3);
-    let bananas = Binding::i32(7);
-
     vstack((
         header("Shopping List"),
-        ItemRow { label: "Apples".into(),  count: apples,  highlighted: true  },
-        ItemRow { label: "Bananas".into(), count: bananas, highlighted: false },
+        ItemRow { label: "Apples".into(),  count: Binding::i32(3), highlighted: true  },
+        ItemRow { label: "Bananas".into(), count: Binding::i32(7), highlighted: false },
     ))
 }
 ```
 
-Try adding an "Oranges" row and watch the layout pick it up automatically.
+Add an "Oranges" row and the layout absorbs it with no other change.
 
-Next up: reactive state. The next chapter introduces `Binding`, `Computed`, and the signal combinators that drive UI updates.
+Next: [Reactive state](02-reactive.md), where `Binding` and `Computed` make those counts change on screen.

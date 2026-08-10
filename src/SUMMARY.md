@@ -56,7 +56,7 @@
 # Part VII: Developer Tools
 
 - [Preview System](07-tools/01-preview.md)
-- [Hot Reload](07-tools/02-hot-reload.md)
+- [The Preview Iteration Loop](07-tools/02-preview-iteration.md)
 
 # Part VIII: Under the Hood
 
