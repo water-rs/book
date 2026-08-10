@@ -55,13 +55,11 @@ water_command() {
     return
   fi
 
-  local pinned_water="$repo_dir/waterui/target/debug/water"
-  if [ -x "$pinned_water" ]; then
-    "$pinned_water" "$@"
-    return
-  fi
-
-  cargo run --manifest-path "$repo_dir/waterui/cli/Cargo.toml" -- "$@"
+  # Always go through cargo so the CLI is rebuilt whenever the pinned waterui
+  # submodule moves. Preferring a pre-built `target/debug/water` used any binary
+  # that happened to be lying around, including one built before the current
+  # pin — which silently rendered these visuals with an outdated CLI.
+  cargo run --quiet --manifest-path "$repo_dir/waterui/cli/Cargo.toml" -- "$@"
 }
 
 ensure_png() {
