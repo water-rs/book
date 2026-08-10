@@ -159,7 +159,7 @@ async fn fetch_profile() -> AnyView {
 }
 
 fn profile_screen() -> impl View {
-    Suspense::new(fetch_profile()).loading::<_, Text>(text("Loading profile..."))
+    Suspense::new(fetch_profile()).loading(text("Loading profile..."))
 }
 ```
 

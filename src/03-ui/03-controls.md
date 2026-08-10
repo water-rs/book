@@ -66,7 +66,7 @@ The two label kinds are not interchangeable. `.icon()`, `.system_icon()`, `.lead
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::component::slider::slider;
+use waterui::component::slider;
 use waterui::icon::system_icon;
 
 fn rating_row(rating: &Binding<f64>) -> impl View {
@@ -230,7 +230,7 @@ fn settings(wifi: &Binding<bool>, dark_mode: &Binding<bool>) -> impl View {
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::component::slider::slider;
+use waterui::component::slider;
 
 fn volume_slider(volume: &Binding<f64>) -> impl View {
     slider("Volume", volume).range(0.0..=100.0)
@@ -241,7 +241,7 @@ fn volume_slider(volume: &Binding<f64>) -> impl View {
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::component::slider::slider;
+use waterui::component::slider;
 
 fn brightness_slider(brightness: &Binding<f64>) -> impl View {
     slider("Brightness", brightness)
@@ -312,10 +312,12 @@ fn field_with_menu(value: &Binding<Str>) -> impl View {
 }
 ```
 
-> **Not yet supported:** `TextField` is single-line today. `.line_limit(...)` and
-> `.disable_line_limit()` exist and record your intent, but every backend
-> currently implements only the single-line case. Multi-line editing is not
-> available at this version.
+`.line_limit(n)` caps the field at `n` lines and `.disable_line_limit()` removes
+the cap entirely; the default is a single line. A capped field refuses an edit
+that would push it past the limit rather than truncating what is already there,
+and a multi-line field reports the multi-line text-input role to assistive
+technology. `.keyboard(...)` picks the on-screen keyboard variant; platforms
+without a software keyboard ignore the hint.
 
 ## Menu
 
@@ -352,7 +354,9 @@ Native menus draw each entry from its label's semantic text, and only a `SystemI
 
 ## Disabling controls
 
-`Button`, `Toggle`, and `Slider` each take a reactive `disabled` signal:
+Disabled state is a property of the surrounding context, not of an individual
+control. `.disabled(...)` from `ViewExt` works on *any* view — there is no
+per-control `disabled` builder to learn, and no control can forget to honour it:
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -362,11 +366,15 @@ fn save_button(is_saving: &Binding<bool>) -> impl View {
 }
 ```
 
-The `.disabled(...)` view modifier from `ViewExt` covers whole subtrees. It installs a `Disabled` scope in the environment, stops the subtree from hit-testing, and reports the disabled state to assistive technology. Nested scopes OR-combine, and so does a control's own signal: a control is disabled while *any* enclosing scope or its own signal is `true`.
+The modifier installs a `Disabled` scope in the environment, stops the subtree
+from hit-testing, and reports the disabled state to assistive technology. Every
+control reads the state in force at its own position, the same way it reads a
+theme color. Nested scopes OR-combine: a control is disabled while *any*
+enclosing scope is `true`.
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::component::slider::slider;
+use waterui::component::slider;
 
 fn audio_panel(locked: &Binding<bool>, muted: &Binding<bool>, volume: &Binding<f64>) -> impl View {
     vstack((
@@ -379,11 +387,11 @@ fn audio_panel(locked: &Binding<bool>, muted: &Binding<bool>, volume: &Binding<f
 
 Flipping `locked` re-enables the panel without rebuilding it — the combined signal is tracked reactively.
 
-> **Not yet supported:** `Stepper` and `TextField` do not read the `Disabled`
-> scope, so they keep their normal appearance inside a disabled subtree even
-> though the scope still blocks input. `Command::disabled(...)` inside a menu is
-> an independent signal and does not combine with an enclosing scope. Set those
-> explicitly for now.
+> A menu `Command` is the one place the state travels as data rather than as
+> context: a menu is a list of command records handed to the platform's menu
+> API, not a rendered subtree, so there is no leaf environment to read from.
+> `Command::disabled(...)` still combines with an enclosing scope when the
+> command resolves.
 
 ## Reference
 

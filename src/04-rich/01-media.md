@@ -102,7 +102,7 @@ live:
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::component::slider::slider;
+use waterui::component::slider;
 use waterui::media::Photo;
 
 fn blurry_photo() -> impl View {

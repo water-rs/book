@@ -224,7 +224,7 @@ ViewEffect::new(my_view(), effect).output_size(OutputSize::Fixed { width: 1920, 
 ```rust,ignore
 use core::future::Future;
 use waterui::prelude::*;
-use waterui::graphics::filter_view::{
+use waterui::graphics::{
     Effect, EffectContext, EffectInput, EffectOutput, EffectRenderResult, EffectSetupResult,
 };
 

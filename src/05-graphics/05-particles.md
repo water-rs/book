@@ -180,7 +180,7 @@ Every builder argument is a signal. Literals become constants; a `Binding` or `C
 
 ```rust,ignore
 use waterui::prelude::*;
-use waterui::component::slider::slider;
+use waterui::component::slider;
 use waterui::particle::ParticleSystem;
 use core::f32::consts::PI;
 

@@ -82,10 +82,9 @@ which a handler reads with the `Use<T>` extractor:
 
 `GesturePhase` is `Started`, `Updated`, `Ended`, or `Cancelled`.
 
-Rotation is the asymmetry here: `RotationGesture` is recognized and fires its
-handler, but there is no `RotationEvent` payload type yet, so a handler cannot
-read the current angle. Track rotation with a `Binding` you update yourself
-until that payload lands.
+`RotationEvent` mirrors `MagnificationEvent` for the other two-finger transform
+gesture, carrying the phase, the pivot point, the current angle in radians, and
+the angular velocity.
 
 ## Attaching a gesture
 
@@ -110,10 +109,11 @@ The shorthands cover the common cases:
 | `.on_tap_gesture_count(n, action)` | `.gesture(TapGesture::repeat(n), action)` |
 | `.on_long_press_gesture(ms, action)` | `.gesture(LongPressGesture::new(ms), action)` |
 
-`.simultaneous_gesture(g, action)` and `.high_priority_gesture(g, action)`
-exist for SwiftUI-shaped code, but both currently forward straight to
-`.gesture(...)` — they do not yet change recognition precedence. Compose the
-gestures explicitly (below) when precedence actually matters.
+There is deliberately no `.simultaneous_gesture(...)` or
+`.high_priority_gesture(...)`. Both existed as silent aliases for `.gesture(...)`
+that changed no recognition precedence, which invited code that looked correct
+and was not; they were removed rather than shipped as no-ops. Compose the
+gestures explicitly (below) when precedence matters.
 
 To reuse a descriptor plus its handler, build a `GestureObserver` and attach it
 with `.gesture_observer(...)`:

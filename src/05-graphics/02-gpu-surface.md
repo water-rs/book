@@ -9,11 +9,13 @@
 
 `GpuSurface` is the foundation of every GPU-rendered view in WaterUI. It hands you a wgpu device, queue, and a per-frame texture, and renders whatever you draw straight onto the platform's swapchain. `Canvas`, `ShaderSurface`, `AnimatedMeshGradient`, `Gradient`, and `ParticleSystem` are all built on top of it.
 
-`waterui_graphics` does not re-export `wgpu`, so a crate implementing `GpuView` depends on it directly. The version must match the one WaterUI links:
+A crate implementing `GpuView` needs `wgpu`, and the version has to be exactly
+the one WaterUI links — a mismatch produces confusing type-identity errors
+rather than a clear version complaint. Take it from the facade instead of
+hand-adding the dependency:
 
-```toml
-[dependencies]
-wgpu = "29"
+```rust,ignore
+use waterui::graphics::wgpu;
 ```
 
 ![GPU surface preview rendering a colored triangle](../assets/visuals/05-graphics/gpu-surface-triangle.png)

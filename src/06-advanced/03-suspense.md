@@ -45,7 +45,7 @@ async fn fetch_data() -> Text {
 }
 
 let view = Suspense::new(fetch_data())
-    .loading::<_, Text>(text("Loading data..."));
+    .loading(text("Loading data..."));
 ```
 
 The turbofish is not optional. `loading` is declared as `loading<Loading2, Output: View>(self, loading: Loading2)`, and `Output` appears nowhere in the arguments or the return type, so inference has nothing to work from and the call site has to spell it. Any `View` type satisfies it; naming the async function's own output type, as here, at least keeps the intent readable.
@@ -76,7 +76,7 @@ pub fn app(env: Environment) -> App {
 use waterui::widget::suspense::{Suspense, UseDefaultLoadingView};
 
 // Identical to Suspense::new(fetch_data()).
-let view = Suspense::new(fetch_data()).loading::<_, ()>(UseDefaultLoadingView);
+let view = Suspense::new(fetch_data()).loading(UseDefaultLoadingView);
 ```
 
 ## Implementing SuspendedView
@@ -192,10 +192,10 @@ let view = Suspense::new(async {
             let posts = api::get_posts(user.id).await;
             vstack(posts.into_iter().map(|p| text(p.title)).collect::<Vec<_>>())
         })
-        .loading::<_, Text>(text("Loading posts...")),
+        .loading(text("Loading posts...")),
     ))
 })
-.loading::<_, Text>(text("Loading user..."));
+.loading(text("Loading user..."));
 ```
 
 Both levels need the turbofish, for the same reason as above.

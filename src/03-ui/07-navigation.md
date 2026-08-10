@@ -276,7 +276,7 @@ Tabs carry stable identifiers so the backend can keep each tab's root alive acro
 ```rust,ignore
 use waterui::prelude::*;
 use waterui::id::Mapping;
-use waterui::navigation::tab::{Tab, Tabs, tab_style};
+use waterui::navigation::{Tab, Tabs, tab_style};
 
 fn root(unread: Computed<i32>) -> impl View {
     let ids = Mapping::new();

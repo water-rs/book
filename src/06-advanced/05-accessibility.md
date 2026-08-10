@@ -97,6 +97,18 @@ logo_image().a11y_label("Acme, home")
 Keep it short and action-oriented, and leave out prefixes like "Button:" — the
 role already communicates that.
 
+The label is reactive. Pass a signal and a label derived from app state stays
+current without rebuilding the subtree, the same way accessibility *state* does:
+
+```rust,ignore
+use waterui::prelude::*;
+
+fn inbox(unread: &Binding<i32>) -> impl View {
+    let label = unread.clone().map(|n| Str::from(format!("{n} unread messages")));
+    button("Inbox").action(|| {}).a11y_label(label)
+}
+```
+
 ## Roles
 
 `AccessibilityRole` describes what a view *is*. Built-in controls set their own
@@ -172,9 +184,11 @@ Two `ViewExt` modifiers already write state for you:
 - `.visible(signal)` sets `hidden` on the accessibility state as it fades the
   view out, so an invisible view is not announced.
 
-`.disabled(...)` is wired through `Button`, `Toggle`, and `Slider`. `Stepper`
-and `TextField` do not yet read the scope, and `Command`'s own disabled flag is
-not combined with it — those are gaps, not design.
+`.disabled(...)` reaches every control, because no control implements disabled
+state itself: each one reads the scope in force at its own position. A menu
+`Command` carries the state as data instead — a menu is a list of records handed
+to the platform's menu API, with no leaf environment to read — and its own flag
+is OR-combined with the enclosing scope when the command resolves.
 
 ## Hiding decoration
 

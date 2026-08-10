@@ -279,7 +279,7 @@ The `Validator<T>` trait has one method, `validate(&self, value: T) -> Result<()
 |---|---|
 | `Range<T>` | `start..end`, exclusive end, for `T: Display + Debug + Ord + Clone` |
 | `Regex` | Any `AsRef<str>` matches the pattern |
-| `Required` | `Option<T>` is `Some` |
+| `Required` | `Option<T>` is `Some`; `&str`/`Str`/`String` is non-blank |
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -310,11 +310,22 @@ pub trait Validatable: View + Sized {
 }
 ```
 
-> **Not yet available:** no built-in control implements `Validatable` at the
-> pinned commit, so `ValidatableView` only works with a wrapper you implement
-> yourself. Until that lands, validate on submit — run the validators against
-> the projected bindings inside the action handler and surface the result
-> through a snackbar or an error label.
+`TextField` implements it, so a validated field is one call:
+
+```rust,ignore
+use waterui::prelude::*;
+use waterui::component::text_field::TextField;
+use waterui::form::valid::{Plain, Required, ValidatableView};
+
+fn name_field(name: &Binding<Str>) -> impl View {
+    ValidatableView::new(TextField::new(name).label("Name"), Plain(Required))
+}
+```
+
+A text field is backed by `StyledStr`, while validators are naturally written
+against plain text. `Plain(v)` lifts any `Validator<Str>` onto a styled field,
+so one plain-text rule works on a text input without every validator needing a
+second styled implementation.
 
 ## Where to go next
 
