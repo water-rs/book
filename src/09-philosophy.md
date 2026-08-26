@@ -107,7 +107,7 @@ and discards state owned inside it. The replacements are direct:
 ```rust,ignore
 text!("{status}")                                // reactive text
 Photo::new(url).blur(blur.clone())               // reactive value
-ForEach::new(rows.clone(), |row| row_view(row))  // dynamic set of views
+Lazy::for_each(rows.clone(), row_view)           // dynamic set of views
 ```
 
 ### No React-style state slots

@@ -348,10 +348,15 @@ let len = items.len();
 
 ### Rendering with `ForEach`
 
+`ForEach` is a *collection of views*, not a view: it implements `Views`, so a
+container has to consume it. `Lazy::for_each(data, generator)` is the shorthand
+for `Lazy::vstack(ForEach::new(data, generator))`, and `Lazy::hstack` is the
+horizontal form. The list *component* has its own `List::for_each`.
+
 ```rust,ignore
 use waterui::prelude::*;
+use waterui::component::lazy::Lazy;
 use waterui::reactive::collection::List;
-use waterui::views::ForEach;
 use waterui::Identifiable;
 
 #[derive(Clone, Identifiable)]
@@ -363,7 +368,7 @@ struct TodoItem {
 }
 
 fn todo_list(todos: List<TodoItem>) -> impl View {
-    ForEach::new(todos, |item| {
+    Lazy::for_each(todos, |item| {
         hstack((
             text(item.title),
             Spacer::flexible(),
@@ -435,6 +440,6 @@ watch(phase, |phase| match phase {
 |--------------------|------------------------|
 | Text content | `text!("{status}")` |
 | A view attribute | the signal-taking modifier, e.g. `photo.blur(amount)` |
-| Collection membership | `ForEach::new(rows, row_view)` / `List` |
+| Collection membership | `Lazy::for_each(rows, row_view)` / `List::for_each` |
 
 Next: [The Environment](03-environment.md), which shares themes, locales, and services across the view tree without threading parameters through every function.

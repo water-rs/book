@@ -120,7 +120,7 @@ use waterui::prelude::*;
 use waterui::barcode::Barcode;
 
 fn invertible_qr() -> impl View {
-    let inverted = Binding::new(false);
+    let inverted = Binding::bool(false);
 
     vstack((
         Barcode::qr("https://book.waterui.dev")
