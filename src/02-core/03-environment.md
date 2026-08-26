@@ -2,7 +2,7 @@
 
 > **In this chapter, you will:**
 > - Store and read values in WaterUI's type-indexed dependency injection container
-> - Reach shared configuration from any view with `useenv` and extractors
+> - Reach shared configuration from any view with `use_env` and extractors
 > - Scope values to a subtree with `.with()` and `.install()`
 > - Replace the rendering of built-in components globally with hooks and plugins
 
@@ -94,15 +94,15 @@ Several extractors exist already:
 | `State<T>` | Pulls state injected with `ViewExt::state`, for action handlers |
 | `(A, B, ...)` | Extracts each element, up to 8-tuples |
 
-### `useenv`
+### `use_env`
 
-`useenv` builds a view from extracted values:
+`use_env` builds a view from extracted values:
 
 ```rust,ignore
-use waterui::env::useenv;
+use waterui::env::use_env;
 use waterui::prelude::*;
 
-let view = useenv(|config: AppConfig| {
+let view = use_env(|config: AppConfig| {
     let base_url = config.base_url.clone();
     text!("API: {base_url}")
 });
@@ -111,7 +111,7 @@ let view = useenv(|config: AppConfig| {
 Extraction is fast-fail: if the value is missing, the view panics with a message naming the type. Wrap the parameter in `Option` when absence is legitimate:
 
 ```rust,ignore
-let view = useenv(|config: Option<AppConfig>| {
+let view = use_env(|config: Option<AppConfig>| {
     match config {
         Some(config) => {
             let base_url = config.base_url.clone();
@@ -125,7 +125,7 @@ let view = useenv(|config: Option<AppConfig>| {
 Extract several values with a tuple:
 
 ```rust,ignore
-let view = useenv(|(nav, db): (NavigationController, Database)| {
+let view = use_env(|(nav, db): (NavigationController, Database)| {
     let name = db.name();
     text!("Connected to {name}")
 });
@@ -252,7 +252,7 @@ Install the plugin on one section and compare it with the rest of the app: only 
 
 ```rust,ignore
 use waterui::impl_extractor;
-use waterui::env::useenv;
+use waterui::env::use_env;
 use waterui::prelude::*;
 
 #[derive(Clone, Debug)]
@@ -283,7 +283,7 @@ impl AppTheme {
 }
 
 fn themed_card(title: &'static str) -> impl View {
-    useenv(|theme: AppTheme| {
+    use_env(|theme: AppTheme| {
         text(title)
             .foreground(theme.text)
             .padding()

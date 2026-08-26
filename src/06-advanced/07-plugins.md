@@ -81,7 +81,7 @@ fn themed_section() -> impl View {
 Make the installed type an extractor with `impl_extractor!` so views receive it as a typed parameter instead of reaching into the environment by hand. The macro requires the type to be `Clone`:
 
 ```rust,ignore
-use waterui::env::useenv;
+use waterui::env::use_env;
 use waterui::prelude::*;
 use waterui::{Environment, Plugin, impl_extractor};
 
@@ -117,7 +117,7 @@ impl Plugin for ThemePlugin {
 }
 
 fn themed_card() -> impl View {
-    useenv(|config: ThemeConfig| {
+    use_env(|config: ThemeConfig| {
         vstack((
             text("Themed card").foreground(config.primary),
             text("Secondary text").foreground(config.secondary),
@@ -136,7 +136,7 @@ For real color work, prefer the built-in theme tokens (`theme_color::Accent` and
 Same shape, with behavior attached. The service is `Clone`, so it can be moved into action closures:
 
 ```rust,ignore
-use waterui::env::useenv;
+use waterui::env::use_env;
 use waterui::prelude::*;
 use waterui::{Environment, Plugin, impl_extractor};
 
@@ -170,7 +170,7 @@ impl Plugin for AnalyticsPlugin {
 }
 
 fn tracked_button() -> impl View {
-    useenv(|analytics: AnalyticsService| {
+    use_env(|analytics: AnalyticsService| {
         button("Purchase").action(move || analytics.track("purchase_clicked"))
     })
 }
@@ -278,7 +278,7 @@ impl Plugin for LoggingButtonsPlugin {
 
 - **One plugin, one concern.** Many small plugins compose; one large one does not.
 - **Separate the installer from the installed.** Views should depend on `ThemeConfig`, not `ThemePlugin`.
-- **Make installed types extractors.** `impl_extractor!` turns `useenv(|svc: MyService| ...)` and typed handler parameters on, and keeps `env.get::<T>()` out of view code.
+- **Make installed types extractors.** `impl_extractor!` turns `use_env(|svc: MyService| ...)` and typed handler parameters on, and keeps `env.get::<T>()` out of view code.
 - **Do not perform I/O in `install`.** Configure the environment; let the installed service do the work when something calls it.
 - **Document what appears in the environment.** A plugin's public contract is the set of types it inserts.
 

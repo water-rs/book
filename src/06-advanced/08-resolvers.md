@@ -207,7 +207,7 @@ Hooks are the right tool for consistent styling, experiment flags, and instrumen
 Most of the time a resolved signal never touches `Dynamic`. A `Computed<T>` feeds directly into a signal-taking input, and `text!` maps over any signal in scope:
 
 ```rust,ignore
-use waterui::env::useenv;
+use waterui::env::use_env;
 use waterui::prelude::*;
 use waterui_core::{Environment, Signal, resolve::Resolvable};
 
@@ -225,7 +225,7 @@ impl Resolvable for AppTitle {
 }
 
 fn title_bar() -> impl View {
-    useenv(|env: Environment| {
+    use_env(|env: Environment| {
         let title = AppTitle.resolve(&env).computed();   // Computed<Str>
         text!("{title}").headline()
     })

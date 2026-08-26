@@ -209,7 +209,7 @@ re-lay-out instead of freezing the first value.
 the value type alone is not a unique key:
 
 ```rust,ignore
-use waterui_core::{Environment, env::useenv};
+use waterui_core::{Environment, env::use_env};
 
 pub struct AccentSlot;
 
@@ -217,20 +217,20 @@ let env = Environment::new().store::<AccentSlot, Color>(Color::blue());
 
 // Read it back inside a view.
 pub fn themed_button() -> impl View {
-    useenv(|env: Environment| {
+    use_env(|env: Environment| {
         let color = env.query::<AccentSlot, Color>().cloned().unwrap_or(Color::blue());
         button("Tap me").foreground(color)
     })
 }
 ```
 
-`store` is a consuming builder on `Environment`, and `useenv`'s closure takes
+`store` is a consuming builder on `Environment`, and `use_env`'s closure takes
 values *extracted* from the environment — `Environment` itself implements
 `Extractor`, so an owned `Environment` parameter works, and so does a tuple of
 extractable types:
 
 ```rust,ignore
-let view = useenv(|(nav, db): (Navigator<Route>, Database)| {
+let view = use_env(|(nav, db): (Navigator<Route>, Database)| {
     button("Load").action(move || { /* ... */ })
 });
 ```
