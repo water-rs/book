@@ -11,7 +11,4 @@ crate-type = ["lib"]
 dev = ["waterui/dynamic_linking"]
 
 [dependencies]
-fastrand = "2.3"
-waterui = { path = "../../waterui", default-features = false, features = ["std", "barcode", "particle"] }
-waterui-canvas = { path = "../../waterui/components/visual/canvas" }
-wgpu = "29.0.4"
+waterui = { path = "../../waterui", default-features = false, features = ["std", "gpu", "barcode"] }

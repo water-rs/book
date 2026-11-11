@@ -2,8 +2,8 @@
 
 > **In this chapter, you will:**
 > - Learn what WaterUI is and how it reaches each platform
-> - See which backends exist and what each one renders with
-> - Find your way around the workspace and this book
+> - See which backends are mainline, which are experimental, and what each one renders with
+> - Find your way around the framework repository and this book
 > - Read a working counter written in WaterUI
 
 > **Pinned to upstream:** every example and API name in this book is
@@ -15,87 +15,120 @@
 
 WaterUI is a cross-platform, reactive, declarative UI framework for Rust. You
 describe your interface as a tree of `View` values; the framework decides how
-each node is realised on the current platform.
+each node is realized on the current platform. Component semantics and API are
+defined once in Rust, and every backend realizes them with its own platform's
+look.
 
-Realisation is **native first**. Where a platform provides a canonical primitive
-for a semantic component -- a button, a text field, a list -- WaterUI bridges to
-it: UIKit/AppKit on Apple platforms, Android View on Android, GTK4 on Linux.
-Where no suitable platform primitive exists, or where the target has no widget
-toolkit at all, WaterUI uses one of its own renderers. That is a deliberate
-choice per component, not a fallback after a failed native call.
+On Apple platforms that means the platform's own controls. Where a control
+carries the whole semantic, the backend uses it; otherwise it composes AppKit
+or UIKit views. On Android, the web and the desktop, the Hydrolysis backend
+draws every component itself. Which one you get is a property of the backend
+you build for, not a fallback after a failed native call.
 
 ```text
-                            ┌─ Apple backend (Swift)   → UIKit / AppKit
-Rust View tree ─ FFI (C ABI)┼─ Android backend (Kotlin)→ Android View
-                            ├─ GTK4 backend            → GTK4 widgets
-                            ├─ Hydrolysis              → GPU, self-drawn
-                            └─ Dew                     → CPU, self-drawn
+                                  ┌─ Apple backend → AppKit / UIKit (objc2)
+Rust View tree → backend contracts┤
+                                  └─ Hydrolysis    → HWUI RenderNode display lists
+                                                     or Cherenkov (GPU, or CPU)
 ```
 
 Updates are **fine-grained**. `Binding<T>`, `Computed<T>`, and signal-aware
 component inputs update the affected value in place. There is no structural
 diff pass over the tree, and changing one label does not rebuild its siblings.
+The reactive engine is the [`nami`](https://crates.io/crates/nami) crate from
+crates.io, re-exported as `waterui::reactive`; the
+[reactive chapter](02-core/02-reactive.md) covers it.
 
 ## Backends
 
-| Backend | Targets | Realisation |
+Two backends are mainline. Their integration checks define the framework's
+release contract.
+
+| Backend | Targets | Realization |
 |---------|---------|-------------|
-| Apple | iOS, macOS | UIKit / AppKit through a Swift package |
-| Android | Android | Android View through Kotlin and JNI |
-| GTK4 | Linux | GTK4 widgets through `gtk4-rs` |
-| Hydrolysis | macOS, Linux, Windows, Web | Self-drawn GPU renderer (Vello on `wgpu`) |
-| Dew | ESP32-S3, ESP32-C3 | Self-drawn CPU renderer with dirty-area banding |
+| Apple | macOS, iOS | AppKit and UIKit, driven from Rust through `objc2`; no FFI layer in between |
+| Hydrolysis | Android, Windows, Linux, Web, and macOS on request | Self-drawn. Renders through Cherenkov, the 2D engine in the same repository; on Android it can also paint through HWUI |
 
-Hydrolysis redraws the whole scene every frame on the GPU and targets high
-refresh rates. Dew is its opposite: CPU rasterisation, dirty rectangles sliced
-into bands so peak pixel memory is one band rather than a frame, sized for
-microcontrollers. `hydrolysis-m3` layers a Material Design 3 theme package on
-top of Hydrolysis.
+Hydrolysis is the self-drawn realization and also the Android backend. On
+Android it has two painters: the default `gpu` painter renders through
+Cherenkov into a `SurfaceView`, and the `hwui` painter records its layer tree
+into HWUI `RenderNode` display lists. `water run --platform android --painter
+hwui` picks the second, and the `painter` key of the `[hydrolysis]` table in
+`Water.toml` sets the project default. Cherenkov has a GPU renderer (`cherenkov-gpu`), which
+Hydrolysis uses on phones, tablets and desktops, and a CPU rasterizer
+(`cherenkov-cpu`) for microcontroller-class targets; the renderer is chosen per
+target at build time, never as a runtime fallback. Hydrolysis is
+theme-independent: style packages such as `hydrolysis-m3`, a Material Design 3
+package, implement the public widget and theme contracts on top of it.
 
-WaterUI is pre-1.0 (`waterui 0.2.x`), and the upstream roadmap still lists
-self-rendering milestones as open, so component coverage in Hydrolysis and Dew
-trails the native bridges. Pick one backend to start; you do not need the rest.
+Android, Windows and the web build with Hydrolysis by default, and macOS with
+the Apple backend. On Linux the `water` CLI defaults to the experimental GTK
+backend, so pass `--backend hydrolysis` to build with Hydrolysis there; the same
+flag selects Hydrolysis on macOS.
 
-## Workspace layout
+GTK, WinUI and TUI backends are **experimental**. They have no stability or
+completeness guarantee and live in their own repositories, outside the
+framework tree; they never hold back a mainline release.
 
-You depend on the single `waterui` crate, which re-exports the rest through
-`waterui::prelude::*`. The table is a map for reading the source, not a list of
-dependencies to add.
+### Platform support
 
-| Crate | Path | Role |
-|-------|------|------|
-| `waterui` | `/` | Facade: prelude, widgets, macro re-exports |
-| `waterui-internal` | `src/` | Implementation behind the facade |
-| `waterui-core` | `core/` | `View`, `Environment`, `AnyView`, layout and accessibility contracts |
-| `waterui-layout` | `components/foundation/layout/` | Stacks, grids, `ScrollView`, `Spacer`, absolute layout |
-| `waterui-text` | `components/foundation/text/` | `Text`, fonts, styled text |
-| `waterui-controls` | `components/foundation/controls/` | `Button`, `Toggle`, `Slider`, `Stepper`, `TextField`, `Label` |
-| `waterui-form` | `components/foundation/form/` | Form builder, `Picker` |
-| `waterui-navigation` | `components/foundation/navigation/` | Navigation stacks, tabs, split views, routing |
-| `waterui-shape` | `components/foundation/shape/` | Shape primitives |
-| `waterui-icon` | `components/foundation/icon/` | Icon system; icon sets live under `components/icon/` |
-| `waterui-graphics` | `components/visual/graphics/` | Colours, gradients, GPU surface, image analysis |
-| `waterui-image` / `waterui-svg` / `waterui-canvas` | `components/visual/` | Images, SVG, canvas drawing |
-| `waterui-media` / `waterui-video` | `components/multimedia/` | Photos, audio, video playback |
-| `waterui-chart` / `waterui-map` | `components/data/` | Charts and maps |
-| `waterui-barcode` | `components/codes/barcode/` | Barcode and QR rendering |
-| `waterui-particle` | `components/effects/particle/` | Particle systems |
-| `waterui-webview` / `waterui-chromium` | `components/platform/` | Embedded web views and Chromium/CDP |
-| `waterui-assets` | `components/assets/runtime/` | Asset loading, `asset!`, bundles |
-| `waterui-macros` | `macros/` | `text!`, `#[form]`, `#[preview]`, `#[derive(Identifiable)]` |
-| `waterui-locale` | `utils/locale/` | Locale resolution and `catalog!` |
-| `nami` | `utils/nami/` | The reactive engine behind `waterui::reactive` |
-| `filtrate` | `utils/filtrate/` | GPU filter and effect runtime |
-| `waterui-testing` | `testing/` | Semantic UI tests over the accessibility tree |
-| `waterui-ffi` | `ffi/` | C ABI bridge; owned by the CLI, not by your app |
-| `waterui-cli` | `cli/` | The `water` command |
+| Tier | Platforms | Meaning |
+|------|-----------|---------|
+| 1 | macOS, iOS, Android | Tested on real devices |
+| 2 | Windows, Linux | Built and tested in CI; failures fixed promptly |
+| 3 | GTK, WinUI and TUI backends | Experimental |
 
-Backends live under `backends/`: `apple/` and `android/` are git submodules,
-`gtk/`, `hydrolysis/`, `hydrolysis_m3/`, and `dew/` are workspace crates, and
-`core/` holds the shared backend contracts.
+A few constraints are worth knowing before you pick a target:
 
-`waterui-canvas` is a workspace crate that the `waterui` facade does not
-re-export at this checkpoint.
+- Apple support is ARM64 only: `aarch64-apple-darwin`, `aarch64-apple-ios`
+  and `aarch64-apple-ios-sim`. Intel Apple targets are retired, and asking for
+  one fails with an unsupported-target error.
+- GPU rendering on Linux and Android goes through Vulkan only, and on Windows
+  through DX12 only. A device without that API fails with an unsupported-device
+  error rather than switching to another API.
+- GL serves only web browsers without WebGPU, for compatibility. It gets no
+  significant investment and is expected to go away once WebGPU is widespread.
+- Windows does not support dynamic linking; development builds link statically.
+
+WaterUI is pre-1.0, so public APIs still change between releases. Pick one
+backend to start; you do not need the rest.
+
+## Repository layout
+
+You depend on the single `waterui` crate. It is a facade that re-exports the
+rest through `waterui::prelude::*` and named modules, and heavyweight
+components are optional Cargo features: turning one off removes its
+dependencies from your build. The facade crate itself is a thin
+`facade.rs` over the implementation in `src/`. The map below is for reading
+the framework source, not a list of dependencies to add.
+
+| Path | Crate | Role |
+|------|-------|------|
+| `src/`, `facade.rs` | `waterui`, `waterui-internal` | The facade, its prelude, and the implementation behind it |
+| `core/` | `waterui-core` | `View`, `Environment`, `AnyView`, layout and accessibility contracts |
+| `components/` | component crates, grouped by domain | `foundation/` (layout, text, controls, forms, navigation, shapes, color, icons), `visual/` (`waterui-graphics`), `multimedia/`, `data/`, `platform/`, `assets/`, `devtools/`, `icon/` (icon sets) |
+| `backends/core` | `waterui-backend-core` | Contracts shared by every backend |
+| `backends/apple` | `waterui-apple` | The Apple backend, with its thin Swift host (`Sources/WaterUI`, published by the root `Package.swift`) |
+| `backends/hydrolysis` | `hydrolysis` | The self-drawn backend, with its Android host (Gradle project) |
+| `graphics/cherenkov/` | `cherenkov`, `cherenkov-*` | The 2D engine Hydrolysis renders through |
+| `graphics/filtrate/` | `filtrate`, `filtrate-*` | The GPU filter library behind `.filter(...)` and `.effect(...)` |
+| `cli/` | `waterui-cli` | The `water` command |
+| `macros/` | `waterui-macros` | `text!`, `#[preview]`, `#[derive(Identifiable)]` and friends |
+| `utils/`, `testing/` | `waterui-locale`, `waterui-url`, `waterui-testing`, ... | Supporting crates and the semantic UI test harness |
+
+Several things you may remember from earlier versions of WaterUI are gone from
+this tree: the Dew CPU renderer, the hand-written Android View backend, the
+C ABI bridge crate, and the in-tree copy of `nami`. The CLI generates the glue
+a native host needs, so your crate never writes it.
+
+Self-drawn components and style packages live in their own `water-rs`
+repositories and own their implementations, tests and releases. Charts,
+barcodes and particles are examples: the `waterui` facade re-exports them as
+`waterui::chart`, `waterui::barcode` and `waterui::particle` behind the
+optional features of the same names, but their source is not under the
+framework's `components/` directory. Canvas drawing stays in the tree, in
+`waterui-graphics`, and you reach it as `waterui::canvas` with the `canvas`
+feature; the [graphics part](05-graphics/01-canvas.md) covers it.
 
 ## Prerequisites
 
@@ -103,54 +136,64 @@ You should be comfortable with Rust ownership, traits, generics, and closures
 -- if not, work through
 [The Rust Programming Language](https://doc.rust-lang.org/book/) first -- and
 with a terminal, since `water` and `cargo` do the building. Having one platform
-toolchain installed (Xcode, Android Studio, or GTK4 development libraries) lets
-you run the examples on real hardware.
+toolchain installed (Xcode for Apple targets, the Android SDK and NDK for Android) lets
+you run the examples on real hardware; `water doctor` reports what is missing.
 
 ## How to use this book
 
-The eight parts build on each other: **Getting Started** (toolchain, CLI,
-first app, project layout), **Core Concepts** (`View`, reactivity, environment,
-modifiers), **Building UIs** (text, layout, controls, forms, lists,
-navigation), **Rich Content** (media, maps, web views, barcodes),
-**Graphics and Effects** (canvas, GPU surfaces, shaders, filters, particles,
-gradients), **Advanced Patterns** (animation, gestures, async, errors,
-accessibility, i18n, plugins), **Developer Tools** (the preview system), and
-**Under the Hood** (rendering, FFI, layout engine, backend architecture).
+The parts build on each other: **Getting Started** (toolchain, CLI, first
+app, project layout, platforms), **Core Concepts** (`View`, reactivity,
+environment, modifiers), **Building UIs** (text, layout, controls, forms,
+lists, conditional rendering, navigation, windows, menus, overlays, styling,
+icons), **Rich Content**
+(media, maps, web views, barcodes, assets, charts), **Graphics and Effects**
+(canvas, GPU surfaces, shaders, filters, particles, gradients), **Advanced
+Patterns** (animation, gestures, suspense, errors, accessibility, i18n,
+plugins, resolvers, keyboard focus, drag and drop, TypeScript, widgets,
+embedding), **Developer Tools** (preview, testing, benchmarks, the inspector,
+MCP, packaging), and **Under the Hood** (rendering, the layout engine, backend
+architecture, library authoring).
 
 Most chapters contain runnable examples. Create a scratch project with
-`water create "Scratch" --mode playground` and paste as you read. Chapters that
-discuss workspace-only internals say so.
+`water create "Scratch"` and paste as you read; the
+[CLI chapter](01-getting-started/01-cli.md) and
+[first app](01-getting-started/03-first-app.md) walk through it. Chapters that
+discuss framework internals say so.
 
 ## A taste of WaterUI
 
-```rust,ignore
+```rust
 use waterui::app::App;
 use waterui::prelude::*;
 
-pub fn main() -> impl View {
-    let counter = Binding::i32(0);
+fn counter() -> impl View {
+    let count = Binding::i32(0);
 
     vstack((
-        text!("Count: {counter}"),
+        text!("Count: {count}"),
         hstack((
             button("Decrement")
-                .action(|State(c): State<Binding<i32>>| *c.get_mut() -= 1)
-                .state(&counter),
+                .action(|State(count): State<Binding<i32>>| *count.get_mut() -= 1)
+                .state(&count),
             button("Increment")
-                .action(|State(c): State<Binding<i32>>| *c.get_mut() += 1)
-                .state(&counter),
+                .action(|State(count): State<Binding<i32>>| *count.get_mut() += 1)
+                .state(&count),
         )),
     ))
+    .padding()
 }
 
 pub fn app(env: Environment) -> App {
-    App::new(main, env)
+    App::new(counter, env)
 }
 ```
 
 That is the whole user crate: a root view and a public `app(env)` constructor.
-The `water` CLI generates the FFI companion crate that native backends load, so
-you never write `waterui_ffi::export!()` yourself. The same code runs on every
+`text!("Count: {count}")` takes the binding itself, not its value, so only that
+label updates when the count changes. Reading a binding with `.snapshot()` is
+for event handlers and `.map()` closures; in a view body it freezes the value
+and the label never updates. The `water` CLI generates and manages the native
+host projects, so you never write FFI glue. The same code runs on every
 supported target without a `#[cfg]` branch.
 
 ## Contributing

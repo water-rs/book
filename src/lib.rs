@@ -2,10 +2,10 @@
 
 /// Reusable snippets that back the code blocks in the book.
 ///
-/// These functions are imported by the introduction and getting-started
-/// chapters so the compiler enforces that the prose stays in sync with the
-/// pinned `waterui` submodule. If a chapter modifies one of these snippets,
-/// update the source here and the chapter together.
+/// These functions mirror the counter and greeting the getting-started
+/// chapters build, so the compiler enforces that the patterns they teach stay
+/// in sync with the pinned `waterui` submodule. If a chapter changes one of
+/// these patterns, update the source here and the chapter together.
 pub mod examples {
     use waterui::SignalExt;
     use waterui::State;
@@ -19,7 +19,7 @@ pub mod examples {
     /// `State<T>` extractor pattern used by buttons.
     pub fn counter_view() -> impl View {
         let count: Binding<i32> = binding(0);
-        let doubled = count.clone().map(|value| value * 2);
+        let doubled = count.map(|value| value * 2);
 
         vstack((
             text!("Count: {count}"),
@@ -36,7 +36,7 @@ pub mod examples {
     }
 
     /// Formats a greeting using the `text!` macro and a reactive name binding.
-    pub fn greeting(name: &str) -> impl View {
+    pub fn greeting(name: &str) -> impl View + use<> {
         let name: Binding<String> = binding(name.to_string());
         text!("Hello, {name}!")
     }
@@ -45,14 +45,13 @@ pub mod examples {
 #[cfg(test)]
 mod tests {
     use super::examples;
-    use waterui::View;
-    use waterui::reactive::binding;
+    use waterui::{Binding, Signal, View};
 
     #[test]
     fn binding_updates_propagate() {
-        let counter = binding(0);
+        let counter = Binding::i32(0);
         counter.set(5);
-        assert_eq!(counter.get(), 5);
+        assert_eq!(counter.snapshot(), 5);
     }
 
     fn greeting_view() -> impl View {
@@ -64,6 +63,6 @@ mod tests {
         app.query()
             .role(waterui_testing::Role::LABEL)
             .label("Hello, World!")
-            .single();
+            .assert_exists();
     }
 }

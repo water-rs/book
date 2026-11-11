@@ -1,13 +1,13 @@
 #!/bin/bash
 set -euo pipefail
-shopt -s nullglob
 
 # rustdoc wrapper for `mdbook test`.
 #
 # mdbook invokes `rustdoc <chapter>.md --test` for every chapter containing a
-# Rust fence. Compiled (non-`ignore`) fences reference the `waterui` facade, so
-# this wrapper maps each facade crate built by the book package (Cargo.toml at
-# the repo root — its features decide what exists) to an `--extern` flag.
+# Rust fence. Compiled (non-`ignore`) fences reference the `waterui` facade
+# (and `waterui-testing`), so this wrapper maps each of those crates, as built
+# by the book package (Cargo.toml at the repo root — its features decide what
+# exists), to an `--extern` flag.
 #
 # Version probes must not trigger any build work.
 for arg in "$@"; do
@@ -22,28 +22,35 @@ repo_dir=$(cd "$(dirname "$0")/.." && pwd)
 actual_rustdoc=$(rustup which rustdoc)
 deps_dir="$repo_dir/target/debug/deps"
 
+# Build the book package's tests (not the waterui workspace) so the target
+# directory holds the facade with the book's feature set and the
+# `waterui-testing` dev-dependency, and take each crate's artifact from the
+# paths Cargo reports for this build. `deps/` keeps one `libwaterui-*.rlib` per
+# feature set ever built there, so a filename glob can link a facade that lacks
+# the book's features.
+artifacts=$(cd "$repo_dir" && cargo test --locked --no-run --message-format=json)
+
 find_artifact() {
-  local crate="$1"
-  local base="lib${crate//-/_}-*"
-  for candidate in "$deps_dir"/${base}.rlib \
-                   "$deps_dir"/${base}.so \
-                   "$deps_dir"/${base}.dll \
-                   "$deps_dir"/${base}.dylib; do
-    echo "$candidate"
-    return
-  done
-  echo ""
+  local crate="${1//-/_}"
+  jq -r --arg crate "$crate" '
+    select(.reason == "compiler-artifact" and .target.name == $crate)
+    | .filenames[] | select(endswith(".rlib"))' <<<"$artifacts" | tail -n 1
 }
 
-# The facade must exist; build the book package (not the waterui workspace)
-# to populate the shared target directory with the book's feature set.
-if [ -z "$(find_artifact waterui)" ]; then
-  (cd "$repo_dir" && cargo build >/dev/null)
-fi
-if [ -z "$(find_artifact waterui)" ]; then
-  echo "missing artifact for waterui after cargo build" >&2
-  exit 1
-fi
+for crate in waterui waterui-testing; do
+  if [ -z "$(find_artifact "$crate")" ]; then
+    echo "cargo test --no-run reported no rlib for $crate" >&2
+    exit 1
+  fi
+done
+
+# WaterUI's proc macros locate the `waterui` and `waterui-testing` crates
+# through the manifest `CARGO_MANIFEST_DIR` names, and the widget and preview
+# export macros name their symbols after the package. rustdoc runs outside
+# Cargo, so give every fence the book package's identity.
+export CARGO_MANIFEST_DIR="$repo_dir"
+export CARGO_PKG_NAME="waterui-tutorial-book"
+export CARGO_CRATE_NAME="waterui_tutorial_book"
 
 need_edition=1
 skip_next=0
@@ -70,27 +77,14 @@ if [ "$need_edition" -eq 1 ]; then
 fi
 extra_flags+=("-L" "dependency=$deps_dir")
 
-# Crates not built under the book's features (e.g. `waterui-webview`) are
-# skipped: a compiled fence that needs one fails loudly in rustdoc with a
-# missing-crate error, which is the honest signal to add the feature.
+# Compiled fences import only the `waterui` facade and, in the testing
+# chapters, `waterui-testing`; everything else reaches them through the facade.
+# A fence that names any other crate fails loudly in rustdoc with a
+# missing-crate error, which is the honest signal to route it through the
+# facade or mark it `ignore`.
 crates=(
   waterui
-  waterui-core
-  waterui-navigation
-  waterui-form
-  waterui-media
-  waterui-text
-  waterui-layout
-  waterui-controls
-  waterui-graphics
-  waterui-icon
-  waterui-locale
-  waterui-webview
-  waterui-map
-  waterui-barcode
-  waterui-particle
-  waterui-chart
-  waterui-macros
+  waterui-testing
 )
 for crate in "${crates[@]}"; do
   file=$(find_artifact "$crate")
