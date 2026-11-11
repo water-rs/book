@@ -1,26 +1,20 @@
-# Preview system
+# Previews
 
 > **In this chapter, you will:**
 >
 > - Mark a view function with `#[preview]` and render it to a PNG with `water preview`
-> - Set up the `dev` feature flag and worktree state that preview requires
-> - Choose between the native support-app path and the Hydrolysis direct-render path
-> - Assert on and profile a preview with `water preview test` and `water preview perf`
+> - Pick the platform and backend a preview renders through
+> - Add the `dev` feature that preview builds link against
+> - Capture interaction timelines and assert on a preview with `water preview test`
+> - Know what a repeated preview rebuilds and what it reuses
 
-Spinning up a simulator, navigating five screens deep, and waiting for a debug build is too much friction for a two-pixel adjustment. The preview system shortcuts that loop: annotate the function, run one command, get a PNG.
+Spinning up a device, navigating five screens deep and waiting for a full app build is too much friction for a two-pixel adjustment. A preview shortcuts that loop: annotate a function, run one command, read a PNG.
 
-Two rendering paths exist, and they have different requirements:
-
-| Path | Command | What it renders |
-|------|---------|-----------------|
-| Native support app | `water preview <fn> --platform macos\|ios\|android` | Your view through the real Apple or Android backend, via a long-lived support app that loads your code as a dylib |
-| Hydrolysis direct | `water preview <fn> --backend hydrolysis --theme material3` | Your view through WaterUI's self-drawn GPU renderer, as a managed offscreen binary — macOS host only |
-
-The support-app path covers **macOS, the iOS Simulator, and Android** — the targets that can load a Rust dylib through WaterUI's dynamic-linking path. There is no Linux, Windows, or Web preview.
+`water preview` is a one-shot command. There is no file watcher and no patching of a running view tree: you save, you run it again, and the build cache decides how much work that costs. On a desktop host each run builds a small generated preview binary that links your crate, mounts your view in that binary's own process, and writes the PNG. On Android the same kind of build is shipped to a preview host on the device, which renders it there (see [Where each platform renders](#where-each-platform-renders)).
 
 ## The `#[preview]` attribute
 
-Mark any free function returning `impl View` with `#[preview]`:
+Mark a free function returning `impl View` with `#[preview]`. The macro is part of `waterui::prelude`.
 
 ```rust,ignore
 use waterui::prelude::*;
@@ -34,15 +28,15 @@ fn sidebar() -> impl View {
 }
 ```
 
-The macro keeps your original function untouched and generates a `#[unsafe(no_mangle)] extern "C"` companion that constructs the view, wraps it in `AnyView`, and returns the boxed pointer. The preview support app loads that symbol at render time.
+The macro leaves your function in place and adds an exported companion that builds the view, wraps it in `AnyView` and hands back a boxed pointer. `#[preview]` applies to free functions only; a method with `self` is a compile error.
 
-`#[preview]` only applies to free functions. Putting it on a method with `self` is a compile error.
+### Default arguments
 
-### Default arguments for parameterized views
-
-If your view function takes parameters, every parameter needs a default value supplied through the macro attribute. Preview has no other way to invent argument values:
+A preview has nothing to invent argument values from, so every parameter takes a default through the attribute:
 
 ```rust,ignore
+use waterui::prelude::*;
+
 #[preview(count = 5, name = "John Appleseed")]
 fn user_card(count: i32, name: &str) -> impl View {
     vstack((
@@ -52,42 +46,36 @@ fn user_card(count: i32, name: &str) -> impl View {
 }
 ```
 
-Forgetting a default produces a compile error pinned to the parameter:
+A missing default, an unknown parameter name and a duplicated one are all compile errors pinned to the offending identifier. Parameters must be plain identifiers.
 
-```text
-error: Function parameter `count` needs a default value in #[preview(count = ...)]
-```
+> **Tip:** Pick defaults that look like real data. A card previewed with an empty name tells you nothing about wrapping or typography. When the data includes Chinese, include Japanese and Korean too, so the preview covers CJK shaping.
 
-Naming a parameter that does not exist, or naming one twice, is also a compile error rather than a silently ignored argument.
+### The exported symbol
 
-> **Tip:** Pick defaults that resemble real data. A `user_card` previewed with `name = ""` teaches you nothing about typography or wrapping.
-
-### Symbol naming
-
-The macro emits exactly one C symbol per preview function:
+Each preview function exports one symbol:
 
 ```text
 waterui_preview_{crate_name}_{function_name}
 ```
 
-`crate_name` is `CARGO_PKG_NAME` with dashes converted to underscores. `function_name` is the *bare* function name — a proc macro does not receive the surrounding module path, so the module the function lives in contributes nothing.
+`crate_name` is `CARGO_PKG_NAME` with dashes turned into underscores. `function_name` is the bare function name: the macro never sees the module path, so the module contributes nothing.
 
-| Crate name     | Function                   | Export symbol                       |
-|----------------|----------------------------|-------------------------------------|
-| `my_app`       | `sidebar`                  | `waterui_preview_my_app_sidebar`    |
-| `together-app` | `dashboard::admin::card`   | `waterui_preview_together_app_card` |
+| Crate name     | Function                 | Export symbol                       |
+|----------------|--------------------------|-------------------------------------|
+| `my_app`       | `sidebar`                | `waterui_preview_my_app_sidebar`    |
+| `together-app` | `dashboard::admin::card` | `waterui_preview_together_app_card` |
 
-**Preview function names must therefore be unique within a crate.** Two `#[preview] fn card()` in different modules produce the same export symbol. `water preview test --all` and `water preview perf --all` detect this during discovery and refuse to run, naming both files.
+Preview function names must therefore be unique within a crate: two previews with the same bare name export the same unmangled symbol, which a debug build rejects as defined twice. On the command line you may write the module path (`dashboard::admin::card`), but only the last segment is used to find the symbol.
 
-You may still pass a module path on the command line — only the last segment is used. Misspelling the name produces a `Preview component not found` error that prints both the requested path and the expected export symbol.
+The export exists in **debug builds only** (it is gated on `debug_assertions`). A release build carries neither the entry point nor the view it would force into the binary, so previews cost a shipped app nothing. The CLI's preview builds always keep it: the Hydrolysis development profile, which optimizes and turns debug assertions off, turns them back on for your crate alone.
+
+### Previews are found in the compiled artifact
+
+The CLI never reads your `.rs` files to find previews. A named target becomes a symbol name, and the generated binary links against that symbol; `water preview test --all` opens the compiled library and lists its `waterui_preview_*` exports. Both see only what the compiler produced, so a preview behind a `cfg` or emitted by a macro exists exactly when it is compiled, and a function that is `cfg`'d out of the build is not previewable.
 
 ## Project requirements
 
-The support-app path is a development-mode feature. Two things must be true before it will work. (The Hydrolysis path builds a managed backend binary instead and needs neither.)
-
-### A `dev` feature on your crate
-
-Your root crate must declare a `dev` feature that turns on `waterui/dynamic_linking`:
+Your crate declares a `dev` feature that turns on dynamic linking of the WaterUI runtime:
 
 ```toml
 # Cargo.toml
@@ -95,18 +83,11 @@ Your root crate must declare a `dev` feature that turns on `waterui/dynamic_link
 dev = ["waterui/dynamic_linking"]
 ```
 
-`water preview` reads your `Cargo.toml` and refuses to continue if either the feature or the `waterui/dynamic_linking` enablement is missing — it surfaces the exact line you need to add. The CLI then scaffolds a generated wrapper crate (`managed_backends/preview_ffi`) that depends on your app crate with `features = ["dev"]` and emits the dylib the support app loads.
+Projects from `water create` already carry it. The CLI turns this feature on for its dynamically linked development builds, previews included; Windows and Android builds link the runtime statically and leave it off. The Apple preview path (`--platform macos` and `--platform ios` with the Apple backend) also checks it before building and stops with the exact line to add if `dev` is missing or does not include `waterui/dynamic_linking`. The generated binary links the shared WaterUI runtime dylib instead of embedding a second copy, which is also what keeps rebuilds short (see below).
 
-### A clean local WaterUI worktree (dev mode)
+The generated binary also needs your crate's `app` function, the one `water create` scaffolds as `pub fn app(env: Environment) -> App`. A preview resolves under the `Environment` that `app(env)` returns, so themes, fonts and realizations your app installs there apply to previews too.
 
-If `Water.toml` points `waterui_path` at a local checkout, that checkout must be a git worktree with **no uncommitted changes** to runtime-affecting paths (`core/`, `components/`, `ffi/`, `macros/`, `src/`, `utils/`, `backends/`, `kit/`, `icon/`, `Cargo.toml`, `Cargo.lock`, `.gitmodules`, `rust-toolchain*`). Preview hashes the clean `HEAD` commit into a *runtime fingerprint* that travels in the TCP handshake. A dirty worktree fails fast with:
-
-```text
-Preview dev mode requires a clean WaterUI worktree at <path>.
-Commit or stash changes before running preview.
-```
-
-For the WaterUI monorepo's own examples and playgrounds, `Water.toml` must explicitly set `waterui_path = "../.."` so the CLI uses the local checkout instead of resolving WaterUI from the registry. Release-mode projects (no `waterui_path`) skip this rule and resolve WaterUI through registry metadata.
+Monorepo examples set `waterui_path = "../.."` in `Water.toml` so previews build against the local checkout. See [Project structure](../01-getting-started/04-project-structure.md).
 
 ## The `water preview` command
 
@@ -114,43 +95,73 @@ For the WaterUI monorepo's own examples and playgrounds, `Water.toml` must expli
 water preview sidebar --platform macos --path ./my-app --output preview.png
 ```
 
-### Arguments and flags
+| Argument / flag       | Description                                                          | Default                    |
+|-----------------------|----------------------------------------------------------------------|----------------------------|
+| `target`              | `#[preview]` function name, or an expression with `--expr`           | required                   |
+| `--expr`              | Treat the target as a Rust expression returning `impl View`          | off                        |
+| `--platform`, `-p`    | `ios`, `macos`, `android`, `linux` or `windows`                      | the host's own platform    |
+| `--backend`           | `apple` or `hydrolysis`                                              | from `Water.toml`/platform |
+| `--theme`             | Hydrolysis theme package; `material3` is the only one                | `material3` on Hydrolysis  |
+| `--frame`, `-f`       | Logical size as `WIDTHxHEIGHT`                                       | `375x667`                  |
+| `--output`, `-o`      | Output PNG path                                                      | `preview.png`              |
+| `--content-timeout`   | Seconds a capture waits for content views still owe                  | `10`                       |
+| `--scenario`          | Hydrolysis scenario TOML for an interaction timeline                 | none                       |
+| `--output-dir`        | Directory for scenario frames; required with `--scenario`            | none                       |
+| `--device`, `-d`      | Android serial or AVD name; only with `--platform android`           | remembered or picked       |
+| `--offline`           | Build like `cargo build --offline`; a declared font missing from the font cache fails instead of being fetched | off |
+| `--path`              | Project directory                                                    | `.`                        |
 
-| Argument / flag    | Description                                                | Default            |
-|--------------------|------------------------------------------------------------|--------------------|
-| `target`           | `#[preview]` function name, or an expression with `--expr` | required           |
-| `--expr`           | Treat the target as a Rust expression returning `impl View`| off                |
-| `--platform`, `-p` | `ios`, `macos`, or `android`                               | host native (macOS)|
-| `--backend`        | `apple`, `android`, or `hydrolysis`                        | per-platform       |
-| `--theme`          | `material3` — Hydrolysis only, and required there          | none               |
-| `--frame`, `-f`    | Render size as `WIDTHxHEIGHT`                              | `375x667`          |
-| `--output`, `-o`   | Output PNG path                                            | `preview.png`      |
-| `--scenario`       | Hydrolysis scenario TOML for interaction capture           | none               |
-| `--output-dir`     | Directory for scenario frames (required with `--scenario`) | none               |
-| `--path`           | Project directory                                          | `.`                |
+A target that is not a plain Rust path is treated as an expression even without `--expr`.
 
-`--platform ios` means the iOS **Simulator**. The default backend follows the platform: `apple` for `ios`/`macos`, `android` for `android`. The valid combinations are `ios/apple`, `macos/apple`, `macos/hydrolysis`, and `android/android`; anything else is rejected by name.
+### Where each platform renders
 
-`--expr`, `--scenario`, and `--output-dir` work only with `--backend hydrolysis`.
+No preview boots an iOS simulator. Each platform renders inside a generated binary on this machine, or inside a preview host on an Android device:
+
+| Platform  | Backend      | How the PNG is produced                                                                  |
+|-----------|--------------|------------------------------------------------------------------------------------------|
+| `macos`   | `apple`      | Generated preview binary; the AppKit realization                                         |
+| `ios`     | `apple`      | The same binary built for Mac Catalyst; the UIKit realization on this Mac, iPad idiom    |
+| `macos`   | `hydrolysis` | Generated Hydrolysis binary                                                              |
+| `linux`   | `hydrolysis` | Generated Hydrolysis binary                                                              |
+| `windows` | `hydrolysis` | Generated Hydrolysis binary                                                              |
+| `android` | `hydrolysis` | Hydrolysis preview host's instrumentation on a connected device, driven over `adb`       |
+
+The backend comes from `--backend`, else from `[platforms.<platform>] backend` in `Water.toml`, else the platform's default: `apple` on macOS and iOS, `hydrolysis` on Android and Windows, `gtk4` on Linux. An explicit `--backend` that contradicts the declaration fails before any build, and a combination outside the table above is rejected by name. GTK has no preview renderer, so a Linux project that declares nothing needs `--backend hydrolysis` or a `hydrolysis` declaration, and one that declares `gtk4` must change the declaration, since the flag would conflict with it. Desktop platforms must match the host: you cannot preview `--platform windows` from a Mac.
+
+`--platform ios` builds for the `aarch64-apple-ios-macabi` target and runs on this Mac under the iPad idiom, so you see the iOS look. Its capture replays the layer tree offscreen rather than through the window compositor, so backdrop filters are not evaluated: a material background shows its tint but not the blur behind it. Check materials on a device with `water run --platform ios`; see [Platforms](../01-getting-started/05-platforms.md).
+
+On Android the preview runs on a real device or emulator, so you get device fonts, the device GPU and the device's own realizations. `--device` takes a serial or AVD name; without it the last device you used wins while it is still connected, then a single candidate is taken, and several candidates bring up a picker (a non-interactive terminal fails instead, naming them). `--device` with any other platform is an error.
+
+The Android preview host is the one exception to a fresh process per run. It stays alive on the device between runs and serves each run as a new render request. The CLI pushes only the payload parts whose content changed, and a changed payload restarts the host, since a loaded library cannot be swapped.
 
 ```bash
-# Preview a top-level function on macOS through the Apple backend
+# AppKit, through the Apple backend
 water preview my_view --platform macos
 
-# Preview on the iOS Simulator with a custom frame size
+# UIKit through Mac Catalyst, phone-sized frame
 water preview profile_card --platform ios --frame 390x844
 
-# Preview on an Android emulator, save to a specific file
-water preview home_screen --platform android --output screenshots/home.png
+# The self-drawn renderer on this host
+water preview my_view --backend hydrolysis --theme material3
 
-# Render an inline expression through the self-drawn renderer
-water preview 'vstack((text("A"), text("B")))' --expr \
-    --backend hydrolysis --theme material3
+# An Android device over adb
+water preview home_screen --platform android --device emulator-5554
+
+# An inline expression instead of a function
+water preview 'vstack((text("A"), text("B")))' --expr
 ```
+
+`--expr` compiles the expression into generated preview code with `waterui::prelude::*` and your crate's root items (`use your_crate::*`) in scope, so it can call your public view functions. It is a real compile, not an interpreter, so a type error is a compiler error.
+
+`--theme` is rejected with the Apple backend; it selects a Hydrolysis style package ([Styling](../03-ui/11-styling.md)).
+
+### Waiting for owed content
+
+A capture is taken after the view tree mounts. Content a view still owes at that point, such as a decoding image or a `Suspense` future ([Suspense](../06-advanced/03-suspense.md)), is waited for up to `--content-timeout` seconds. If it never lands, the preview fails naming what is still pending instead of writing a half-loaded frame. Raise the bound for a slow fetch; a positive finite number of seconds is required.
 
 ### Interaction scenarios
 
-The Hydrolysis path can drive input and capture a timeline instead of a single frame. A scenario is a TOML file listing capture timestamps and events:
+On the Hydrolysis backend a scenario captures a timeline instead of a single frame. It is a TOML file of capture times and input events:
 
 ```toml
 captures_ms = [0, 120, 400]
@@ -168,114 +179,83 @@ x = 100.0
 y = 240.0
 ```
 
-Event kinds are `pointer_move` (alias `hover`), `pointer_down`, `pointer_up`, `pointer_cancel`, and `scroll` (alias `wheel`). Pointer events need `x`/`y`; `scroll` needs a non-zero `dx` or `dy`; `button` accepts `primary`, `secondary`, or `middle`. One PNG is written into `--output-dir` per capture timestamp, so you can see a ripple mid-flight rather than only its resting state.
+```bash
+water preview checkout --backend hydrolysis --scenario press.toml --output-dir frames/
+```
 
-## Asserting on and profiling a preview
+Capture times must be non-empty and unique. Event kinds are `pointer_move` (alias `hover`), `pointer_down`, `pointer_up`, `pointer_cancel` and `scroll` (alias `wheel`). Every event except `pointer_cancel` needs `x` and `y`; `scroll` also needs a non-zero `dx` or `dy` and may set `is_line_delta`; `button` is `primary` (the default), `secondary` or `middle`. One PNG per capture time lands in `--output-dir`, named like `frame-0120ms.png`, so you see a ripple mid-flight rather than only its resting state. `--scenario` and `--output-dir` are accepted only with the Hydrolysis backend, and each requires the other.
 
-Two subcommands reuse the same target resolution and run on the Hydrolysis path (macOS host only).
+## Asserting on a preview
 
-`water preview test` builds the view, produces its accessibility tree without a render target, and runs a Rust automation body against that tree:
+`water preview test` reuses the same target resolution, builds the view without a render target and runs a Rust automation body against its accessibility tree:
 
 ```bash
-water preview test sidebar --theme material3 \
+water preview test sidebar \
     --code 'app.query().role(Role::BUTTON).label("Save").assert_exists();'
 ```
 
-The body receives `app: &mut waterui_testing::SemanticApp`, with `waterui_testing::*` and the WaterUI prelude already in scope. Because the tree under test is the accessibility tree, a preview that fails these assertions is usually an accessibility bug, not a test-harness problem. Use `--code-file` for anything longer than a line, and `--all` to run every `#[preview]` function in the crate.
+The body receives `app: &mut waterui_testing::SemanticApp`, with `waterui_testing::*` and the WaterUI prelude in scope. Use `--code-file` for anything longer than a line; `--code` and `--code-file` are mutually exclusive. `--all` tests every `#[preview]` function in the crate and cannot be combined with a target or `--expr`.
 
-`water preview perf` profiles the same view through the offscreen GPU pipeline:
+`water preview test` runs on desktop Hydrolysis only: it forces that backend, so a `Water.toml` declaring Apple for the platform conflicts, and `--platform android` is refused. `--theme` defaults to `material3`. A failing assertion usually means an accessibility defect rather than a harness problem, since the tree under test is the accessibility tree. For the full test API see [Testing](03-testing.md).
 
-```bash
-water preview perf sidebar --theme material3 --samples 240 --format html -o perf.html
+`--all` finds its targets with a probe build, then reads the `waterui_preview_{crate}_*` exports from the compiled library. The probe compiles the same crate graph the per-target builds then reuse, so discovery costs one warm build.
+
+Frame-time and counter budgets belong to `water bench`, not preview; see [Benchmarks](04-benchmarks.md).
+
+## What a repeated preview rebuilds
+
+Previewing again after an edit costs one incremental cargo build of the generated binary, then a render.
+
+- **Your crate rebuilds; the runtime does not.** With `dev = ["waterui/dynamic_linking"]` the WaterUI runtime is a shared dylib on macOS and Linux; Windows and the Android launcher link it statically. The Apple preview binary is built under the same development configuration `water run` uses for the Apple backend, so it reuses the runtime unit `water run` already compiled rather than relinking a variant on every switch.
+- **A repeated target is free to the build.** The generated target module is rewritten only when its content changes, so previewing the same function twice leaves the binary's own compilation unit alone. Switching to another `#[preview]` function changes that module and rebuilds the generated crate that holds it, but not your crate, which it depends on.
+- **Each function is its own entry.** Mark as many functions as you like; each exports its own symbol, and one build of your crate carries all of them:
+
+```rust,ignore
+use waterui::prelude::*;
+
+#[preview]
+fn sidebar() -> impl View { text("Sidebar") }
+
+#[preview]
+fn header() -> impl View { text("Header") }
+
+#[preview(count = 3)]
+fn notification_list(count: usize) -> impl View {
+    text!("{count} notifications")
+}
 ```
 
-It reports per-phase timings, frame percentiles, rebuild ratio, scene- and clip-layer counts, and cache hit rates. `--warmups` (10), `--samples` (120), and `--repetitions` (7) control the measurement shape. The `--max-p95-us`, `--max-rebuild-ratio`, `--max-scene-layers`, `--max-gpu-surface-layers`, and `--max-clip-layers` thresholds turn a run into a pass/fail gate, which is what makes this usable in CI. `--flamegraph` writes a CPU call-stack SVG, and `--trace` writes a Chrome/Perfetto trace.
+```bash
+water preview sidebar
+water preview header
+water preview notification_list
+```
 
-## How the support-app path works
+- **State never carries over.** Every run constructs a new view, on desktop in a new process. Nothing from the previous run, no `Binding`, `Computed` or `Environment`, survives, so set up the data shape you want to inspect inside the preview function or through `#[preview(...)]` defaults.
+
+### Build caching with sccache
+
+When `sccache` is installed, the CLI routes preview builds through it. If it cannot find the binary, each run prints a warning with the install command for your host; on macOS:
 
 ```text
-    water preview sidebar --platform macos
-                  |
-                  v
-    1. Resolve preview requirements      (waterui_path, runtime fingerprint)
-    2. Connect to an existing support app, or scaffold and launch one
-    3. Verify handshake: fingerprint and platform must both match
-    4. Fingerprint the project's build inputs (SHA-256 over file contents)
-    5. Rebuild managed_backends/preview_ffi as a dylib if that fingerprint moved
-    6. Compute DylibId from the build signature + dylib path/size/mtime
-    7. Send Render { dylib, symbol, frame } (or just the id, if the app has it)
-    8. Support app loads the dylib via libloading, ad-hoc codesigns if needed
-    9. Resolve the export symbol, render the AnyView, ship PNG bytes back
+sccache not found. Build efficiency may be reduced. Install with: brew install sccache
 ```
 
-### The support app on disk
+The CLI skips sccache, and says so, when `RUSTC_WRAPPER` is already set or `WATERUI_DISABLE_SCCACHE` is `1`, `true`, `yes` or `on`.
 
-The CLI manages a generated WaterUI app at `~/.water/preview_support/`. It is scaffolded the first time you run a preview and re-scaffolded only when the embedded templates or the WaterUI runtime fingerprint change. Its `main` returns a single `Preview` view from the `waterui-preview` crate, which owns the TCP server and rendering loop. You never edit it.
+### Debug output
 
-The app shuts itself down after 15 minutes idle (`WATERUI_PREVIEW_IDLE_SHUTDOWN_SECS`).
+The CLI's diagnostics go through `tracing` and are printed only when `RUST_LOG` is set: run `RUST_LOG=debug water preview ...` to see them on stderr. A failing preview binary's own stderr is carried in the error the CLI reports.
 
-### Handshake and transport
+## Troubleshooting
 
-The support app binds a TCP server starting at port 2106. On macOS it also writes a JSON entry into a local instance registry under the WaterUI cache directory, so the CLI can find a running app by fingerprint instead of scanning ports.
+- **Preview requires `<crate>/dev` feature**: add `dev = ["waterui/dynamic_linking"]` to your `[features]`.
+- **Preview backend … does not support platform …**: the message lists the valid combinations; fix the flag or the `Water.toml` declaration.
+- **Explicit backend … conflicts with Water.toml backend …**: drop `--backend`, or change `[platforms.<platform>] backend`.
+- **No `waterui_preview_*` exports found** (from `--all`): the compiled library has no `#[preview]` function of this crate, for example because a `cfg` removed it.
+- **A named target is not found**: the build fails to resolve the `waterui_preview_*` symbol the name maps to. Check the spelling of the function's last path segment.
+- **The preview waits then fails naming pending content**: raise `--content-timeout`, or give the preview function data it can show without a network.
 
-The CLI sends `Ping` and reads `Pong { protocol }`. The protocol struct carries the support app's runtime platform and its WaterUI core fingerprint; both must match what the CLI computed for the project, or the CLI launches a fresh support app for the right runtime.
+## Next
 
-After the handshake, requests use a length-prefixed binary frame format (4-byte big-endian length + bincode payload). The request set is `Ping`, `HasDylib`, `Render`, and `Shutdown`.
-
-### Build freshness
-
-`water preview` fingerprints your project's build inputs by hashing the *contents* of every build-input file — everything under `src/` and `assets/`, plus top-level `Cargo.toml`, `Cargo.lock`, `Water.toml`, and `build.rs`, plus files with build-input extensions (`.rs`, `.swift`, `.kt`, `.java`, `.metal`, `.wgsl`, `.toml`, `.json`, `.yaml`, `.plist`, and the C-family headers and sources). `target/`, `.git/`, `.jj/`, `.water/`, `node_modules/`, `.gradle/`, `.idea/`, and `.vscode/` are skipped.
-
-That fingerprint goes into a *build signature* alongside the runtime fingerprint, target triple, crate name, and link mode. The signature is written next to the dylib as `<dylib>.waterui-preview-dylib-signature`. If the stored signature matches the one the CLI just computed, the build is skipped entirely — content, not timestamps, decides. Touching a file, or rewriting it with identical bytes, does not trigger a rebuild. Adding or deleting a file does, because relative paths are hashed alongside contents.
-
-### Dylib identity
-
-Each build gets a `DylibId`: a SHA-256 over the build signature, the dylib path, its length, and its mtime. This is the cache key the support app uses to recognise an already-loaded library. The CLI first asks `HasDylib { id }`; on a hit only the render request crosses the wire, and on a miss the CLI sends the bytes — or, on macOS, a local file path, since the CLI and support app share a filesystem.
-
-The support app keeps an in-memory LRU of loaded libraries (default capacity 8).
-
-### Render
-
-The support app loads the dylib through `libloading`, resolves the export symbol, calls it to get an `AnyView`, hands it to the platform `ViewRenderer` at the requested frame size, encodes the result as PNG, and ships the bytes back.
-
-## macOS codesigning
-
-System Integrity Protection requires loaded dylibs to be signed. The support app handles this transparently: it tries `dlopen`, and on failure checks whether the dylib is already signed. If it is, the original load error is reported as-is; if it is not, an ad-hoc signature is applied and the load retried. The ad-hoc signature satisfies the OS without any Apple Developer account, so you never sign preview dylibs by hand.
-
-## Environment variables
-
-The TCP server, on-disk caches, and timeouts are configurable when defaults do not fit your environment. Values that are present but unparseable fail fast rather than falling back to the default.
-
-| Variable                                | Description                          | Default     |
-|-----------------------------------------|--------------------------------------|-------------|
-| `WATERUI_PREVIEW_HOST`                  | TCP bind/connect address             | `127.0.0.1` |
-| `WATERUI_PREVIEW_PORT_START`            | First port to try                    | `2106`      |
-| `WATERUI_PREVIEW_PORT_RANGE`            | Number of consecutive ports to scan  | `50`        |
-| `WATERUI_PREVIEW_DYLIB_CACHE_SIZE`      | Max in-memory dylib cache entries    | `8`         |
-| `WATERUI_PREVIEW_MAX_FRAME_BYTES`       | Max TCP frame size (bytes)           | `128 MiB`   |
-| `WATERUI_PREVIEW_CONNECT_TIMEOUT_MS`    | TCP connect timeout                  | `100`       |
-| `WATERUI_PREVIEW_HANDSHAKE_TIMEOUT_MS`  | Ping/Pong handshake timeout          | `500`       |
-| `WATERUI_PREVIEW_REQUEST_TIMEOUT_MS`    | General request timeout              | `20000`     |
-| `WATERUI_PREVIEW_RENDER_TIMEOUT_MS`     | Render request timeout               | `120000`    |
-| `WATERUI_PREVIEW_IDLE_SHUTDOWN_SECS`    | Support app idle shutdown            | `900`       |
-| `WATER_CACHE_DIR`                       | Root for the preview instance registry | OS cache dir |
-
-## Build-cache hygiene
-
-Playground projects keep their generated backends under `~/.water/build_cache/<absolute-project-path>/managed_backends/` rather than scattering `.water` directories through your source tree. Entries whose source projects are gone, or which have not been used in 30 days, are removed by:
-
-```bash
-water gc build-cache
-```
-
-Nothing runs this for you. Run it when you want the disk back after archiving old projects.
-
-## Error recovery
-
-- TCP drops mid-render (broken pipe, EOF, timeout) → relaunch the support app and retry once.
-- Symbol not found → print the function path, the expected export symbol, and a `#[preview]` snippet.
-- Support app crashes on launch → surface the crash through the device event stream rather than waiting out the timeout.
-
-## Next: the iteration loop
-
-A single `water preview` run builds, loads, and renders one moment. The [next chapter](02-preview-iteration.md) covers what survives between runs — the support app, its loaded runtime, and the dylib cache — and what does not.
+Assert on the same views in a test that runs headless in `cargo nextest`: [Testing](03-testing.md). To look at a running app's tree live, see [Inspector](05-inspector.md); to drive previews and tests from an agent, see [MCP](06-mcp.md).

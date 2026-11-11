@@ -1,0 +1,7 @@
+[env]
+# The book crate depends on waterui directly through Cargo, not through the
+# `water` CLI that sets this for generated projects. Cherenkov's native Apple
+# contract requires OS 26 APIs; the value mirrors `[env]` in
+# `waterui/.cargo/config.toml` and moves with it on a submodule bump.
+MACOSX_DEPLOYMENT_TARGET = "26.0"
+IPHONEOS_DEPLOYMENT_TARGET = "26.0"

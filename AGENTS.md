@@ -20,10 +20,13 @@ the upstream `dev` branch (`https://github.com/water-rs/waterui.git`).
   or example shown in the book MUST be verifiable against the currently pinned
   waterui commit.** Read the actual Rust source under `waterui/` instead of
   relying on memory or external docs.
-- `nami` is **not** a top-level submodule of this book. It lives inside waterui
-  at `waterui/utils/nami` and is re-exported through `waterui::reactive` /
-  `waterui::Signal` / `waterui::Binding`. Never re-add a top-level `nami`
-  submodule and never reference a `nami_*` crate path that bypasses the
+- `nami` is **not** a top-level submodule of this book. waterui consumes it
+  from crates.io (`nami` and `nami-core`, versions pinned by
+  `waterui/Cargo.toml` and recorded in `waterui/Cargo.lock`), so read its
+  source in the cargo registry at the locked version. It is re-exported through
+  `waterui::reactive` / `waterui::Signal` / `waterui::Binding`. Never re-add a
+  top-level `nami` submodule and never reference a `nami_*` crate path that
+  bypasses the
   re-export.
 - The `waterui` crate at the workspace root re-exports everything users need
   through `waterui::prelude::*`. Examples should prefer the re-export path
@@ -82,7 +85,10 @@ book/
 ├── AGENTS.md             # this file (CLAUDE.md is a symlink to it)
 ├── README.md             # public-facing repo readme
 ├── book.toml             # mdBook config
-├── Cargo.toml            # workspace root for runnable example crate
+├── Cargo.toml            # workspace root for runnable example crate; mirrors
+│                         # waterui's [patch.crates-io] table
+├── examples/
+│   └── book-visuals/     # water preview project the generated images render from
 ├── src/                  # book source (markdown + tests)
 │   ├── SUMMARY.md        # table of contents — single source of truth for ordering
 │   ├── Introduction.md
@@ -96,9 +102,11 @@ book/
 │   ├── 08-internals/
 │   ├── 09-philosophy.md
 │   ├── appendix/
+│   ├── assets/visuals/   # generated images listed in the visuals manifest
 │   └── lib.rs            # canonical, compile-tested example snippets
-├── scripts/              # mdbook helpers and book visual generation
-│   └── book-visuals/     # water preview project + manifest for generated images
+├── scripts/              # mdbook helpers (rustdoc wrapper, check-book-code,
+│   │                     # version preprocessor) and book visual generation
+│   └── book-visuals/     # manifest for generated images
 └── waterui/              # submodule — DO NOT edit
 ```
 
@@ -206,10 +214,13 @@ stale, or when a reader reports a broken sample.
 
 1. **Diff the upstream changes.**
    ```bash
-   cd waterui && git log --oneline OLD_SHA..NEW_SHA -- core/ components/ macros/ cli/
+   cd waterui && git log --oneline OLD_SHA..NEW_SHA -- core/ components/ macros/ cli/ src/ facade.rs Cargo.toml
    ```
    Pay special attention to changes under `core/`, `components/*/`, `macros/`,
-   `facade/`, and `cli/` — these surface in user-facing APIs.
+   the facade (`facade.rs` re-exporting the `src/` crate, and the `[features]`
+   of `Cargo.toml`), and `cli/` — these surface in user-facing APIs. When
+   `[patch.crates-io]` in `waterui/Cargo.toml` changes, mirror it in the
+   book's `Cargo.toml`.
 
 2. **For each touched module, grep the book for references.**
    ```bash
@@ -254,8 +265,9 @@ stale, or when a reader reports a broken sample.
   submodule to a different SHA without the user's go-ahead, and never use
   `--force` flags to bypass git safety checks.
 - **No `println!` / `print!` / `eprintln!` in `src/lib.rs` or chapter Rust
-  examples.** Use `tracing::info!` / `tracing::debug!` so samples model the
-  real-world WaterUI logging convention.
+  examples.** Use `waterui::log::info!` / `waterui::log::debug!` (the
+  facade's re-export of `tracing`; the book crate has no direct `tracing`
+  dependency) so samples model the real-world WaterUI logging convention.
 - **Multi-line embedded text belongs in a separate file**, included via
   `include_str!`. Do not paste shaders, large markdown, or template strings
   inline in `.rs` examples.

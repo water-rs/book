@@ -2,240 +2,236 @@
 
 > **In this chapter, you will:**
 >
-> - Trace a view from Rust struct all the way to pixels on screen
-> - Understand the difference between raw views, composite views, and configurable views
-> - Learn how 128-bit type IDs enable efficient cross-language dispatch
-> - See why WaterUI's signal-based reactivity avoids tree diffing entirely
+> - Follow a view from a Rust struct to a platform widget or a recorded draw command
+> - Tell leaves, composite views and metadata apart, and know what a backend does with each
+> - Choose between mandatory and ignorable metadata when you define your own
+> - See why a signal change touches one widget or one recorded value and never diffs a tree
+> - Know how stretch-axis negotiation and measurement fit into the render path
 
-You do not need this chapter to build apps. You need it to debug a view that renders wrong, to write a backend, or to understand why a modifier you invented panics with "not caught by your renderer".
+You do not need this chapter to build apps. You need it to debug a view that renders wrong, to write a backend or a component port, or to understand why a metadata type you invented panics with "not caught by your renderer".
 
-Your application code produces a tree of Rust structs implementing `View`. A backend walks that tree at runtime and maps each node to something it can draw — a UIKit view, an Android `View`, a GTK widget, or a Vello scene.
+Your application code produces a tree of Rust values implementing `View`. A backend turns that tree into something that draws. Everything between your code and the backend, the dispatch, the leaf types and the metadata wrappers, is Rust, in one process, with no C ABI in the middle.
 
-## The rendering pipeline
+## The pipeline
 
 ```text
-Rust view tree
+Rust view tree  (your View types)
      |
+     |  body() expansion, until a leaf or a metadata wrapper
      v
-FFI layer (C ABI / JNI)        or        Rust-side backend
-     |                                          |
-     v                                          v
-Native backend (Swift / Kotlin)         ViewDispatcher
-     |                                          |
-     v                                          v
-Platform UI framework                   GTK widgets, or Vello scenes
-(UIKit / AppKit / Android Views)                |
-     |                                          v
-     v                                   GPU (wgpu) or CPU raster
-Pixels on screen
+Native<T> leaves  +  Metadata<T> / IgnorableMetadata<T> wrappers
+     |
+     +-- Apple backend ------> AppKit / UIKit views, built from Rust through objc2
+     |
+     +-- Hydrolysis ---------> retained render tree
+                                  |
+                                  +-- Cherenkov GPU painter
+                                  +-- HWUI painter on Android: RenderNode display lists
 ```
 
-WaterUI ships several backends, and they differ in *how* they consume the tree, never in the tree itself:
+The tree is the same for every backend; backends differ in what they build from it. Per the repository's supported-platform policy, Apple (macOS, iOS) and Android are the tier-1 platforms, Windows and Linux are tier 2, and the GTK, WinUI and TUI backends are experimental and live in their own repositories. See [Platforms](../01-getting-started/05-platforms.md) and [Backends](04-backends.md) for what ships where.
 
-| Backend | Crate / directory | Consumes the tree via | Draws with |
-|---------|-------------------|------------------------|------------|
-| Apple | `backends/apple` (submodule) | C ABI | UIKit / AppKit |
-| Android | `backends/android` (submodule) | JNI | Android Views |
-| GTK | `backends/gtk` (`waterui-gtk`) | `ViewDispatcher` | GTK4 widgets |
-| Hydrolysis | `backends/hydrolysis` | `ViewDispatcher` | Vello on `wgpu`, GPU-required |
-| Dew | `backends/dew` | `ViewDispatcher` | `vello_cpu`, CPU-first, MCU-class targets |
+| Backend | Lives in | Realizes a leaf as |
+|---------|----------|--------------------|
+| Apple | `backends/apple` | An AppKit or UIKit view, composed in Rust through objc2 |
+| Hydrolysis | `backends/hydrolysis` | A node of a retained tree, painted by Cherenkov or, on Android, HWUI |
 
-`backends/core` (`waterui-backend-core`) holds the plumbing every Rust-side backend shares: the dispatcher, widget metrics, input, gestures, and frame signals. `backends/hydrolysis_m3` is a Material 3 theme package for Hydrolysis, not a backend of its own.
+`backends/core` (`waterui-backend-core`) holds the infrastructure backends share: the `ViewDispatcher`, gesture recognition, scroll math, input events, frame triggers and the main-loop executor contract. The Swift package under the Apple backend (`Sources/WaterUI/Embedding.swift`) is a thin host that binds the backend's exported entry points; component rendering and layout stay in Rust.
 
-Hydrolysis and Dew are both self-drawn, and they sit at deliberately opposite design points: Hydrolysis redraws the full scene every frame on the GPU and targets 120fps-class hardware; Dew re-rasterizes only dirty bands on the CPU so peak pixel memory is one band, and targets microcontrollers with no GPU and no full-resolution framebuffer. Neither is a fallback for the other.
+## Three kinds of node
 
-## View categories
-
-Every view falls into one of three categories. These categories *are* the render loop.
-
-### Raw views (leaf nodes)
-
-A **raw view** maps directly to something the backend draws. It is declared with the `raw_view!` macro in `waterui-core`:
-
-```rust,ignore
-// Default stretch axis (None) -- content-sized
-raw_view!(MyLeaf);
-
-// With explicit stretch axis
-raw_view!(Color, StretchAxis::Both);
-raw_view!(Spacer, StretchAxis::MainAxis);
-raw_view!(ScrollView, StretchAxis::Both);
-```
-
-The macro implements two traits:
-
-1. **`NativeView`** — marks the type as a leaf, and declares its stretch axis.
-2. **`View`** — implements `body()` to return `Native::new(self)`, a sentinel wrapper meaning "stop recursing, extract my data."
-
-`Native<T>` is where recursion is *supposed* to stop. Its own `body()` panics with the type name unless a fallback view was attached with `.with_fallback(...)`. A backend that reaches `Native<T>::body()` has failed to handle a leaf it was expected to handle, and it finds out immediately.
+Expansion stops at one of three things.
 
 ### Composite views
 
-A **composite view** has a `body()` returning other views. The backend evaluates `body()` and keeps walking the result until it bottoms out at a raw view.
+A composite view has a `body()` that returns another view:
 
-```rust,ignore
-pub trait View: 'static {
-    fn body(self, env: &Environment) -> impl View;
+```rust
+use waterui::prelude::*;
+
+struct Greeting {
+    name: Binding<String>,
 }
-```
 
-Any struct, function, or closure implementing `View` is composite unless it went through `raw_view!` or `configurable!`. `Divider` is a good example: it has no config struct and no FFI type. Its `body()` reads the parent stack's axis out of the environment and returns a one-point `Frame`, so a backend gets a correct divider for free — though a backend is still free to recognize `Divider` and draw a native rule instead.
-
-### Configurable views
-
-`configurable!` bridges the two. It splits a view into a public type and a config struct, and lets a `Hook<Config>` installed in the `Environment` intercept the config before it reaches the backend:
-
-```rust,ignore
-configurable!(Button, ButtonConfig);
-configurable!(Slider, SliderConfig, StretchAxis::Horizontal);
-```
-
-When the view's `body()` runs, it looks for `Hook<ButtonConfig>` in the environment. If one is present, the hook may alter or completely replace the view. If not, the config falls through to `Native::new(config)` and behaves like a raw view.
-
-A `resolve |config, env| ...` clause can additionally rewrite the config against the environment before it becomes `Native` — that is how a config resolves theme tokens or locale-dependent labels without the backend knowing anything about either.
-
-> **Note:** The configurable pattern is what makes theming work without forking. A library defines `Button`; downstream code replaces its rendering by installing a hook.
-
-## View identification
-
-The backend needs a fast way to tell what it is holding. The FFI layer uses 128-bit type IDs:
-
-```rust,ignore
-#[repr(C)]
-pub struct WuiTypeId {
-    pub low: u64,
-    pub high: u64,
-}
-```
-
-The ID is a 128-bit FNV-1a hash of the type's *name*, not its `std::any::TypeId`. This is deliberate: `TypeId` is not stable across dynamic library boundaries, but `type_name()` is. Since the preview system loads user code as a dylib, the IDs must agree across that boundary.
-
-The backend keeps a table mapping IDs to handlers and compares in constant time:
-
-```text
-view_id == waterui_text_id()         --> create UILabel / TextView / GtkLabel
-view_id == waterui_button_id()       --> create UIButton / MaterialButton / GtkButton
-view_id == waterui_metadata_env_id() --> extract new environment, continue
-...
-otherwise                            --> call waterui_view_body(), recurse
-```
-
-## Data extraction
-
-Once a raw view is identified, the backend extracts its data through type-specific FFI functions generated by `ffi_view!`:
-
-```rust,ignore
-ffi_view!(TextConfig, WuiText, text);
-// Generates:
-//   waterui_text_id()       -> WuiTypeId
-//   waterui_force_as_text() -> WuiText
-```
-
-`waterui_force_as_*` performs an unchecked downcast — it trusts that the caller already compared the ID. The returned C struct carries everything the backend needs: content signals, alignment, colors, action handlers.
-
-Note the type parameter: `waterui_text_id()` returns the ID of `Native<TextConfig>`, not of `Text`. The backend never sees `Text`; it sees the config the view resolved to.
-
-## Metadata and modifiers
-
-Modifiers like `.padding()`, `.opacity()`, or `.on_appear()` do not introduce new widget types. They wrap the inner view in a `Metadata<T>` node:
-
-```text
-Metadata<Opacity> {
-    content: AnyView,   // the wrapped view
-    value: Opacity { value: Computed<f32> }
-}
-```
-
-Metadata nodes carry their own type IDs (from `ffi_metadata!`). The backend extracts the value and the inner content, applies the modifier to the platform widget, and continues into the content.
-
-Metadata is **mandatory by default**. `Metadata<T>::body()` panics:
-
-```text
-The metadata `...::Metadata<...::Opacity>` is not caught by your renderer.
-If the metadata is not essential, use `IgnorableMetadata<T>`.
-```
-
-Optional modifiers use `IgnorableMetadata<T>` instead, whose `body()` simply returns the content. That is how a platform-specific feature such as `MaterialBackground` degrades to plain content elsewhere rather than crashing. The distinction is a design decision per modifier: silently dropping a padding would be a bug, silently dropping a blur-material is not.
-
-## The render loop
-
-Per node, the backend does:
-
-1. Call `waterui_view_id(view)` for the 128-bit type ID.
-2. Look it up in the handler table.
-3. **Handler found** (raw view or metadata) — call `waterui_force_as_*`, create or update the platform widget, and for metadata also render the `content` child.
-4. **No handler** — call `waterui_view_body(view, env)` and go back to step 1 with the result.
-
-Rust-side backends get this loop from `ViewDispatcher` in `waterui-backend-core`:
-
-```rust,ignore
-// Simplified shape of ViewDispatcher::dispatch.
-pub fn dispatch<V: View>(&mut self, view: V, env: &Environment, context: C) -> R {
-    if let Some(entry) = self.handlers.get(&TypeId::of::<V>()) {
-        // Registered handler: extract the typed view and run it.
-        return entry.invoke(&mut self.state, context, view, env);
+impl View for Greeting {
+    fn body(self, _env: &Environment) -> impl View {
+        let name = self.name;
+        vstack((text!("Hello, {name}"), spacer()))
     }
-    // No handler: expand body() and recurse.
-    self.dispatch(view.body(env), env, context)
 }
 ```
 
-Handlers register against the type the tree actually contains, which for a leaf is the `Native<Config>` wrapper:
+The backend calls `body()` and looks at what comes back, again and again, until the result is a leaf or a metadata wrapper. `body` consumes the view (`self`, not `&self`), and the `&Environment` it receives is the one in scope at that position of the tree. See [the View chapter](../02-core/01-view.md) and [the Environment chapter](../02-core/03-environment.md).
+
+### Native leaves
+
+A leaf is a view whose type a backend claims. Components declare themselves with `raw_view!` (a plain leaf) or `configurable!` (a view plus a config struct). Both end with the view's `body()` returning `Native<T>`:
 
 ```rust,ignore
+// waterui-core, core/src/components/native.rs
+pub struct Native<T: NativeView> { /* native: T, fallback: Option<AnyView> */ }
+
+pub trait NativeView {
+    fn stretch_axis(&self) -> StretchAxis { StretchAxis::None }
+}
+```
+
+`Native<T>` is the sentinel that says "stop here, hand this payload to the backend". A backend registers a handler for `Native<TextConfig>`, `Native<Color>`, `Native<Spacer>` and so on, and never sees `Text` or `Button` themselves, only the config they resolved to. The payload carries the signals the widget reads (`Computed`, `Binding`), so the backend keeps the live inputs rather than a snapshot of them.
+
+`Native<T>::body()` returns the fallback attached with `with_fallback`. Without one, reaching it is a contract violation that names the type: a debug build panics, and a release build logs the error and renders nothing. A leaf nobody claimed fails loudly at the first render instead of silently drawing nothing.
+
+`configurable!` adds one step before `Native`: when the environment holds a `Hook<Config>`, the hook receives the config and returns the view to use instead. That is how a style package or an application re-renders a component without forking it. Without a hook, the config becomes `Native<Config>`, optionally rewritten against the environment first. [Hooks in the Environment chapter](../02-core/03-environment.md#hooks-intercepting-component-configuration) shows them from the application side.
+
+### Metadata wrappers
+
+Modifiers that do not add a widget, such as opacity, scale, offsets, accessibility attributes and environment overrides, wrap their content instead:
+
+```rust,ignore
+// waterui-core, core/src/components/metadata.rs
+pub struct Metadata<T: MetadataKey> {
+    pub content: AnyView,
+    pub value: T,
+}
+pub struct IgnorableMetadata<T: MetadataKey> {
+    pub content: AnyView,
+    pub value: T,
+}
+```
+
+A backend claims `Metadata<Opacity>` the way it claims a leaf: it applies the value to the child it renders from `content` and continues into it. Metadata is transparent to layout. Both wrappers forward `stretch_axis()` to their content, so wrapping a view never changes how a stack sizes it.
+
+## Mandatory and ignorable metadata
+
+The two wrappers differ in what happens when no backend claims them.
+
+| Wrapper | When a backend does not catch it |
+|---------|----------------------------------|
+| `Metadata<T>` | `body()` reports a contract violation: a debug build panics with "is not caught by your renderer", a release build logs the error and renders nothing |
+| `IgnorableMetadata<T>` | `body()` returns the content unchanged, so the effect silently disappears |
+
+Choose per modifier. Dropping an offset or a scale would draw the wrong thing, so those are mandatory. A platform-specific nicety, such as a material background that only some backends can draw, is ignorable: the content still renders everywhere. Define your own through the `waterui::metadata` module:
+
+```rust
+use waterui::metadata::{IgnorableMetadata, MetadataKey};
+use waterui::prelude::*;
+
+/// A hint backends may use. Not drawing it is harmless.
+struct DebugLabel(&'static str);
+
+impl MetadataKey for DebugLabel {}
+
+fn labelled(content: impl View) -> impl View {
+    IgnorableMetadata::new(content, DebugLabel("profile card"))
+}
+```
+
+If you swapped `IgnorableMetadata` for `Metadata` here, every backend would hit the contract violation, because none of them knows `DebugLabel`. Making the key meaningful means adding a handler in a backend; see [Library authoring](05-library-authoring.md) and [Backends](04-backends.md). `Retain` is a built-in mandatory key that only keeps a value, such as a watcher guard, alive for as long as the view lives.
+
+## Dispatch is by Rust type
+
+A backend identifies what it holds by its `TypeId`. There is no hashed name and no table of exported ID functions. The unit of dispatch is the concrete type in the tree: `Native<TextConfig>`, `Metadata<Opacity>`, a composer a port takes before `body()`.
+
+`waterui-backend-core` provides the reusable form of this loop as `ViewDispatcher<T, C, R>`: a table from `TypeId` to handler, plus state `T`, a context `C` handlers receive (a parent widget, say) and a result `R` they return.
+
+```rust,ignore
+let mut dispatcher: ViewDispatcher<(), Ctx, Widget> = ViewDispatcher::new();
+
 dispatcher.register::<Native<TextConfig>>(|state, ctx, native, env| {
-    // build a platform label from native.as_inner()
+    // build a widget from native.as_inner()
 });
+
+let widget = dispatcher.dispatch(view, &env, ctx);
 ```
 
-For concrete types the view stays on the stack and dispatch allocates nothing; only `AnyView` takes the boxed path.
+`dispatch` looks up the view's `TypeId`. A hit invokes the handler; a miss calls `body()` and dispatches the result. A concrete view stays on the stack and the handler receives it through a typed slot; an `AnyView` is unwrapped and dispatched by its inner type. Set `WATERUI_DISPATCH_DEBUG` in the environment and the dispatcher logs an indented trace of every type it walks through `tracing::debug!`, which is the fastest way to learn what your view expanded to.
 
-> **Tip:** Set `WATERUI_DISPATCH_DEBUG=1` to have the dispatcher log an indented trace of every view type it walks. It is the fastest way to find out why your view resolved to something you did not expect.
+At this revision neither in-tree backend instantiates `ViewDispatcher`; it is the shared building block for Rust-side backends, and each in-tree backend runs the same idea in its own form:
 
-## Reactivity and updates
+- **Apple** owns its dispatch in `backends/apple/src/dispatch.rs`. A `Dispatcher` is built once from `registry.rs`, which installs one module per component from `components/` (`text`, `button`, `slider`, `list`, `map` and many more), each behind its own Cargo feature so an unused component compiles out. Handlers come in two shapes: `register_native::<C>` claims `Native<C>` and receives the payload, and `register_view::<T>` claims a type as it appears in the tree, which is how metadata wrappers are taken. The loop is the one you would write: if a handler claims the view's type, run it, otherwise replace the view with its `body()` and look again. A handler answers with a `NativeLeaf`, a platform view together with the layout face a container lays out with. Registering a second handler for one type is an assertion failure, so no two ports can silently fight over a type.
+- **Hydrolysis** builds a retained tree, described below. Its builder downcasts each view onto a closed set of node kinds (`Native<Color>`, `Native<TextConfig>`, containers, `Metadata<Opacity>` and so on) and expands anything else through `body()` once.
 
-The initial walk is only half the story. When data changes, WaterUI does not diff view trees. Each signal is wired directly to the one widget property it feeds:
+Both treat a claimed type as the end of that branch and expansion as the default.
 
-```text
-Binding<String> --> Computed<Str> --> Watcher --> UILabel.text
+## Fine-grained updates
+
+The walk above runs once per subtree. After that, WaterUI does not compare trees. A reactive value in a leaf's payload is subscribed to by the node that draws it:
+
+```rust
+use waterui::prelude::*;
+
+fn counter() -> impl View {
+    let count = Binding::i32(0);
+    let add = count.clone();
+
+    vstack((
+        text!("Count: {count}"),
+        button("Add").action(move || *add.get_mut() += 1),
+    ))
+}
 ```
 
-The watcher callback updates that single property. No reconciliation, no virtual DOM, no re-walk.
+When `count` changes, the one text node that reads it is told; nothing above it re-runs, and `counter` itself is not called again. That is the reason for the golden rule in [the Reactive chapter](../02-core/02-reactive.md): a snapshot taken in a body has no subscription, so the node never hears about the change.
 
-Collections are the same idea one level up. The `Views` trait exposes `get_id(index)`, `len()`, `get_view(index)`, and `watch(range, watcher)`; `AnyViews` erases it for the FFI. The backend receives id-level change notifications for a range and patches the platform list — inserting, removing, and reusing rows by id rather than rebuilding all of them. That is why `ForEach`/`List` over a reactive collection preserves per-row animation, focus, and accessibility state, and why `watch(...)` over a `Vec` does not.
+How "the node is told" plays out depends on the backend:
 
-## Stretch axis negotiation
+- **Apple.** A handler subscribes to the signals of its payload and keeps the watcher guards in the `KeepAlive` that belongs to the leaf. A change sets one property on one AppKit or UIKit object. Dropping the leaf drops its guards, in reverse order of insertion, so a watcher stops before the object it writes to is released.
+- **Hydrolysis.** A node stores the live `Computed` or `Binding`, not a copy, and watches it. A signal that affects size, such as a text node's content, marks the node's layout dirty. No `body()` runs again; the next frame re-reads the node's inputs and re-measures and re-places from the retained tree. Some widgets already go further: a toggle records its parts once with every animated value as a live operand, so its press, hover and drag retarget those operands and the engine animates the recorded commands in place. The window pump itself has not caught up yet. At this revision `refresh_window_scene` in `src/runner/window.rs` still re-reads every reactive input, runs layout and re-encodes the whole retained tree on every awake frame. The Hydrolysis engine contract names that as the state being replaced. Its target is that a paint-only change (a color, an opacity, a transform, the content of a text run) reaches the engine as a live operand of the recorded command, with no tree walk and no layout pass. Treat that as a goal, not a guarantee, and read the crate's `AGENTS.md` for the current state.
 
-Every view declares how it wants to fill space through `StretchAxis`:
+Structural change is handled where it happens. A `Dynamic` host rebuilds only its own child subtree, and a collection such as `ForEach` or `List` reconciles membership by item id rather than rebuilding every row. That is why a reactive collection keeps per-row state such as focus, animation and accessibility, and why wrapping a `Vec` in `watch(...)` does not. See [Lists](../03-ui/05-lists.md) and [Conditional views](../03-ui/06-conditional.md).
 
-| Value        | Behavior                                     | Example           |
-|--------------|----------------------------------------------|-------------------|
-| `None`       | Content-sized, uses intrinsic dimensions     | Text, Image       |
-| `Horizontal` | Expands width, intrinsic height              | TextField, Slider |
-| `Vertical`   | Intrinsic width, expands height              | (rare)            |
-| `Both`       | Greedy, fills all available space            | Color, GpuSurface |
-| `MainAxis`   | Expands along the parent stack's main axis   | Spacer            |
-| `CrossAxis`  | Expands along the parent stack's cross axis  | Divider           |
+## Hydrolysis: a retained tree over an engine
 
-Stacks use this to distribute space: a `VStack` gives leftover height to children that report `Vertical` or `MainAxis` after content-sized children are measured.
+Hydrolysis is the self-drawn backend, and it is the Android backend. It does not use the platform's widgets: it draws its components itself, and a style package decides what a button or a slider looks like. Platform objects it cannot draw, such as a system web view, are hosted beside the drawn content rather than imitated. See [Styling](../03-ui/11-styling.md).
 
-`waterui_view_stretch_axis()` exposes the value to native backends so they can lay out without evaluating the view's body.
+Its render path has three layers.
 
-## Measurement is parallel, and caching belongs to the leaf
+1. **The retained render tree** (`src/renderer/tree`). `RenderNode::build` runs once for the window's root view and keeps the result for the window's lifetime. Each frame the window flush runs three steps: `patch` applies pending structural changes, `layout` re-reads signals, re-measures and re-places what changed, caching each container's child frames, and `flush` records each node into its program from the cached placements. A value change that alters a leaf's size therefore reflows its ancestors without calling any `body()` again.
+2. **Mounts** (`src/renderer/mount`). A node that draws, places children or carries an effect owns one engine layer for its lifetime, so a frame touches only what changed. Each node records its content into a program, and the window commits the layers through one `Mount`.
+3. **A painter.** The mount commits through a layer target: the Cherenkov GPU engine, or HWUI on Android.
 
-Layout containers probe children through the `SubView` trait, which requires `Send + Sync` so independent children can be measured on worker threads. A leaf whose measurement genuinely must touch main-thread-only state confines that state in `waterui_core::MainThreadBound` and returns `true` from `SubView::require_main_thread()`; the executor then keeps it on the calling thread. `waterui_layout::measure_children` splits children along exactly that line, under the crate's `parallel` feature (off by default, so embedded builds stay serial).
+The two painters:
 
-Because containers probe the same child many times with different proposals, expensive measurements — text shaping above all — must cache. That cache belongs to the `SubView` implementation, never to the `Layout`, and because measurement can run on worker threads it must be thread-safe, not a `RefCell`.
+| Painter | Selected by | What it does |
+|---------|-------------|--------------|
+| Cherenkov GPU (`cherenkov-gpu`) | always on every target but Android; on Android, the `gpu` feature (on by default) without `hwui` | The 2D engine's GPU backend, on `wgpu`, for phones, tablets and desktops |
+| HWUI | the `hwui` feature, Android only | Records the layer tree into Android `RenderNode` display lists, which a Kotlin decoder replays, one `RenderNode` per layer (two for a scrolled layer) |
 
-## Performance characteristics
+The painter is chosen at build time, per target, never at run time. On Android, enabling `hwui` together with `gpu` keeps HWUI as the painter while the GPU crates stay linked for hosted GPU content; an Android build with neither feature has no painter, and the build script warns about it. Cherenkov also has a CPU backend (`cherenkov-cpu`, a banded rasterizer that the `waterui-graphics` raster path uses), but at this revision Hydrolysis has no CPU layer target: the CPU and microcontroller design points in the engine contract are not yet a Hydrolysis painter. The self-drawn path is a deliberate backend, not a runtime fallback for the Apple one, and an Apple build never switches to it on failure.
 
-- **No tree diffing.** A changed signal updates its own property; cost is independent of tree size.
-- **No virtual DOM.** Views are consumed by `body()`, not cloned.
-- **Constant-time dispatch.** A 128-bit hash comparison, not string matching.
-- **Lazy evaluation.** `body()` runs only when a backend needs that subtree.
+Hydrolysis never draws a stand-in. A leaf nobody realized, such as a `Native<MapConfig>` with no map hook installed, is a programmer error that panics at measure or node build with a message naming the missing piece. If you see that panic, install the realization the message names.
 
-The main cost is the initial walk, proportional to the number of visible views. After that, cost tracks the number of changed signals.
+Hosts own the event loop: the winit and browser runners, the headless runner used by tests and offscreen rendering, and the Android host each hand their own executor to the framework. A host that owns its loop must install an executor bound to that loop rather than calling a blocking `start_main_executor`; the module docs of `waterui-backend-core` explain why. [Testing](../07-tools/03-testing.md) uses the headless runner.
 
-## Next: the FFI bridge
+## Stretch axis and measurement
 
-The [next chapter](02-ffi.md) opens the layer this one kept behind a curtain — how a Rust `AnyView` becomes a Swift object or a Kotlin class, and what contract a backend has to honor at startup.
+Every view says how it fills space with a `StretchAxis`, read from `View::stretch_axis()` or `NativeView::stretch_axis()` before `body()` runs and without an environment:
+
+| Value | Meaning | Example |
+|-------|---------|---------|
+| `None` | Content-sized | Text, buttons |
+| `Horizontal` | Fills width, intrinsic height | Text field |
+| `Vertical` | Fills height, intrinsic width | A vertically scrolling container |
+| `Both` | Fills all offered space | `Color`, shapes, `List` |
+| `MainAxis` | Fills along the parent stack's main axis | `Spacer` |
+| `CrossAxis` | Fills along the parent stack's cross axis | `Divider` |
+
+Because the answer is static, a composite view whose `body` produces a stretching leaf has to declare that axis itself; a backend cannot find it out by expanding. A container claims nothing of its own and takes the union of its children's axes. Wrappers (padding, background, overlay, metadata) report their content's axis.
+
+A parent negotiates with each child through a `ProposalSize`, per axis: `None` asks for the ideal extent, `Some(0.0)` for the minimum, `Some(f32::INFINITY)` for the maximum and `Some(v)` for "fit into `v`". The child answers with `ViewDimensions`. The three probes satisfy `min <= ideal <= max`, and the container decides allocation from them. A stretch axis never changes the answer a child gives. It only allows a container's allocation rule to give the child more than it measured, and each container applies that rule for itself.
+
+A container is a `Layout` (`size_that_fits` and `place`). It sees each child as a `SubView`, whose `measure(proposal)` may be called many times in one pass, with different proposals, and is pure within the pass. Because of that, expensive measurements, text shaping above all, must be cached, and the cache belongs to the `SubView` implementation, never to the `Layout`. `SubView` is neither `Send` nor `Sync`: measurement runs on the thread that drives layout.
+
+Layout semantics are frozen and specified in `docs/layout-spec.md` of the framework repository. The proposal protocol, the stack allocation rules and the leaf contracts every backend implements all live there. A backend that disagrees with the document has a bug. For the container-by-container tour, read [the Layout chapter](../03-ui/02-layout.md) and [the layout engine](03-layout-engine.md).
+
+## Reading a render problem
+
+A few checks cover most surprises:
+
+- **A panic naming `Metadata<...>` or `Native<...>`**, or in a release build the same message logged and nothing drawn. No backend claimed that type. Install the hook or feature that realizes it, or use `IgnorableMetadata` if the effect is optional.
+- **A value that never updates.** Something snapshotted a signal in a body. Pass the signal itself, as in `text!("{count}")`.
+- **A view that stretches or collapses wrongly.** Check the `stretch_axis` of the leaf and of any composite that wraps it, then check the spec's rule for the container involved.
+- **Seeing what your view expanded to.** The [inspector](../07-tools/05-inspector.md) shows the live tree; `WATERUI_DISPATCH_DEBUG` traces a `ViewDispatcher` walk.
+
+## Next
+
+[Layout engine](03-layout-engine.md) goes through the proposal protocol and container rules in detail, and [Backends](04-backends.md) covers what a backend has to provide.

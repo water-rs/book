@@ -7,55 +7,34 @@ cd "$repo_dir"
 reject_matches() {
   local label="$1"
   local pattern="$2"
+  shift 2
 
-  if rg -n "$pattern" src; then
+  if rg -n "$@" "$pattern" src; then
     echo "found $label in book sources" >&2
     exit 1
   fi
 }
 
-reject_matches "stale WaterUI API references" "water create --playground|waterui_(webview|map|barcode|graphics|icon|locale|controls)::|nami::|WebView::new|Id::new\\(|\\.frame\\(|\\.padding\\([^\\)]|Font::(body|headline|caption)|Color::(white|surface|muted_foreground|foreground)|ios_simulators|crate-type = \\[\\\"staticlib\\\"|TextField::new\\(\\\"|Slider::new\\(&|waterui_core::reactive|02-hot-reload"
-reject_matches "placeholder URLs or fake credentials" "example\\.com|prod-key|abc123|MyApp/1\\.0|from_environment\\("
+reject_matches "stale WaterUI API references" "water create --playground|nami::|WebView::new|Id::new\\(|\\.frame\\(|\\.padding\\([^\\)]|Font::(body|headline|caption)|Color::(white|surface|muted_foreground|foreground)|ios_simulators|crate-type = \\[\\\"staticlib\\\"|Slider::new\\(&|02-hot-reload|02-preview-iteration|02-ffi"
+# Facade-covered crates are imported through `waterui::…`. `waterui-map` has no
+# facade re-export, so its own path is the real one; the library-authoring
+# chapter teaches the crate topology and names inner crates on purpose.
+reject_matches "inner crate paths the facade re-exports" "waterui_(webview|barcode|graphics|icon|locale|controls)::" --glob '!**/08-internals/05-library-authoring.md'
+reject_matches "placeholder URLs or fake credentials" "example\\.com|prod-key|abc123|MyApp/1\\.0"
 reject_underscore_placeholders() {
-  # _padding is the real WGSL prelude field, _reserved and __jni_init are the
-  # canonical JNI names, and `*_name` is a prose wildcard over real API families.
-  if rg -n "(^|[^A-Za-z0-9])_[A-Za-z][A-Za-z0-9_]*" src | rg -v '_padding|_reserved|__jni_init|\*_[a-z]'; then
+  # Only prose is checked: inside a fence a leading underscore is the Rust
+  # idiom for an unused binding or parameter. In prose, `*_NAME` is a wildcard
+  # over a real API family, `__DATA`/`__DWARF`/`__wmeta` are Mach-O section
+  # names, `@_extern` is a Swift attribute, and `_water` is the zsh completion
+  # file `water completions zsh` writes.
+  if awk 'FNR == 1 { fence = 0 } /^[[:space:]]*```/ { fence = !fence; next } !fence { print FILENAME ":" FNR ":" $0 }' $(find src -name '*.md') \
+    | rg "(^|[^A-Za-z0-9])_[A-Za-z][A-Za-z0-9_]*" \
+    | rg -v '\*_[A-Za-z]|__(DATA|DWARF|wmeta)|@_extern|/_water'; then
     echo "found reader-facing underscore placeholder names in book sources" >&2
     exit 1
   fi
 }
 reject_underscore_placeholders
-
-nami_path=$(git -C waterui ls-tree -r HEAD | awk '$1 == "160000" && $4 ~ /(^|\/)nami$/ {print $4; exit}')
-
-if [ -z "$nami_path" ]; then
-  echo "nami is not recorded in the pinned waterui commit" >&2
-  exit 1
-fi
-
-expected_nami=$(git -C waterui ls-tree HEAD "$nami_path" | awk '{print $3}')
-actual_nami=$(git -C "waterui/$nami_path" rev-parse HEAD 2>/dev/null || true)
-
-if [ -z "$expected_nami" ]; then
-  echo "waterui/$nami_path is not recorded in the pinned waterui commit" >&2
-  exit 1
-fi
-
-if [ ! -f "waterui/$nami_path/Cargo.toml" ] || [ "$actual_nami" != "$expected_nami" ]; then
-  cat >&2 <<EOF
-waterui/$nami_path is not materialized at the pinned waterui gitlink.
-
-expected: $expected_nami
-actual:   ${actual_nami:-missing}
-
-Run:
-  git -C waterui submodule update --init --recursive $nami_path
-
-Then re-run:
-  scripts/check-book-code
-EOF
-  exit 1
-fi
 
 scripts/render-book-visuals --check-links
 cargo build

@@ -2,17 +2,17 @@
 
 > **In this chapter, you will:**
 > - Swap views reactively with `when`, `.or()`, and `.otherwise()`
-> - Derive boolean conditions from signals without calling `.get()`
-> - Understand that a branch switch destroys the old subtree — and why that is correct
-> - Choose between `when`, `.visible()`, a signal-taking API, and a `match` + `.anyview()`
+> - Derive boolean conditions from signals without reading them with `.snapshot()`
+> - Understand that a branch switch rebuilds the subtree and drops its state, and why that is correct
+> - Choose between `when`, `Option<impl View>`, `.visible()`, and a `match` with `.anyview()`
 
-Rust's `if`/`else` runs once, while the view tree is being built. `when` builds a reactive branch instead: the condition is a signal, and the rendered branch follows it.
+Rust's `if`/`else` runs once, while the view tree is being built. When the condition is a signal, the branch has to follow it, and `when` does that: the condition is reactive and the rendered branch tracks it.
 
 ## Basic usage
 
 `when` takes a reactive boolean and a builder closure for the `true` case:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -27,7 +27,7 @@ With no `.otherwise()`, a false condition renders nothing.
 
 `.otherwise()` supplies the `false` branch:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -37,9 +37,9 @@ fn login_state(is_logged_in: &Binding<bool>) -> impl View {
 }
 ```
 
-`.or()` adds further branches, and the chain must be closed with `.otherwise()`:
+`.or()` adds further branches, and the chain is closed with `.otherwise()`:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -51,13 +51,13 @@ fn status_text(state: &Binding<i32>) -> impl View {
 }
 ```
 
-Conditions are checked in order and the first match wins. The chain compiles into a single combined `Computed<Option<usize>>` — the index of the matching branch — so adding branches costs one more zipped signal, not one more subscription per rendered view.
+Conditions are checked in order and the first match wins. The chain compiles into a single `Computed<Option<usize>>`, the index of the matching branch, so each extra branch adds one zipped signal and the host view subscribes once.
 
 ## Building conditions
 
-`when` accepts anything implementing `IntoComputed<bool>`.
+`when` accepts anything that implements `IntoComputed<bool>`: a `Binding<bool>`, a `Computed<bool>`, a derived signal, or a plain `bool`.
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -65,46 +65,61 @@ fn examples(show: &Binding<bool>, count: &Binding<i32>, name: &Binding<Str>) -> 
     vstack((
         // A boolean binding directly.
         when(show.clone(), || text("Visible")),
-        // Negation: Binding<bool> implements Not and yields a new signal.
+        // Negation: `!` on a Binding<bool> yields the inverted binding.
         when(!show.clone(), || text("Hidden content revealed")),
-        // Any derived Computed<bool>.
-        when(count.map(|n| n > 0).computed(), || text("Count is positive")),
-        // SignalExt comparison helpers.
-        when(name.is_empty(), || text("Please enter your name")),
+        // A predicate over the binding's value.
+        when(count.condition(|n| *n > 0), || text("Count is positive")),
+        when(name.condition(|s| s.is_empty()), || text("Please enter your name")),
+        // Equality against a fixed value.
         when(count.equal_to(42), || text("The answer")),
     ))
 }
 ```
 
-Never call `.get()` to build a condition. `.get()` reads a value once and drops the dependency, so the branch freezes at construction time. `.map()`, `.equal_to()`, `.is_empty()`, and the rest of `SignalExt` keep the dependency intact.
+Do not call `.snapshot()` to build a condition. `.snapshot()` reads the current value once and drops the dependency, so the branch is frozen at construction time. `.condition()`, `.equal_to()`, `.map()`, and the rest of `SignalExt` keep the dependency. `.snapshot()` is for event handlers such as a button action, which run outside the reactive graph.
 
 ### Static conditions fold away
 
-A plain `bool` is also a signal. When *every* condition in a chain is a static `bool`, the matching branch is selected at construction time and the others are never built:
+A plain `bool` is also a valid condition. When every condition in a chain is a plain `bool`, the matching branch is chosen at construction time and the other builders never run:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
-fn debug_only() -> impl View {
-    when(cfg!(debug_assertions), || text("Debug mode"))
-        .otherwise(|| text("Release mode"))
+fn build_flavor() -> impl View {
+    when(cfg!(debug_assertions), || text("Debug build"))
+        .otherwise(|| text("Release build"))
 }
 ```
 
-This is the pattern for feature flags and debug-only UI. Mixing one reactive condition into the chain disables the folding for the whole chain.
+This suits feature flags and debug-only UI. A single reactive condition anywhere in the chain turns the whole chain into the reactive form.
 
-## What a branch switch actually does
+## A plain `bool` and `Option`
 
-`When` lowers to `Dynamic::watch` over the combined branch-index signal. When the index changes:
+`Option<V>` is a view when `V` is: `None` renders nothing and `Some(view)` renders the view. For a value that is known when the view is built, `bool::then` is enough:
 
-1. The previous subtree is removed.
-2. The new branch's builder closure runs.
-3. The resulting view is inserted.
+```rust
+use waterui::prelude::*;
 
-**State owned inside a branch is discarded when that branch is replaced.** This is deliberate, not a leak: a new branch is a new component instance, and WaterUI does not infer component identity from call position. Anything that must survive a toggle belongs to a `Binding` owned by the parent and passed in:
+fn unread_badge(unread: usize) -> impl View {
+    (unread > 0).then(|| text("New"))
+}
+```
 
-```rust,ignore
+The decision is made once, in Rust, so it never updates. A signal of `Option<impl View>` is not a view. When the condition changes over time, use `when` or `.visible()`.
+
+## What a branch switch does
+
+The chain lowers to `Dynamic::watch` over the combined branch-index signal. Each time one of the conditions notifies:
+
+1. The builder closure of the branch that now matches runs and produces a new view.
+2. That view replaces the previous subtree, and the previous subtree is dropped.
+
+The branch index is not deduplicated. A notification that leaves the same branch selected, such as setting `state` in the chain above from `5` to `6`, both of which fall through to `.otherwise()`, still rebuilds that branch.
+
+**State owned inside a branch is discarded every time the branch is rebuilt.** This is the intended behavior, not a leak: a new branch is a new component instance, and WaterUI never infers component identity from where a call sits in the body. Anything that must survive a toggle is a `Binding` owned by the parent and passed in:
+
+```rust
 use waterui::prelude::*;
 use waterui::widget::condition::when;
 
@@ -114,43 +129,37 @@ fn settings_panel() -> impl View {
     let quality = Binding::f64(0.5);
 
     vstack((
-        toggle("Show Advanced", &show_advanced),
-        when(show_advanced.clone(), {
-            let quality = quality.clone();
-            move || {
-                vstack((
-                    text("Advanced Settings").headline(),
-                    slider("Quality", &quality).range(0.0..=1.0),
-                ))
-            }
+        toggle("Show advanced", &show_advanced),
+        when(show_advanced.clone(), move || {
+            slider("Quality", &quality).range(0.0..=1.0)
         }),
     ))
 }
 ```
 
-`Accordion` behaves the same way for the same reason — collapsing it discards the content's state, because collapsing destroys the content.
+A builder closure runs every time the chain rebuilds its branch, so keep it cheap and free of side effects.
 
-Branch closures run every time their branch is entered, so keep them free of side effects and cheap to call.
+When tearing a view down is itself costly or lossy, such as a `ParticleSystem` that restarts its simulation or a GPU view that re-uploads its resources, keep every layer mounted and cross-fade their `.opacity` signals instead of switching branches.
 
-## When *not* to reach for `when`
+## When not to reach for `when`
 
-`when` changes view *structure*. Most reactive UI does not.
+`when` changes view structure. Most reactive UI does not need that.
 
 | The thing that changes | Use | Not |
 |---|---|---|
-| A displayed value | `text!("{status}")` | `when` / `watch` around two `text()` calls |
-| A parameter of a live view | a signal-taking input, e.g. `.blur(amount.clone())` | rebuilding the view |
-| The membership of a collection | `ForEach` / `List` over a reactive collection | `watch` over a `Vec` |
-| Whether a subtree is on screen but should keep its state | `.visible(signal)` | `when` |
-| Which kind of view is on screen | `when` / `Dynamic::watch` | — |
+| A displayed value | `text!("{status}")` | `when` or `watch` around two `text()` calls |
+| A parameter of a live view | a signal-taking input, for example `.opacity(amount.clone())` | rebuilding the view |
+| The membership of a collection | `ForEach` or `List` over a reactive collection | `watch` over a `Vec` |
+| A subtree that stays on screen and must keep its state | `.visible(signal)` | `when` |
+| Which kind of view is on screen | `when` or `Dynamic::watch` | none |
 
-`watch(binding_of_vec, …)` rebuilds and re-dispatches the entire watched subtree on every change, and can escalate into a full-window structural rebuild. A dynamic set of views is a collection, so render it with `ForEach` or `List` and let membership diff by id — see [the lists chapter](05-lists.md).
+`watch` over a `Vec` rebuilds the entire watched subtree on every change. A dynamic set of views is a collection, so render it with `ForEach` or `List` and let membership diff by id; see [the lists chapter](05-lists.md).
 
 ### `.visible()` keeps the subtree alive
 
-`.visible(signal)` from `ViewExt` does not swap anything. It drives opacity, hit-testing, and the accessibility hidden state from one signal, so the subtree stays mounted and keeps every piece of state it owns:
+`.visible(signal)` from `ViewExt` swaps nothing. One signal drives opacity, hit-testing, and the accessibility hidden state, so the subtree stays mounted and keeps every piece of state it owns:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 
 fn draft_banner(has_draft: &Binding<bool>) -> impl View {
@@ -158,28 +167,55 @@ fn draft_banner(has_draft: &Binding<bool>) -> impl View {
 }
 ```
 
-The trade-off is that the hidden subtree still costs layout and memory. Use `.visible()` for something that toggles often and must not lose state; use `when` for something that is genuinely absent.
+The trade-off is that a hidden subtree still takes part in layout and stays in memory. Use `.visible()` for something that toggles often and must not lose state, and `when` for something that is genuinely absent.
 
-## Many branches: `match` plus `.anyview()`
+## Many branches: `match` and `.anyview()`
 
-Once each arm produces a different concrete view type, or the ladder grows past three or four rungs, a `match` over an enum reads better than a `when` chain. `.anyview()` erases the arms to a common type:
+When each arm produces a different concrete view type, or the ladder grows past three or four rungs, a `match` over an enum reads better than a `when` chain. `.anyview()` erases the arms to a common `AnyView`:
 
-```rust,ignore
+```rust
 use waterui::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Mode { A, B, C }
+enum Mode {
+    List,
+    Detail,
+    Empty,
+}
 
 fn render(mode: Mode) -> AnyView {
     match mode {
-        Mode::A => text("Mode A").title().anyview(),
-        Mode::B => button("Mode B").action(|| {}).anyview(),
-        Mode::C => vstack((text("Header"), text("Body"))).anyview(),
+        Mode::List => text("Items").anyview(),
+        Mode::Detail => button("Open").action(|| {}).anyview(),
+        Mode::Empty => vstack((text("Nothing here"), text("Add an item"))).anyview(),
     }
 }
 ```
 
-To make that reactive, wrap it in `Dynamic::watch(mode_signal, render)` — the same mechanism `when` uses, written directly. The state-loss rule is identical.
+To make the match reactive, hand the signal and the function to `Dynamic::watch`, the same mechanism `when` uses:
+
+```rust
+use waterui::prelude::*;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    List,
+    Empty,
+}
+
+fn render(mode: Mode) -> AnyView {
+    match mode {
+        Mode::List => text("Items").anyview(),
+        Mode::Empty => text("Nothing here").anyview(),
+    }
+}
+
+fn screen(mode: &Binding<Mode>) -> impl View {
+    Dynamic::watch(mode.clone(), render)
+}
+```
+
+The state rule is identical: each change of `mode` rebuilds the subtree.
 
 ## Quick reference
 
@@ -190,7 +226,8 @@ To make that reactive, wrap it in `Dynamic::watch(mode_signal, render)` — the 
 | `when(a, \|\| v).or(b, \|\| w).otherwise(\|\| x)` | If / else-if / else |
 | `when(!binding, \|\| view)` | Show while the binding is false |
 | `when(sig.equal_to(val), \|\| view)` | Compare a signal to a value |
+| `(flag).then(\|\| view)` | A condition known at build time |
 | `view.visible(sig)` | Hide without unmounting |
-| `Dynamic::watch(sig, \|v\| …)` | Structural swap driven by any signal |
+| `Dynamic::watch(sig, f)` | Structural swap driven by any signal |
 
 The last piece of the UI puzzle is moving between screens. The [next chapter](07-navigation.md) covers navigation stacks, tabs, and split views.
