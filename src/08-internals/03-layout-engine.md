@@ -8,7 +8,7 @@
 > - Write a custom layout that obeys those contracts
 > - Learn what a backend does with the result, and where safe areas fit
 
-A parent proposes a size, the child answers with the size it chooses, and the parent places the child. Everything in this chapter is a consequence of that negotiation. The rules are written down in [`docs/layout-spec.md`](https://github.com/water-rs/waterui/blob/dev/docs/layout-spec.md), which is normative and frozen: a difference between that document and the code is a bug in the code. This chapter explains the contract; the [layout chapter](../03-ui/02-layout.md) shows how to use the containers.
+A parent proposes a size, the child answers with the size it chooses, and the parent places the child. Everything in this chapter is a consequence of that negotiation. The rules are written down in [`docs/layout-spec.md`](https://github.com/water-rs/waterui/blob/main/docs/layout-spec.md), which is normative and frozen: a difference between that document and the code is a bug in the code. This chapter explains the contract; the [layout chapter](../03-ui/02-layout.md) shows how to use the containers.
 
 ## Logical pixels
 

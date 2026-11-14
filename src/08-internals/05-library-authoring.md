@@ -56,7 +56,7 @@ code with it.
 
 ### Consuming an unreleased framework change
 
-Between releases, a split repository consumes the framework's `dev` branch
+Between releases, a split repository consumes the framework's `main` branch
 through `[patch.crates-io]`, by `branch`, never by `rev` or `path`. Every
 `waterui-*` crate in the graph has to resolve to the same commit, because a
 registry `waterui-core` next to a git one gives you two `View` traits in one
@@ -64,10 +64,10 @@ graph, so patch each crate your graph reaches:
 
 ```toml
 [patch.crates-io]
-waterui-core = { git = "https://github.com/water-rs/waterui", branch = "dev" }
-waterui-graphics = { git = "https://github.com/water-rs/waterui", branch = "dev" }
-waterui-layout = { git = "https://github.com/water-rs/waterui", branch = "dev" }
-waterui-testing = { git = "https://github.com/water-rs/waterui", branch = "dev" }
+waterui-core = { git = "https://github.com/water-rs/waterui", branch = "main" }
+waterui-graphics = { git = "https://github.com/water-rs/waterui", branch = "main" }
+waterui-layout = { git = "https://github.com/water-rs/waterui", branch = "main" }
+waterui-testing = { git = "https://github.com/water-rs/waterui", branch = "main" }
 ```
 
 `Cargo.lock` records the exact commit; move it with `cargo update -p <crate>`,
