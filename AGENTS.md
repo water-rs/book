@@ -14,7 +14,7 @@ matter more than volume.
 ## 1. Source of Truth
 
 The `waterui/` directory is a **git submodule** pinned to a specific commit on
-the upstream `dev` branch (`https://github.com/water-rs/waterui.git`).
+the upstream `main` branch (`https://github.com/water-rs/waterui.git`).
 
 - **Every API name, type, signature, module path, feature flag, CLI subcommand,
   or example shown in the book MUST be verifiable against the currently pinned
@@ -52,7 +52,7 @@ build time from the live submodule:
 
 - `{{waterui_commit}}` — full submodule SHA (40 chars).
 - `{{waterui_commit_short}}` — abbreviated SHA (12 chars).
-- `{{waterui_branch}}` — tracked branch from `.gitmodules` (typically `dev`).
+- `{{waterui_branch}}` — tracked branch from `.gitmodules` (typically `main`).
 - `{{waterui_subject}}` — first line of the pinned commit message.
 - `{{waterui_committed_at}}` — pinned commit author date (`YYYY-MM-DD`).
 
@@ -63,7 +63,7 @@ long as `git submodule update --init --recursive` has been run.
 ### How to bump the submodule
 
 ```bash
-# 1. Fetch the latest dev tip and update the working tree
+# 1. Fetch the latest main tip and update the working tree
 git submodule update --remote --init --recursive waterui
 
 # 2. Audit chapters for drift (see Section 5)

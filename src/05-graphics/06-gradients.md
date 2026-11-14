@@ -208,7 +208,7 @@ fn warped_mesh() -> impl View {
 }
 ```
 
-If a signal delivers a number of colors or points other than `columns * rows`, the view panics, so size your collections from the same constants you pass to `new`. Driving a mesh at frame rate, as the repository's [`examples/gradient`](https://github.com/water-rs/waterui/tree/dev/examples/gradient) does with a `.task(...)` that writes a binding every 16 ms, is the general-purpose route; for the common case of a flowing background, use the next section instead and skip the task. Tasks are covered in [Suspense and async views](../06-advanced/03-suspense.md).
+If a signal delivers a number of colors or points other than `columns * rows`, the view panics, so size your collections from the same constants you pass to `new`. Driving a mesh at frame rate, as the repository's [`examples/gradient`](https://github.com/water-rs/waterui/tree/main/examples/gradient) does with a `.task(...)` that writes a binding every 16 ms, is the general-purpose route; for the common case of a flowing background, use the next section instead and skip the task. Tasks are covered in [Suspense and async views](../06-advanced/03-suspense.md).
 
 ## Self-animating gradients
 

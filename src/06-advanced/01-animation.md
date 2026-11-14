@@ -245,7 +245,7 @@ row it follows that row's membership; applied to a `Dynamic` (the view behind
 it decorates the content that replaces the old content.
 
 Removal has a defined shape, specified in section 4.5 of
-[the layout spec](https://github.com/water-rs/waterui/blob/dev/docs/layout-spec.md):
+[the layout spec](https://github.com/water-rs/waterui/blob/main/docs/layout-spec.md):
 
 - The leaving view exits the accessibility tree, hit testing and focus
   immediately. What remains is a non-interactive visual.

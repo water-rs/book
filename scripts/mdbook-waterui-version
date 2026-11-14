@@ -5,7 +5,7 @@ submodule into chapter content.
 Recognised placeholders:
   {{waterui_commit}}        full submodule SHA
   {{waterui_commit_short}}  12-character abbreviated SHA
-  {{waterui_branch}}        tracked branch from .gitmodules (typically `dev`)
+  {{waterui_branch}}        tracked branch from .gitmodules (typically `main`)
   {{waterui_subject}}       first line of the pinned commit message
   {{waterui_committed_at}}  pinned commit author date (YYYY-MM-DD)
 

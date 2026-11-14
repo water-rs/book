@@ -299,7 +299,7 @@ expansion is not a handle but a future: a remote data URL becomes
 use waterui::prelude::*;
 
 async fn remote_manifest() -> impl View {
-    match asset!("https://raw.githubusercontent.com/water-rs/waterui/dev/Cargo.toml").await {
+    match asset!("https://raw.githubusercontent.com/water-rs/waterui/main/Cargo.toml").await {
         Ok(data) => text(format!("Fetched {} bytes", data.len())),
         Err(error) => {
             waterui::log::error!("Cargo.toml: {error}");
