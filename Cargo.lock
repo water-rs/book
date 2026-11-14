@@ -5984,7 +5984,7 @@ dependencies = [
 [[package]]
 name = "waterui-barcode"
 version = "0.3.0"
-source = "git+https://github.com/water-rs/barcode?branch=dev#cd32426e732eb4d7075e0006fa4b49ac30928e24"
+source = "git+https://github.com/water-rs/barcode?branch=main#cd32426e732eb4d7075e0006fa4b49ac30928e24"
 dependencies = [
  "barcoders",
  "fast_qr",
@@ -6004,7 +6004,7 @@ dependencies = [
 [[package]]
 name = "waterui-chart"
 version = "0.3.0"
-source = "git+https://github.com/water-rs/chart?branch=dev#313e0ad99e1c1fd99f19a7f97f56ed97072cafe5"
+source = "git+https://github.com/water-rs/chart?branch=main#313e0ad99e1c1fd99f19a7f97f56ed97072cafe5"
 dependencies = [
  "bytemuck",
  "nami",
@@ -6136,7 +6136,7 @@ dependencies = [
 [[package]]
 name = "waterui-image"
 version = "0.5.0"
-source = "git+https://github.com/water-rs/image?branch=dev#338c20da3ce03d20186e947de41e1443d33d7673"
+source = "git+https://github.com/water-rs/image?branch=main#338c20da3ce03d20186e947de41e1443d33d7673"
 dependencies = [
  "half",
  "image",
@@ -6316,7 +6316,7 @@ dependencies = [
 [[package]]
 name = "waterui-particle"
 version = "0.2.0"
-source = "git+https://github.com/water-rs/particle?branch=dev#804d940be1d050c10923a83daa94977e82a65408"
+source = "git+https://github.com/water-rs/particle?branch=main#804d940be1d050c10923a83daa94977e82a65408"
 dependencies = [
  "bytemuck",
  "encase",
@@ -6350,7 +6350,7 @@ dependencies = [
 [[package]]
 name = "waterui-svg"
 version = "0.4.0"
-source = "git+https://github.com/water-rs/svg?branch=dev#75b85fbb0e7f2add26bf598ef34fba497f56d84d"
+source = "git+https://github.com/water-rs/svg?branch=main#75b85fbb0e7f2add26bf598ef34fba497f56d84d"
 dependencies = [
  "suiteki",
  "tracing",
@@ -7694,17 +7694,17 @@ version = "0.5.1"
 [[patch.unused]]
 name = "waterui-map-gpu"
 version = "0.3.0"
-source = "git+https://github.com/water-rs/map-gpu?branch=dev#4a3f25f3955530f87086200d46ed3ba9d713daf3"
+source = "git+https://github.com/water-rs/map-gpu?branch=main#4a3f25f3955530f87086200d46ed3ba9d713daf3"
 
 [[patch.unused]]
 name = "waterui-math"
 version = "0.2.0"
-source = "git+https://github.com/water-rs/math?branch=dev#4f4e006ebd8015a721cc7579b768e87e3b581a23"
+source = "git+https://github.com/water-rs/math?branch=main#4f4e006ebd8015a721cc7579b768e87e3b581a23"
 
 [[patch.unused]]
 name = "waterui-video-gpu"
 version = "0.4.0"
-source = "git+https://github.com/water-rs/video-gpu?branch=dev#32a950955e29e70aba57348ab531fa21f6408b29"
+source = "git+https://github.com/water-rs/video-gpu?branch=main#32a950955e29e70aba57348ab531fa21f6408b29"
 
 [[patch.unused]]
 name = "wgpu-core-deps-emscripten"
