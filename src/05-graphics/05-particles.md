@@ -4,18 +4,18 @@
 > - Describe a GPU particle effect as a single builder chain
 > - Aim emitters, motion, and collisions in normalized coordinates
 > - Drive live parameters from bindings so an effect follows app state
-> - Render frames offscreen for visual review
+> - Place a particle system in a layout and render frames offscreen for review
 
-No platform ships a particle primitive, so `ParticleSystem` is one of WaterUI's self-drawn components: a compute shader simulates every particle and one instanced draw call renders them, the same way on every backend.
+A particle effect is drawn content, not a control, so `ParticleSystem` is self-drawn on every backend rather than bridged to a platform emitter such as Core Animation's. Compute passes simulate every particle and one instanced draw call renders them, the same way everywhere. Its body is a [`GpuContentView`](02-gpu-surface.md) hosting the particle renderer, so it lays out and composes like any other GPU view.
 
-> **Feature flag:** particles live behind the `particle` feature. Add `waterui = { version = "...", features = ["particle"] }` to `Cargo.toml` — the `waterui::particle` module does not exist without it.
+> **Feature flag:** particles are the split crate `water-rs/particle`, re-exported by the facade as `waterui::particle` behind the `particle` feature. Add `waterui = { version = "0.5", features = ["particle"] }` to `Cargo.toml`; the module does not exist without it. Its public surface is `ParticleSystem`, the `particles` constructor, `BlendMode`, `EmitterShape`, and `ParticleShape`.
 
 ## Quick start
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::particle::ParticleSystem;
+```rust
 use core::f32::consts::PI;
+use waterui::particle::ParticleSystem;
+use waterui::prelude::*;
 
 fn rain() -> impl View {
     ParticleSystem::new(8_000)
@@ -37,13 +37,9 @@ fn rain() -> impl View {
 
 Ranges take two arguments, not a Rust range: `life(0.6, 0.8)` means "somewhere between 0.6 and 0.8 seconds", drawn per particle when it spawns. `particles(8_000)` is the free-function equivalent of `ParticleSystem::new(8_000)`.
 
-![Confetti emitter preview showing colored particles fanning out from a point](../assets/visuals/05-graphics/particle-confetti.png)
-
-*A confetti emitter rendered by WaterUI's preview pipeline. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
-
 ## Coordinates and units
 
-Every spatial value is normalized to the system's own frame: `[0.0, 0.0]` is the top-left corner and `[1.0, 1.0]` the bottom-right. Positions, particle sizes, emitter extents, gravity, and collider bounds all share that space, so one configuration looks the same at any output resolution. Emitting slightly outside the frame (`at(0.5, -0.04)`) is how you get particles that drift in from off-screen.
+Positions, emitter extents, collider bounds, speeds, and accelerations are fractions of the system's own frame: x of its width, y of its height, with `[0.0, 0.0]` at the top-left corner and `[1.0, 1.0]` at the bottom-right. A configuration therefore scales with the view, and on a frame that is not square the same speed covers more points along the longer side. Sprite size is the exception: `size` is a radius measured against the frame's shorter side, so round particles stay round at any aspect ratio. Emitting slightly outside the frame (`at(0.5, -0.04)`) is how you get particles that drift in from off-screen.
 
 Angles are radians from the +x axis with y pointing **down**: `0.0` aims right, `PI * 0.5` down, `PI` left, `PI * 1.5` up. Durations are seconds.
 
@@ -51,13 +47,15 @@ Angles are radians from the +x axis with y pointing **down**: `0.0` aims right, 
 
 | Modifier | Meaning |
 |---|---|
-| `at(x, y)` | Emitter center |
+| `at(x, y)` | Emitter center (default `0.5, 0.5`) |
 | `rate(per_second)` | Emission rate (see below) |
 | `emit_from_point()` | Spawn from a single point (default) |
-| `emit_from_rect(width, height)` | Spawn anywhere inside a rectangle |
-| `emit_from_circle(radius)` | Spawn anywhere inside a disk |
+| `emit_from_rect(width, height)` | Spawn anywhere inside a rectangle centered on `at` |
+| `emit_from_circle(radius)` | Spawn anywhere inside a disk centered on `at` |
 
-`ParticleSystem::new(max_particles)` allocates a fixed pool of slots once, and particles only ever recycle dead slots. Each frame, every free slot independently has a `rate * dt / max_particles` chance of respawning, so emission throttles itself as the pool fills: with the pool empty the system emits about `rate` particles per second, and at 90% occupancy roughly a tenth of that. Saturated effects therefore ask for far more than `max_particles / average_life` — the rain above requests 480,000/s from an 8,000-slot pool purely to keep it full. Tune `rate` by eye against the pool size rather than treating it as an exact count.
+The shape modifiers produce the `EmitterShape` values `Point`, `Rect { width, height }`, and `Circle { radius }`. The enum is `#[non_exhaustive]`, and no method takes it directly: you pick a shape through these modifiers.
+
+`ParticleSystem::new(max_particles)` allocates a fixed pool of slots once, and particles only ever recycle dead slots. Each frame, every free slot independently has a `rate * dt / max_particles` chance of respawning, so emission throttles itself as the pool fills: with the pool empty the system emits about `rate` particles per second, and at 90% occupancy roughly a tenth of that. Saturated effects therefore ask for far more than `max_particles / average_life`. Once `rate * dt` reaches `max_particles`, every free slot refills on the next frame and a higher rate changes nothing; the rain above requests 480,000/s from an 8,000-slot pool, which at 60 fps is exactly that point. Tune `rate` by eye against the pool size rather than treating it as an exact count.
 
 ## Particle properties
 
@@ -66,17 +64,21 @@ Angles are radians from the +x axis with y pointing **down**: `0.0` aims right, 
 | `life(min, max)` | Lifetime in seconds |
 | `speed(min, max)` | Initial speed magnitude |
 | `angle(min, max)` | Initial direction in radians |
-| `size(min, max)` | Sprite size in normalized units |
-| `spin(min, max)` | Rotation speed in radians per second |
+| `size(min, max)` | Sprite radius, as a fraction of the frame's shorter side |
+| `spin(min, max)` | Rotation speed in radians per second; each particle also starts at a random rotation |
 | `color(start, end)` | Tint at birth and at death |
-| `softness(value)` | Edge falloff, `0.0` hard to `1.0` soft |
+| `softness(value)` | Edge falloff, `0.0` hard to `1.0` soft (default `0.5`) |
 | `shape(ParticleShape)` | `Circle` (default) or `Rect` SDF sprite |
 | `stretch_with_velocity()` | Stretch the sprite along its velocity vector |
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::particle::{ParticleShape, ParticleSystem};
+`color` takes anything that converts to a `Color` signal, and the colors resolve against the environment, so theme colors work alongside hex literals. Every particle in a system shares the same pair and fades from `start` to `end` over its own lifetime, so one system draws one color ramp; layer several systems in a `zstack` for a multicolored effect. Without `color`, particles fade from opaque white to transparent.
+
+Rotation only shows on `ParticleShape::Rect`, since a circle looks the same at any angle. `Rect` sprites are drawn as narrow strips whose width also oscillates over time, which reads as confetti tumbling.
+
+```rust
 use core::f32::consts::{PI, TAU};
+use waterui::particle::{ParticleShape, ParticleSystem};
+use waterui::prelude::*;
 
 fn confetti() -> impl View {
     ParticleSystem::new(20_000)
@@ -102,30 +104,35 @@ fn confetti() -> impl View {
 |---|---|
 | `gravity(x, y)` | Constant acceleration |
 | `wind(x, y)` | Constant acceleration added alongside gravity |
-| `turbulence(value)` | Random horizontal jitter |
-| `drag(factor)` | Velocity retained per 60 fps frame (`1.0` = none) |
+| `turbulence(value)` | Strength of a random horizontal velocity jitter applied each frame |
+| `drag(factor)` | Velocity retained per 60 fps frame (`1.0` = none), frame-rate independent |
 
-```rust,ignore
-ParticleSystem::new(2_000)
-    .emit_from_rect(1.5, 0.2)
-    .at(0.5, 1.1)
-    .rate(40_000.0)
-    .life(8.0, 12.0)
-    .speed(0.02, 0.08)
-    .gravity(0.0, -0.01)
-    .wind(0.02, 0.0)
-    .turbulence(0.2)
-    .drag(0.98);
+```rust
+use waterui::particle::ParticleSystem;
+use waterui::prelude::*;
+
+fn drifting_dust() -> impl View {
+    ParticleSystem::new(2_000)
+        .emit_from_rect(1.5, 0.2)
+        .at(0.5, 1.1)
+        .rate(40_000.0)
+        .life(8.0, 12.0)
+        .speed(0.02, 0.08)
+        .gravity(0.0, -0.01)
+        .wind(0.02, 0.0)
+        .turbulence(0.2)
+        .drag(0.98)
+}
 ```
 
 ## Blending
 
-`additive()` makes overlapping particles brighten each other, which is what fire, sparks, and glow need. The default is `BlendMode::Alpha`.
+`additive()` makes overlapping particles brighten each other, which is what fire, sparks, and glow need. The default is `BlendMode::Alpha`; `BlendMode` is `#[non_exhaustive]` and `additive()` is the modifier that selects the other variant.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::particle::ParticleSystem;
+```rust
 use core::f32::consts::PI;
+use waterui::particle::ParticleSystem;
+use waterui::prelude::*;
 
 fn flame() -> impl View {
     ParticleSystem::new(3_000)
@@ -150,43 +157,47 @@ fn flame() -> impl View {
 
 | Modifier | Meaning |
 |---|---|
-| `collide_with_viewport()` | Bounce inside the normalized `[0,0]..[1,1]` rectangle |
-| `collide_with_rect(x, y, width, height)` | Bounce inside an arbitrary rectangle |
-| `collide_with_circle_obstacle(x, y, radius)` | Bounce off a static disk |
-| `bounce(restitution)` | Normal velocity retained on impact |
-| `surface_friction(value)` | Tangential velocity retained on impact |
-| `collide_with_particles(radius, strength)` | Soft particle-to-particle repulsion |
+| `collide_with_viewport()` | Keep particles inside the normalized `[0,0]..[1,1]` rectangle |
+| `collide_with_rect(x, y, width, height)` | Keep particles inside a rectangle whose top-left corner is `(x, y)` |
+| `collide_with_circle_obstacle(x, y, radius)` | Bounce off a disk centered on `(x, y)`; call it again for more obstacles |
+| `bounce(restitution)` | Fraction of normal velocity kept on impact (default `1.0`) |
+| `surface_friction(value)` | Fraction of tangential velocity kept on impact (default `1.0`) |
+| `collide_with_particles(radius, strength)` | Particle-to-particle repulsion on the GPU |
 
-```rust,ignore
-ParticleSystem::new(6_000)
-    .emit_from_circle(0.02)
-    .at(0.5, 0.18)
-    .rate(90_000.0)
-    .life(4.0, 6.0)
-    .speed(0.5, 1.4)
-    .gravity(0.0, 1.4)
-    .collide_with_rect(0.08, 0.08, 0.84, 0.84)
-    .collide_with_circle_obstacle(0.5, 0.36, 0.08)
-    .bounce(0.82)
-    .surface_friction(0.9)
-    .collide_with_particles(0.01, 16.0);
+```rust
+use waterui::particle::ParticleSystem;
+use waterui::prelude::*;
+
+fn pinball() -> impl View {
+    ParticleSystem::new(6_000)
+        .emit_from_circle(0.02)
+        .at(0.5, 0.18)
+        .rate(90_000.0)
+        .life(4.0, 6.0)
+        .speed(0.5, 1.4)
+        .gravity(0.0, 1.4)
+        .collide_with_rect(0.08, 0.08, 0.84, 0.84)
+        .collide_with_circle_obstacle(0.5, 0.36, 0.08)
+        .bounce(0.82)
+        .surface_friction(0.9)
+        .collide_with_particles(0.01, 16.0)
+}
 ```
 
-Bounds and obstacles are the last thing applied to a particle's new position each frame, so a fast particle can still tunnel through a thin collider — keep obstacles chunky relative to `speed * dt`. `collide_with_particles` adds a neighbor-grid build and lookup pass over the whole pool, so leave it off unless the clumping is visible.
+A collision rectangle clamps every particle back inside it, so nothing escapes it. A circle obstacle is tested only where a particle lands each frame, so keep obstacles large relative to a particle's per-frame travel (`speed * dt`); a fast particle can step through a small one. `collide_with_particles` makes every particle walk the neighbor grid around it each frame, a cost that grows as particles crowd together, so leave it off unless the clumping is visible.
 
 ## Live parameters
 
-Every builder argument is a signal. Literals become constants; a `Binding` or `Computed` stays live. The renderer samples each signal once per frame and requests a redraw whenever one changes, so the surrounding view is never rebuilt and particles already in flight keep their trajectories.
+Every numeric builder argument and both `color` arguments are signals. Literals become constants; a `Binding` or `Computed` stays live. The view samples each signal once per frame, so the surrounding view is never rebuilt and particles already in flight keep their trajectories. Numeric signals convert freely, so a `Binding<f64>` from a slider feeds an `f32` parameter directly.
 
-```rust,ignore
-use waterui::prelude::*;
-use waterui::component::slider;
-use waterui::particle::ParticleSystem;
+```rust
 use core::f32::consts::PI;
+use waterui::particle::ParticleSystem;
+use waterui::prelude::*;
 
 fn snowfall() -> impl View {
-    let density = Binding::container(0.25_f64);
-    let drift = Binding::container(0.0_f64);
+    let density = Binding::f64(0.25);
+    let drift = Binding::f64(0.0);
 
     vstack((
         ParticleSystem::new(4_000)
@@ -206,23 +217,21 @@ fn snowfall() -> impl View {
 }
 ```
 
-`density.map(...)` derives the emission rate without reading the binding, which is what keeps the dependency visible to the renderer. Numeric signals convert freely, so a `Binding<f64>` from a slider feeds an `f32` parameter directly.
+`density.map(...)` derives the emission rate without reading the binding, which keeps the dependency visible to the system. See [Reactive state](../02-core/02-reactive.md) for why you derive instead of snapshot.
 
 Which parameters respond, and when:
 
-- **Immediately, for all live particles:** `at`, `rate`, emitter shape, `gravity`, `wind`, `turbulence`, `drag`, collider bounds and obstacle positions, `bounce`, `surface_friction`, interaction `radius`/`strength`, `color`, `softness`.
-- **At the next spawn only:** `life`, `speed`, `angle`, `size`, `spin` — particles already alive keep the values they were born with.
-- **Fixed when the system is built:** `max_particles`, `shape`, `additive`, `stretch_with_velocity`, the *number* of circle obstacles, and whether collision or particle interaction is switched on at all. Changing one of these means constructing a new `ParticleSystem`.
-
-Earlier versions accepted the same signals but sampled them once while the builder chain ran, so a bound parameter froze after the first frame. The builder signatures did not change — code written against them now animates.
+- **Immediately, for all live particles:** `gravity`, `wind`, `turbulence`, `drag`, collision bounds, obstacle positions and radii, `bounce`, `surface_friction`, interaction `radius` and `strength`, `color`, `softness`.
+- **For the next spawns only:** `at`, `rate`, the emitter shape and its extent, `life`, `speed`, `angle`, `size`, `spin`; particles already alive keep where and how they were born.
+- **Fixed when the system is built:** `max_particles`, `shape`, `additive`, `stretch_with_velocity`, the *number* of circle obstacles, and whether bounds collision or particle interaction is switched on at all. These take plain values, not signals; changing one means constructing a new `ParticleSystem`.
 
 ## Placing a system in a layout
 
-`ParticleSystem` is a `View` built on [`GpuSurface`](02-gpu-surface.md), so it stretches to fill whatever it is given and composes like any other view:
+`ParticleSystem` is a `View` whose body is a `GpuContentView` (see [GPU content](02-gpu-surface.md)). It reports no intrinsic size, so it stretches on both axes, takes whatever size it is offered, and composes like any other view:
 
-```rust,ignore
-use waterui::prelude::*;
+```rust
 use waterui::particle::ParticleSystem;
+use waterui::prelude::*;
 
 fn celebration_card() -> impl View {
     zstack((
@@ -243,32 +252,40 @@ fn celebration_card() -> impl View {
 }
 ```
 
-Because it takes the size it is offered, a parent that proposes nothing measures it as zero. Wrap it in a `Frame` to pin dimensions — `ParticleSystem::size` sets the particle sprite size range, not the view's bounds:
+On an axis its parent leaves unspecified, such as a scroll view's scrolling axis, it measures zero. Pin its dimensions with a frame (see [Layout](../03-ui/02-layout.md)):
 
-```rust,ignore
-use waterui::layout::frame::Frame;
+```rust
+use waterui::prelude::*;
 
-Frame::new(celebration_card()).width(320.0).height(180.0)
+fn pinned_celebration() -> impl View {
+    celebration_card().size(320.0, 180.0)
+}
+
+# fn celebration_card() -> impl View {
+#     text("Order placed")
+# }
 ```
+
+On a bare `ParticleSystem`, `.size(min, max)` is its own sprite-radius modifier and takes precedence over the frame modifier of the same name, so pin a bare system with `.width(320.0).height(180.0)` instead.
 
 ## Rendering offscreen
 
-All four `render_offscreen*` methods are `async` and take a `&GpuRuntime`. Create the runtime once — it owns the GPU device and queue — and reuse it across renders.
+For snapshots and visual review, `ParticleSystem::render_offscreen` simulates the system without a window and returns the pixels. It is synchronous and takes a `&GpuRuntime`, which owns the GPU device and queue, so create the runtime once and reuse it. `OffscreenRenderer` renders scenes, pictures, and drawings, and `GpuRuntime::render_content` renders a single frame of `GpuContent` you own; a simulation needs many frames and `ParticleSystem` keeps its renderer private, so it has this entry point of its own.
 
-```rust,ignore
+```rust
 use core::f32::consts::TAU;
 use core::num::NonZeroU32;
-use waterui::Environment;
-use waterui::graphics::{GpuRuntime, OffscreenRenderConfig, OffscreenSize};
+use core::time::Duration;
+use waterui::graphics::{GpuRuntime, OffscreenImage, OffscreenSize};
 use waterui::particle::ParticleSystem;
+use waterui::prelude::*;
 
-async fn export_burst(path: &str) {
-    let runtime = GpuRuntime::new().await.expect("GPU runtime should initialize");
-    let size = OffscreenSize::try_from_pixels(600, 600).expect("size must be non-zero");
-    let frames = NonZeroU32::new(8).expect("frame count must be non-zero");
-    let mut env = Environment::new();
+async fn export_burst(path: &str) -> Result<(), Box<dyn core::error::Error>> {
+    let runtime = GpuRuntime::new().await?;
+    let size = OffscreenSize::try_from_pixels(600, 600).ok_or("size must be non-zero")?;
+    let frames = NonZeroU32::new(8).ok_or("frame count must be non-zero")?;
 
-    let output = ParticleSystem::new(20_000)
+    let readback = ParticleSystem::new(20_000)
         .emit_from_circle(0.05)
         .at(0.5, 0.5)
         .rate(1_200_000.0)
@@ -276,17 +293,22 @@ async fn export_burst(path: &str) {
         .speed(0.5, 3.0)
         .angle(0.0, TAU)
         .size(0.003, 0.008)
-        .render_offscreen_frames(&runtime, OffscreenRenderConfig::new(size), &mut env, frames)
-        .await
-        .expect("offscreen render should succeed");
+        .render_offscreen(
+            &runtime,
+            size,
+            &Environment::new(),
+            frames,
+            Duration::from_secs_f64(1.0 / 60.0),
+        )?;
 
-    output.save_png(path).expect("png write should succeed");
+    OffscreenImage::from_readback(&readback).save_png(path)?;
+    Ok(())
 }
 ```
 
-Offscreen frames advance at a fixed 1/60 s step, so `frames` maps directly to simulated time — 8 frames is roughly 133 ms in. One frame shows almost nothing, because a pool that starts empty needs several frames to fill. `render_offscreen_hdr` and `render_offscreen_hdr_frames` read back 16-bit float pixels for additive effects that clip in 8-bit; they reject any `OffscreenRenderConfig` whose `format` is not `Rgba16Float`, so set it with `OffscreenRenderConfig::format` before calling them.
+The caller supplies the simulation interval: an initial frame sets the simulation up, then `frames` steps of `frame_interval` advance it, with no wall-clock waiting. At 1/60 s per step, 8 frames is about 133 ms of simulated time. The pool starts empty and new particles appear at the emitter, so a capture after one or two steps shows little more than a cluster at `at`; choose `frames` times `frame_interval` to reach the moment you want to see.
 
-Emission is seeded randomly each frame, so two runs of the same configuration produce visibly similar but not identical images. Review these snapshots by eye rather than comparing hashes.
+The system renders into a 16-bit float target, and the returned `Readback` holds its premultiplied linear Display P3 pixels as `f32`, so bright additive overlaps keep values above `1.0`. `OffscreenImage::from_readback` converts them to straight-alpha sRGB8 for a PNG, clipping what falls outside sRGB. Emission is seeded randomly each frame, so two runs of the same configuration look alike but are not identical; review the images by eye rather than comparing hashes. The testing tools for views are covered in [Testing](../07-tools/03-testing.md).
 
 ## Next
 

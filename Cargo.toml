@@ -3,11 +3,111 @@ name = "waterui-tutorial-book"
 version = "0.1.0"
 edition = "2024"
 
+# The visuals project shares this root's `[patch.crates-io]` table and lock;
+# a `[patch]` applies only at the workspace root.
+[workspace]
+members = ["examples/book-visuals"]
+exclude = ["waterui"]
+
 # Tutorial book for testing code examples with real WaterUI
 # Users only depend on `waterui` - all sub-crates are re-exported through it
 
 [dependencies]
-waterui = { path = "waterui", features = ["barcode", "map", "particle", "chart"] }
+# Every facade feature a compiled (non-`ignore`) chapter fence needs, on top of
+# the facade's defaults (`gpu`, `assets`, `dialog`, `snackbar`, `highlight`,
+# `locale-datetime`, `locale-list`).
+waterui = { path = "waterui", features = [
+    "barcode",
+    "canvas",
+    "chart",
+    "media",
+    "particle",
+    "remote",
+    "video",
+    "webview",
+    "widgets",
+] }
 
 [dev-dependencies]
 waterui-testing = { path = "waterui/testing" }
+
+# `[patch]` in a dependency's manifest does not apply downstream, so the book
+# mirrors the `[patch.crates-io]` table of `waterui/Cargo.toml`. Without it the
+# split components (chart, barcode, particle, …) resolve the registry
+# `waterui-core` and `waterui-graphics`, the graph carries two of each, and
+# their views do not unify with the facade's. Keep this table in step with the
+# pinned submodule's; the cherenkov-bench reference engines (vello) are left
+# out because the book never links them.
+[patch.crates-io]
+shaderloom = { git = "https://github.com/water-rs/shaderloom", branch = "main" }
+waterui-core = { path = "waterui/core" }
+waterui-graphics = { path = "waterui/components/visual/graphics" }
+waterui-layout = { path = "waterui/components/foundation/layout" }
+waterui-shape = { path = "waterui/components/foundation/shape" }
+waterui-text = { path = "waterui/components/foundation/text" }
+waterui-map = { path = "waterui/components/data/map" }
+waterui-url = { path = "waterui/utils/url" }
+waterui-controls = { path = "waterui/components/foundation/controls" }
+waterui-video = { path = "waterui/components/multimedia/video" }
+waterui-macros = { path = "waterui/macros" }
+waterui = { path = "waterui" }
+waterui-assets = { path = "waterui/components/assets/runtime" }
+waterui-assets-core = { path = "waterui/components/assets/core" }
+waterui-backend-core = { path = "waterui/backends/core" }
+waterui-form = { path = "waterui/components/foundation/form" }
+waterui-icon = { path = "waterui/components/foundation/icon" }
+waterui-inspector-protocol = { path = "waterui/components/devtools/inspector/protocol" }
+waterui-locale = { path = "waterui/utils/locale" }
+waterui-navigation = { path = "waterui/components/foundation/navigation" }
+waterui-webview = { path = "waterui/components/platform/webview" }
+waterui-chromium = { path = "waterui/components/platform/chromium" }
+waterui-watcher-set = { path = "waterui/utils/watcher-set" }
+hydrolysis = { path = "waterui/backends/hydrolysis" }
+block = { git = "https://github.com/Dicklesworthstone/rust-block", rev = "b39ae859d1ee8e8cb5eef6a516471f1578d26b96" }
+cherenkov = { path = "waterui/graphics/cherenkov" }
+cherenkov-cpu = { path = "waterui/graphics/cherenkov/cpu" }
+cherenkov-gpu = { path = "waterui/graphics/cherenkov/gpu" }
+filtrate = { path = "waterui/graphics/filtrate" }
+filtrate-core = { path = "waterui/graphics/filtrate/core" }
+filtrate-derive = { path = "waterui/graphics/filtrate/derive" }
+naga = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+naga-types = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core-deps-apple = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core-deps-emscripten = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-core-deps-windows-linux-android = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-hal = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-naga-bridge = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-types = { git = "https://github.com/water-rs/wgpu", branch = "fix/metal-shared-memory-v30" }
+wgpu-external-frame = { git = "https://github.com/water-rs/wgpu-external-frame", branch = "main" }
+waterui-barcode = { git = "https://github.com/water-rs/barcode", branch = "main" }
+waterui-chart = { git = "https://github.com/water-rs/chart", branch = "main" }
+waterui-map-gpu = { git = "https://github.com/water-rs/map-gpu", branch = "main" }
+waterui-video-gpu = { git = "https://github.com/water-rs/video-gpu", branch = "main" }
+waterui-particle = { git = "https://github.com/water-rs/particle", branch = "main" }
+waterui-image = { git = "https://github.com/water-rs/image", branch = "main" }
+waterui-svg = { git = "https://github.com/water-rs/svg", branch = "main" }
+waterkit-build = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-camera = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-clipboard = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-deeplink = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-dialog = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-fs = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-haptic = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-location = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-menu = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-permission = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-audio = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-codec = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-core = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-video = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-video-container = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-video-core = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-video-player = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterkit-video-streaming = { git = "https://github.com/water-rs/waterkit", branch = "main" }
+waterui-math = { git = "https://github.com/water-rs/math", branch = "main" }
+suiteki = { git = "https://github.com/water-rs/suiteki", branch = "main" }
+homedir = { git = "https://github.com/water-rs/homedir", branch = "windows-0.62-signed" }
+clipboard-rs = { git = "https://github.com/water-rs/clipboard-rs", branch = "windows-0.62-signed" }
+tree-sitter-md = { git = "https://github.com/lexoliu/tree-sitter-markdown", branch = "wasm-tree-sitter-0.27" }

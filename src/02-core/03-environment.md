@@ -2,193 +2,381 @@
 
 > **In this chapter, you will:**
 > - Store and read values in WaterUI's type-indexed dependency injection container
-> - Reach shared configuration from any view with `use_env` and extractors
-> - Scope values to a subtree with `.with()` and `.install()`
-> - Replace the rendering of built-in components globally with hooks and plugins
+> - Reach shared configuration from any view with `use_env`, extractors and action handlers
+> - Scope a value or a plugin to one subtree with `.with()` and `.install()`
+> - Override the app's theme tokens with `Theme` and `ColorSettings`
+> - Replace how a built-in component renders with hooks and plugins
 
 A deeply nested button needs the current theme. A form field needs the locale. A detail screen needs the API client. Threading all of that through every view function's parameter list does not scale.
 
-`Environment` is the alternative: a type-indexed container that flows down the view tree automatically. Every view receives one in `body()`, every view can read from it, and any view can extend it for its own descendants. If you know React Context or SwiftUI's `@Environment`, this is the same idea with Rust's type system as the key.
+`Environment` is the alternative: a type-indexed container that flows down the view tree automatically. Every view receives one in `body()`, every view can read from it, and any view can extend it for its own descendants. If you know React Context or SwiftUI's `@Environment`, this is the same idea with Rust's type as the key.
 
 ## How it works
 
-Each type can hold at most one visible value, so there are no string keys and no registration step -- the type *is* the key. Internally the container is a structurally shared overlay chain, which makes cloning an `Rc` bump and extending an `O(1)` overlay rather than a map copy.
+Each type holds at most one visible value, so there are no string keys and no registration step: the type *is* the key. Inserting the same type twice replaces the earlier value; if one type genuinely needs several roles, see [`Store`](#several-values-of-one-type-with-store).
 
-Inserting the same type twice replaces the earlier value. If you genuinely need two values of one type, see [`Store`](#namespaced-keys-with-store).
+Internally the container is a structurally shared overlay chain. Cloning an `Environment` is an `Rc` bump and `extending` is an O(1) overlay rather than a map copy, which is why every view can afford to extend it. Because of the `Rc`, an `Environment` stays on the UI thread.
 
 ## Seeding an environment
 
-```rust,ignore
+The runtime hands your crate an `Environment` in `app(env)`. Put your services in it before building the `App`:
+
+```rust
+use waterui::app::App;
 use waterui::prelude::*;
 
-let mut env = Environment::new();
+#[derive(Clone)]
+struct ApiClient {
+    base_url: String,
+}
 
-// Imperative
-env.insert(String::from("hello"));
-env.insert(42i32);
+fn root() -> impl View {
+    "Hello, WaterUI!"
+}
 
-// with() mutates in place and returns &mut Self, so it chains
-env.with(String::from("hello"))
-   .with(42i32);
+pub fn app(mut env: Environment) -> App {
+    env.insert(ApiClient {
+        base_url: String::from("https://crates.io/api/v1"),
+    });
+    App::new(root, env)
+}
 ```
 
-`env.extending(value)` is the non-mutating variant: it returns a fresh `Environment` overlaying the new value on the original, leaving the original untouched.
+`Environment` has two in-place writers and one non-mutating one:
 
-> **Note:** a bare `Environment::new()` has no theme installed. Theme tokens fail fast rather than falling back -- resolving a color slot that was never installed panics with `WaterUI color token ... is not installed in the environment`. Backends and `Theme::install` set these up; if you build an environment by hand to render themed views, install a theme first.
-
-### Namespaced keys with `Store`
-
-`Store<K, V>` pairs a value with a zero-sized marker type so the same `V` can appear in several roles. Unlike `with`, `store` consumes the environment and returns it:
-
-```rust,ignore
-use waterui::env::Store;
+```rust
 use waterui::prelude::*;
 
-struct PrimaryColor;
-struct AccentColor;
+fn seed() -> Environment {
+    let mut env = Environment::new();
 
-let env = Environment::new()
-    .store::<PrimaryColor, _>(Color::blue())
-    .store::<AccentColor, _>(Color::orange());
+    env.insert(String::from("hello"));     // in place
+    env.with(42_i32).with(true);           // in place, returns &mut Self so it chains
 
-let primary: Option<&Color> = env.query::<PrimaryColor, Color>();
-let accent: Option<&Color> = env.query::<AccentColor, Color>();
+    // `extending` leaves `env` untouched and returns an overlay on top of it.
+    let scoped = env.extending(3.5_f64);
+    assert!(env.get::<f64>().is_none());
+    assert_eq!(scoped.get::<f64>(), Some(&3.5));
+    scoped
+}
 ```
 
 ### Reading and removing
 
-```rust,ignore
-if let Some(theme) = env.get::<MyTheme>() {
-    // &MyTheme
+```rust
+use waterui::prelude::*;
+
+#[derive(Default)]
+struct Settings {
+    verbose: bool,
 }
 
-let config = env.get_or_insert_with(|| AppConfig::default());
+fn inspect(env: &mut Environment) {
+    // `get` returns None when the type is absent.
+    let _maybe: Option<&Settings> = env.get::<Settings>();
 
-env.remove::<MyTheme>();
+    // `get_or_insert_with` inserts the default on first use.
+    let settings = env.get_or_insert_with(Settings::default);
+    let _verbose = settings.verbose;
+
+    // `remove` also hides a value inherited from a parent overlay.
+    env.remove::<Settings>();
+    assert!(env.get::<Settings>().is_none());
+}
+```
+
+`get_nth(index)` counts visible values of one type from the nearest overlay outwards, and `get_nth(0)` always agrees with `get`. Action handlers use it to give repeated `State<T>` parameters positional meaning:
+
+```rust
+use waterui::prelude::*;
+
+fn layered() {
+    let env = Environment::new()
+        .extending(1_i32)
+        .extending(2_i32)
+        .extending(3_i32);
+
+    assert_eq!(env.get_nth::<i32>(0), Some(&3));
+    assert_eq!(env.get_nth::<i32>(1), Some(&2));
+    assert_eq!(env.get_nth::<i32>(2), Some(&1));
+}
+```
+
+`env.layered_on(&parent)` replays this environment's overlays on top of `parent`, preserving repeated same-typed entries instead of collapsing them. Hydrolysis uses it to put your environment over its default tokens; you rarely call it yourself.
+
+### Several values of one type with `Store`
+
+`Store<K, V>` pairs a value with a zero-sized marker type `K`, so one `V` can appear in several roles. `store` consumes the environment and returns it; `query` reads a role back:
+
+```rust
+use waterui::prelude::*;
+
+struct Primary;
+struct Secondary;
+
+fn roles() {
+    let env = Environment::new()
+        .store::<Primary, _>(Color::blue())
+        .store::<Secondary, _>(Color::srgb(255, 152, 0));
+
+    let primary: Option<&Color> = env.query::<Primary, Color>();
+    let secondary: Option<&Color> = env.query::<Secondary, Color>();
+    assert!(primary.is_some() && secondary.is_some());
+}
 ```
 
 ## Reaching the environment from a view
 
 ### Extractors
 
-A type is readable from a view once it implements `Extractor`. The `impl_extractor!` macro writes that impl for any type stored directly in the environment:
+A type can be pulled out of an environment when it implements `Extractor`. The same trait serves `use_env` parameters and action handler parameters. Several implementations exist already:
 
-```rust,ignore
+| Extractor | Behavior |
+|-----------|----------|
+| `Use<T>` | Clones a `T` stored in the environment; fails if absent |
+| `State<T>` | Clones a value installed with `ViewExt::state` or `App::state` |
+| `Environment` | Clones the whole environment |
+| `Option<E: Extractor>` | Turns an extraction failure into `None` |
+| `(A, B, ...)` | Extracts each element, up to 8-tuples |
+
+For a `Clone` type you own and install directly with `insert`, `impl_extractor!` writes the `Extractor` impl, so the type can be named as a parameter without the `Use` wrapper:
+
+```rust
 use waterui::impl_extractor;
+use waterui::prelude::*;
 
-#[derive(Clone, Debug)]
-struct AppConfig {
+#[derive(Clone)]
+struct ApiClient {
     base_url: String,
-    timeout_ms: u32,
 }
 
-impl_extractor!(AppConfig);
+impl_extractor!(ApiClient);
 ```
 
-Several extractors exist already:
-
-| Type | Behavior |
-|------|----------|
-| `Environment` | Clones the whole environment |
-| `Option<T: Extractor>` | Extraction failure becomes `None` instead of an error |
-| `State<T>` | Pulls state injected with `ViewExt::state`, for action handlers |
-| `(A, B, ...)` | Extracts each element, up to 8-tuples |
+The `#[state]` attribute does the same job for a type installed through `.state(&value)` instead of `insert`; [Modifiers](04-modifiers.md) covers `.state(&value)` and [Controls](../03-ui/03-controls.md#owned-state-types-with-state) covers `#[state]`.
 
 ### `use_env`
 
-`use_env` builds a view from extracted values:
+`use_env` builds a view from extracted values. The closure runs once, when the renderer evaluates the view's body, not again on later state changes:
 
-```rust,ignore
+```rust
 use waterui::env::use_env;
+use waterui::impl_extractor;
 use waterui::prelude::*;
 
-let view = use_env(|config: AppConfig| {
-    let base_url = config.base_url.clone();
-    text!("API: {base_url}")
-});
+#[derive(Clone)]
+struct ApiClient {
+    base_url: String,
+}
+
+impl_extractor!(ApiClient);
+
+fn endpoint() -> impl View {
+    use_env(|client: ApiClient| text(client.base_url))
+}
 ```
 
-Extraction is fast-fail: if the value is missing, the view panics with a message naming the type. Wrap the parameter in `Option` when absence is legitimate:
+Extraction is fail-fast. When the value is missing, the closure does not run: a debug build panics with a message naming the type, and a release build logs the failure through `tracing` and renders nothing. Take `Option<E>` when absence is legitimate, and a tuple to read several values at once:
 
-```rust,ignore
-let view = use_env(|config: Option<AppConfig>| {
-    match config {
-        Some(config) => {
-            let base_url = config.base_url.clone();
-            text!("API: {base_url}").anyview()
-        }
-        None => text("Not configured").anyview(),
-    }
-});
+```rust
+use waterui::env::use_env;
+use waterui::impl_extractor;
+use waterui::prelude::*;
+
+#[derive(Clone)]
+struct ApiClient {
+    base_url: String,
+}
+
+impl_extractor!(ApiClient);
+
+fn endpoint_or_placeholder() -> impl View {
+    use_env(|client: Option<ApiClient>| match client {
+        Some(client) => text(client.base_url),
+        None => text("Not configured"),
+    })
+}
+
+fn endpoint_with_retries() -> impl View {
+    use_env(|(client, Use(retries)): (ApiClient, Use<u32>)| {
+        text(format!("{} (retries: {retries})", client.base_url))
+    })
+}
 ```
 
-Extract several values with a tuple:
+### From an action handler
 
-```rust,ignore
-let view = use_env(|(nav, db): (NavigationController, Database)| {
-    let name = db.name();
-    text!("Connected to {name}")
-});
+Handlers take the same extractors as parameters, so a button can reach a service without capturing it:
+
+```rust
+use waterui::impl_extractor;
+use waterui::prelude::*;
+
+#[derive(Clone)]
+struct ApiClient {
+    base_url: String,
+}
+
+impl_extractor!(ApiClient);
+
+fn send_button() -> impl View {
+    button("Send").action(|client: ApiClient| {
+        waterui::log::info!("sending to {}", client.base_url);
+    })
+}
 ```
+
+A handler runs under the environment of the view that owns it, so the value has to be installed on that view or one of its ancestors.
 
 ### Scoping a value to a subtree
 
-`ViewExt::with` injects a value for a view and everything below it:
+`ViewExt::with` injects a value for a view and everything below it, and the free function `waterui::env::with` does the same without the method syntax. The value shadows an inherited one of the same type for that subtree only:
 
-```rust,ignore
-settings_form().with(MyConfig { debug: true })
+```rust
+use waterui::env::{use_env, with};
+use waterui::impl_extractor;
+use waterui::prelude::*;
+
+#[derive(Clone)]
+struct ApiClient {
+    base_url: String,
+}
+
+impl_extractor!(ApiClient);
+
+fn endpoint() -> impl View {
+    use_env(|client: ApiClient| text(client.base_url))
+}
+
+fn staging_panel() -> impl View {
+    let staging = ApiClient {
+        base_url: String::from("https://staging.crates.io/api/v1"),
+    };
+    endpoint().with(staging)
+}
+
+fn production_panel(production: ApiClient) -> impl View {
+    with(endpoint(), production)
+}
 ```
 
-That is how you give the settings page a different theme without touching the rest of the app. `ViewExt::install` does the same for a plugin:
+`ViewExt::install` is the same operation for a [plugin](#plugins), described below.
 
-```rust,ignore
-settings_form().install(HighContrastPlugin)
+## Theme tokens
+
+Colors and fonts that follow the platform are environment values too. The color slots (`Background`, `Foreground`, `Accent`, and the rest listed in `waterui::theme::color`) and the font slots are signals stored in the environment, and a view reads one by naming the token:
+
+```rust
+use waterui::prelude::*;
+use waterui::theme::color::{Background, Foreground};
+
+fn themed() -> impl View {
+    text!("Hello, World!")
+        .foreground(Foreground)
+        .background(Background)
+}
 ```
+
+**Theme tokens are always installed by the runtimes.** Each runtime builds the environment your view runs in with the color slots, the color scheme and the font slots already present: the Apple backend installs them from the platform's current appearance, Hydrolysis installs the framework's default palette and type scale and then layers a style package over it, and the offscreen test harness installs the same defaults. You never install a theme just to make `Foreground` resolve. Anything you install wins on both mainline backends: the Apple backend fills the environment before it calls `app(env)`, and Hydrolysis orders framework defaults, then the style package, then your own environment.
+
+The failure mode only appears when you build an `Environment::new()` yourself and mount it without a runtime. Resolving a color slot nobody installed is a contract violation: a debug build panics with `WaterUI color token ... is not installed in the environment`, and a release build logs the error and resolves opaque black.
+
+### Overriding tokens
+
+`Theme` is a plugin that overrides only what you set. `ColorSettings` holds one optional `WorkingColor` signal per slot, and every setter takes `impl IntoSignal<WorkingColor>`, so a static `Srgb` and a reactive `Binding` both work:
+
+```rust
+use waterui::app::App;
+use waterui::color::Srgb;
+use waterui::prelude::*;
+
+fn root() -> impl View {
+    "Hello, WaterUI!"
+}
+
+fn brand_theme() -> Theme {
+    Theme::new().colors(
+        ColorSettings::new()
+            .accent(Srgb::from_hex("#0066CC"))
+            .accent_foreground(Srgb::from_hex("#FFFFFF")),
+    )
+}
+
+pub fn app(mut env: Environment) -> App {
+    env.install(brand_theme());
+    App::new(root, env)
+}
+```
+
+`Theme::color_scheme` accepts a static `ColorScheme` or a reactive signal, so you can pin a dark appearance or drive it from your own state. Under Hydrolysis the default palette follows the scheme your app installs. The Apple backend derives its color slots from the system appearance instead, so there a pinned scheme changes what views reading the scheme see but does not recolor the slots you leave unset:
+
+```rust
+use waterui::prelude::*;
+
+fn pinned_dark() -> Theme {
+    Theme::new().color_scheme(ColorScheme::Dark)
+}
+```
+
+To restyle one screen, install a `Theme` on that subtree. Slots you leave unset keep their inherited values:
+
+```rust
+use waterui::color::Srgb;
+use waterui::prelude::*;
+use waterui::theme::color::Error;
+
+fn danger_zone() -> impl View {
+    vstack((
+        text("Danger zone").foreground(Error),
+        text("Deleting your account cannot be undone."),
+    ))
+    .install(Theme::new().colors(ColorSettings::new().error(Srgb::from_hex("#B00020"))))
+}
+```
+
+Because the slots are signals, a token tracks changes per property without rebuilding the subtree. `Theme`, `ColorSettings` and `FontSettings` are in the prelude. The styling vocabulary, including component style tokens and Material 3, is the subject of [the Styling chapter](../03-ui/11-styling.md).
 
 ## Keeping guards alive with `retain`
 
-Anything RAII-scoped -- a signal watcher guard, a subscription, a task handle -- dies at the end of the `body()` that created it unless you tie it to the view:
+Anything RAII-scoped, such as a signal watcher guard, a subscription or a task handle, is dropped at the end of the function that created it unless you tie it to the view:
 
-```rust,ignore
-fn my_view(data: Binding<String>) -> impl View {
-    let guard = data.watch(|ctx| {
-        tracing::debug!("Data changed: {}", ctx.into_value());
+```rust
+use waterui::prelude::*;
+
+fn watching(data: Binding<i32>) -> impl View {
+    let guard = data.clone().watch(|value| {
+        waterui::log::debug!("data changed: {}", value.into_value());
     });
 
     text!("Watching {data}").retain(guard)
 }
 ```
 
-Retain several values by chaining `.retain(a).retain(b)` or by passing a tuple. If a side effect "does not work", check that its guard is retained -- an unretained watcher unsubscribes the moment the body returns.
+`retain` wraps the view in `Metadata<Retain>`. Retain several values by chaining `.retain(a).retain(b)` or by passing a tuple. If a side effect "does not work", check that its guard is retained: an unretained watcher unsubscribes the moment the body returns.
 
-## Hooks: intercepting view configuration
+## Hooks: intercepting component configuration
 
-Hooks are how a theme replaces the rendering of every button in an app without editing a single call site. A `Hook<C>` is a function from an environment plus a view configuration to a view:
+Hooks are how a theme replaces the rendering of every button in an app without editing a call site. A configurable component builds a `Config` value describing what it wants to show, and `Hook<Config>` is a function from an environment and that configuration to a view. `Button`'s `body` is the canonical case: it looks up `Hook<ButtonConfig>` in the environment and applies it if present, and otherwise renders the platform control.
 
-```rust,ignore
-pub struct Hook<C>(Box<dyn Fn(&Environment, C) -> AnyView>);
-```
+Install one with `Environment::insert_hook`. `render()` comes from the `ViewConfiguration` trait, so bring it into scope:
 
-Install one with `insert_hook`. `render()` comes from the `ViewConfiguration` trait, so bring it into scope:
-
-```rust,ignore
+```rust
 use waterui::component::button::ButtonConfig;
+use waterui::prelude::*;
 use waterui::view::ViewConfiguration;
 
-env.insert_hook(|env: &Environment, config: ButtonConfig| {
-    config.render()
-        .padding()
-        .background(Color::blue())
-});
+fn install_button_hook(env: &mut Environment) {
+    env.insert_hook(|_env: &Environment, config: ButtonConfig| {
+        config.render().padding().background(Color::blue())
+    });
+}
 ```
 
-When a configurable view's `body()` runs it extracts its `Config`, looks up `Hook<Config>` in the environment, and calls the hook if one is present; otherwise the default native rendering is used. See [`ConfigurableView`](01-view.md#hookable-views) for the view side of that contract.
-
-The hook is invoked with the hook itself *removed* from the environment. That is deliberate: it means `config.render()` inside a hook produces the default rendering instead of recursing forever, so a hook can wrap the platform control rather than having to replace it.
+The hook runs with itself *removed* from the environment it receives. That is deliberate: `config.render()` inside a hook produces the default rendering instead of recursing forever, so a hook wraps the platform control rather than having to replace it. See [the View chapter](01-view.md) for the `ViewConfiguration` side of the contract.
 
 ## Plugins
 
-A `Plugin` bundles related setup -- values, hooks, nested plugins -- behind one call:
+A `Plugin` bundles related setup, such as values, hooks and nested plugins, behind one call. The trait is re-exported at the facade root as `waterui::Plugin`:
 
 ```rust,ignore
 pub trait Plugin: Sized + 'static {
@@ -202,21 +390,23 @@ pub trait Plugin: Sized + 'static {
 }
 ```
 
-The default `install` just stores the plugin. Override it to do real work:
+The default `install` stores the plugin value itself, which is how a plugin doubles as readable configuration. Override it to do more:
 
-```rust,ignore
+```rust
+use waterui::Plugin;
 use waterui::component::button::ButtonConfig;
 use waterui::prelude::*;
 use waterui::shape::RoundedRectangle;
 use waterui::view::ViewConfiguration;
 
-struct RoundedButtonPlugin;
+struct RoundedButtons;
 
-impl Plugin for RoundedButtonPlugin {
+impl Plugin for RoundedButtons {
     fn install(self, env: &mut Environment) {
         env.insert(self);
-        env.insert_hook(|env: &Environment, config: ButtonConfig| {
-            config.render()
+        env.insert_hook(|_env: &Environment, config: ButtonConfig| {
+            config
+                .render()
                 .padding()
                 .background(Color::blue())
                 .clip(RoundedRectangle::new(0.2))
@@ -225,89 +415,54 @@ impl Plugin for RoundedButtonPlugin {
 }
 ```
 
-`RoundedRectangle::new` takes a *normalized* corner radius in `0.0..=0.5`, not points, so `0.2` looks the same on a small button and a large one.
+`RoundedRectangle::new` takes a *normalized* corner radius, a fraction of the shorter side with `0.5` fully rounded, so `0.2` looks the same on a small button and a large one.
 
-Install at the root for the whole app, or on a subtree for part of it:
+Install at the root for the whole app with `Environment::install`, or on a subtree with `ViewExt::install`:
 
-```rust,ignore
-// App-wide
-pub fn app(mut env: Environment) -> App {
-    env.install(RoundedButtonPlugin);
-    App::new(main, env)
+```rust
+use waterui::Plugin;
+use waterui::app::App;
+use waterui::component::button::ButtonConfig;
+use waterui::prelude::*;
+use waterui::shape::RoundedRectangle;
+use waterui::view::ViewConfiguration;
+
+struct RoundedButtons;
+
+impl Plugin for RoundedButtons {
+    fn install(self, env: &mut Environment) {
+        env.insert(self);
+        env.insert_hook(|_env: &Environment, config: ButtonConfig| {
+            config
+                .render()
+                .padding()
+                .background(Color::blue())
+                .clip(RoundedRectangle::new(0.2))
+        });
+    }
 }
 
-// One screen only
-fn my_screen() -> impl View {
+fn screen() -> impl View {
     vstack((
         button("Save").action(|| {}),
         button("Cancel").action(|| {}),
     ))
-    .install(RoundedButtonPlugin)
+    .install(RoundedButtons)
+}
+
+pub fn app(env: Environment) -> App {
+    // To apply it app-wide instead, declare `mut env` and call
+    // `env.install(RoundedButtons)` before `App::new`.
+    App::new(screen, env)
 }
 ```
 
-Install the plugin on one section and compare it with the rest of the app: only that subtree's buttons change.
-
-## Worked example: a custom theme
-
-```rust,ignore
-use waterui::impl_extractor;
-use waterui::env::use_env;
-use waterui::prelude::*;
-
-#[derive(Clone, Debug)]
-struct AppTheme {
-    primary: Color,
-    background: Color,
-    text: Color,
-}
-
-impl_extractor!(AppTheme);
-
-impl AppTheme {
-    fn light() -> Self {
-        Self {
-            primary: Color::blue(),
-            background: Color::srgb(255, 255, 255),
-            text: Color::srgb(0, 0, 0),
-        }
-    }
-
-    fn dark() -> Self {
-        Self {
-            primary: Color::cyan(),
-            background: Color::srgb(26, 26, 26),
-            text: Color::srgb(255, 255, 255),
-        }
-    }
-}
-
-fn themed_card(title: &'static str) -> impl View {
-    use_env(|theme: AppTheme| {
-        text(title)
-            .foreground(theme.text)
-            .padding()
-            .background(theme.background)
-    })
-}
-
-fn app_root() -> impl View {
-    vstack((
-        themed_card("Welcome"),
-        themed_card("Settings"),
-    ))
-    .with(AppTheme::light())
-}
-```
-
-Each card re-extracts `AppTheme` from its own environment, so swapping the value at the root swaps every card.
-
-To switch themes at runtime, scope the two variants behind a condition -- `when(dark_mode, || content().with(AppTheme::dark())).otherwise(|| content().with(AppTheme::light()))` -- so the framework rebuilds only that subtree when the flag flips. For colors that should update without any rebuild, use theme tokens instead: they are signals, and the backend tracks them per property.
+Try installing the plugin on one section and compare it with the rest of the app: only that subtree's buttons change. [The Plugins chapter](../06-advanced/07-plugins.md) goes further.
 
 ## Metadata
 
-Some rendering instructions ride along with a view rather than living in the environment. `Metadata<T>` is the mandatory form: a renderer that meets a `Metadata<T>` it does not understand panics, which is what keeps environment overrides and lifecycle hooks from being silently dropped. `IgnorableMetadata<T>` is the optional form, discarded by renderers that do not implement it -- accessibility hints use it.
+Some instructions ride along with a view instead of living in the environment. `Metadata<T>` is the mandatory form: a renderer that meets a `Metadata<T>` it does not handle breaks the contract, so a debug build panics and a release build logs the error and renders nothing. That is what keeps environment overrides and lifecycle hooks from being silently dropped. `IgnorableMetadata<T>` is the optional form, passed through by renderers that do not implement it; accessibility hints use it.
 
-You rarely construct either directly. The `ViewExt` modifiers do it for you: `.with(...)`, `.retain(...)`, `.on_appear(...)`, and `.shadow(...)` produce `Metadata`, while `.a11y_label(...)` and `.a11y_role(...)` produce `IgnorableMetadata`. The types themselves live in the internal `waterui_core` foundation crate; the facade exposes the modifiers, not the wrappers.
+You rarely construct either directly. The `ViewExt` modifiers do it for you: `.with(...)` and `.install(...)` render as `Metadata<Environment>`, `.retain(...)` produces `Metadata<Retain>`, `.on_appear(...)` and `.shadow(...)` produce `Metadata`, and `.a11y_label(...)` produces `IgnorableMetadata`. A library that defines its own renderer-visible marker implements `MetadataKey` and wraps views with these types, all reachable from `waterui::metadata`.
 
 Next: [Modifiers and ViewExt](04-modifiers.md), the chainable methods that style, position, and add behavior to any view.

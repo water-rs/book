@@ -1,195 +1,232 @@
 # Shaders
 
 > **In this chapter, you will:**
-> - Write WGSL fragment shaders and display them with `ShaderSurface`
-> - Use the built-in uniforms for time, resolution, and aspect-ratio correction
-> - Load shader files at compile time with the `shader!` macro
-> - Build animated effects like plasma and procedural noise
-> - Know when to graduate from `ShaderSurface` to `GpuView`
+> - Paint a view with your own WGSL fragment shader using `shader!` and `ShaderPaintView`
+> - Read the built-in uniforms and pass your own values that follow a signal
+> - Animate a shader only while you need it to
+> - Write colors in the right space for the engine's output
+> - Post-process any view with a `ShaderEffect` through `.effect(...)`
 
-`ShaderSurface` is the shortest path from "I have a WGSL fragment shader" to "it is on screen." You supply the fragment; WaterUI supplies the vertex stage, the uniform buffer, the pipeline, and the render loop.
+WaterUI gives you two ways to put your own WGSL on screen, and they answer different questions:
 
-## Quick start
+- **`ShaderPaintView`** *generates* pixels. The shader has no input; it fills the view's rectangle from `uv`, time and your parameters. Starfields, plasma and procedural backgrounds belong here.
+- **`ShaderEffect`** *transforms* pixels. The shader receives the rendered content of a view as a texture and writes the result. CRT scanlines, distortion and color grading belong here.
+
+Both need the `gpu` feature of the `waterui` crate, which is on by default. When your shader needs its own pipelines, buffers or a compute pass, step down to [`GpuContent`](02-gpu-surface.md).
+
+Shader source lives in its own `.wgsl` file, never in a Rust string literal. You get syntax highlighting, and the file can be read on its own.
+
+## Painting a view: `shader!`
 
 ```rust,ignore
-use waterui::prelude::*;
 use waterui::graphics::shader;
+use waterui::prelude::*;
 
-fn my_effect() -> impl View {
-    shader!("shaders/plasma.wgsl")
+fn starfield() -> impl View {
+    shader!("starfield.wgsl").animated(true).size(400.0, 500.0)
 }
 ```
 
-`shader!` reads the WGSL source at compile time with `include_str!` and builds a `ShaderSurface` labeled with the path. **The path is resolved against your crate's `src/` directory, not against the file that calls the macro** — `shader!("shaders/plasma.wgsl")` loads `<your-crate>/src/shaders/plasma.wgsl`.
+`shader!` expands to `ShaderPaintView::new(include_str!("starfield.wgsl"))`. Because `include_str!` resolves relative to the file that contains the call, `starfield.wgsl` sits **next to that Rust source file**. The fence is `rust,ignore` because the book crate has no such file; `examples/starfield` in the WaterUI repository is the working version.
 
-![ShaderSurface preview with a plasma fragment shader](../assets/visuals/05-graphics/shader-plasma.png)
+A `ShaderPaintView` stretches on both axes, so constrain it with `.size(w, h)`, `.width(..)`, `.height(..)` or the `min_`/`max_` variants like any other greedy view (see [layout](../03-ui/02-layout.md)).
 
-*A WGSL fragment shader rendered through ShaderSurface. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+`ShaderPaintView::new` does not validate the WGSL. The module is compiled when the view is first set up on the GPU, so a mistake in a paint shader shows up when the view renders, not when you build it.
 
-## Creating a ShaderSurface from a string
+## What your fragment can use
 
-When the source is not a fixed file path — generated WGSL, a shader assembled at runtime — construct the surface directly:
-
-```rust,ignore
-use waterui::graphics::ShaderSurface;
-
-fn gradient_effect(source: String) -> impl View {
-    ShaderSurface::new(source)
-}
-```
-
-`ShaderSurface::new` accepts anything convertible into `Cow<'static, str>`, so a `&'static str` from `include_str!` works too. Prefer `shader!` when you have a file: it keeps the path in one place and labels the shader for graphics diagnostics.
-
-`include_fragment_shader!("shaders/plasma.wgsl")` gives you the same compile-time load as a value — a `ShaderSource { label, source }` — when you want to hold the source before deciding what to do with it.
-
-## Built-in uniforms
-
-Every `ShaderSurface` shader is prefixed with a fixed prelude, so you never declare this yourself:
+You write only the fragment stage. WaterUI puts a prelude in front of your file that provides the uniforms, the parameter block and a full-screen vertex stage:
 
 ```wgsl
 struct Uniforms {
-    time: f32,             // seconds since the surface was set up
-    resolution: vec2<f32>, // surface size in pixels
+    time: f32,
     _padding: f32,
+    resolution: vec2<f32>,
 }
-
-@group(0) @binding(0)
-var<uniform> uniforms: Uniforms;
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var<uniform> params: array<vec4<f32>, 16>;
 ```
 
-The prelude also declares a `VertexOutput` struct and a `vs_main` vertex shader that emits a six-vertex full-screen quad. Your file only defines the fragment stage, and the entry point must be named `main`:
+| Name | Meaning |
+| --- | --- |
+| `uniforms.time` | Seconds since the view's GPU content was set up |
+| `uniforms.resolution` | The render target size in pixels |
+| `params` | Your values, sixteen `vec4` (see below) |
+| `uv` | The fragment's position in `[0, 1]`, **`(0, 0)` at the top-left** |
+
+The vertex stage is also provided (`vs_main`, a single oversized triangle that covers the view, writing a `VertexOutput` struct). `Uniforms`, `uniforms`, `params`, `VertexOutput` and `vs_main` are therefore taken; do not declare them again. Your file defines the fragment entry point, which must be named `main`, and takes `uv` at location 0:
 
 ```wgsl
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    // uv: (0,0) at bottom-left, (1,1) at top-right
-    return vec4<f32>(uv.x, uv.y, sin(uniforms.time) * 0.5 + 0.5, 1.0);
+    let pulse = 0.5 + 0.5 * sin(uniforms.time * 2.0);
+    let color = vec3<f32>(uv.x, uv.y, pulse);
+    return vec4<f32>(cherenkov_linear_srgb(color), 1.0);
 }
 ```
 
-The exact prelude text is available as the `waterui::graphics::shader_surface::PRELUDE` constant if you need to reproduce the environment in a standalone WGSL tool.
+Names starting with `cherenkov_` come from the engine and are in scope without declaring them, as are the engine's color-space declarations named `space_*` and `SPACE_*`.
 
-## Writing WGSL
+### Aspect-correct coordinates
 
-### Time-based animation
+`uv` is normalized per axis, so a circle drawn from it stretches with the view. Correct it with the resolution:
 
-`uniforms.time` ticks up continuously, which is all you need for pulsing, rotating, and morphing:
+```wgsl
+let aspect = uniforms.resolution.x / uniforms.resolution.y;
+let p = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
+```
+
+`examples/starfield/src/starfield.wgsl` does exactly this, then layers noise and stars on `p`.
+
+## Color output
+
+A shader paints into the engine's working space: **premultiplied, linear Display P3**. Returning sRGB values unconverted shifts both brightness and saturation. The engine's helpers convert for you:
+
+| Helper | Converts |
+| --- | --- |
+| `cherenkov_linear_srgb(rgb: vec3)` | linear sRGB to the working space |
+| `cherenkov_srgb_decode(rgb: vec3)` | the sRGB transfer curve, decoding to linear |
+| `cherenkov_srgb(color: vec4)` | straight-alpha sRGB to premultiplied working color |
+| `cherenkov_premultiplied_srgb(color: vec4)` | encoded premultiplied sRGB, as browser compositors produce it |
+
+Do your lighting math in linear space, then pass the result through `cherenkov_linear_srgb`. If you write a translucent color, multiply the color by its alpha yourself.
+
+## Passing parameters
+
+`ShaderPaintView::uniforms` takes a `Vec<f32>` that follows a signal. Each change reaches the shader without rebuilding the view, and an idle (non-animated) shader re-renders once per change. At most 64 floats are accepted (sixteen `vec4`); a longer list panics when read.
+
+```rust
+use waterui::graphics::ShaderPaintView;
+use waterui::prelude::*;
+
+fn tunable(fragment: &'static str, params: Binding<Vec<f32>>, running: Binding<bool>) -> impl View {
+    ShaderPaintView::new(fragment)
+        .uniforms(params)
+        .animated(running)
+        .size(320.0, 240.0)
+}
+```
+
+The floats are packed flat, so element `i` is `params[i / 4u][i % 4u]` in WGSL:
 
 ```wgsl
 @fragment
 fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let t = uniforms.time;
-    let dist = distance(uv, vec2<f32>(0.5, 0.5));
-    let radius = 0.3 + 0.1 * sin(t * 2.0);
-    let circle = smoothstep(radius + 0.01, radius - 0.01, dist);
-
-    return vec4<f32>(circle, circle * 0.5, 1.0 - circle, 1.0);
+    let speed = params[0].x;
+    let hue = params[0].y;
+    let wave = 0.5 + 0.5 * sin(uv.x * 10.0 + uniforms.time * speed);
+    return vec4<f32>(cherenkov_linear_srgb(vec3<f32>(wave, hue, 1.0 - wave)), 1.0);
 }
 ```
 
-### Aspect-ratio correction
+Because `uniforms` takes `impl IntoComputed<Vec<f32>>`, a plain `Vec<f32>`, a `Binding<Vec<f32>>` or a `Computed` that packs several slider bindings into one list all work. Signals are covered in [Reactive state](../02-core/02-reactive.md).
 
-`uv` is normalized to the surface, so circles turn into ellipses on a non-square surface unless you correct with `uniforms.resolution`:
+## Animating on demand
 
-```wgsl
-@fragment
-fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let res = max(uniforms.resolution, vec2<f32>(1.0));
-    let aspect = res.x / res.y;
+`.animated(signal)` decides whether the shader keeps rendering:
 
-    let p = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
-    let ring = smoothstep(0.01, 0.0, abs(length(p) - 0.3));
+- While the signal is `true`, the view asks for another frame after every frame, and `uniforms.time` advances.
+- While it is `false`, the shader renders once per change of its parameters or size, and the host stays idle.
 
-    return vec4<f32>(ring, ring, ring, 1.0);
-}
-```
+`.animated(true)` is the constant case. Bind it to a `Binding<bool>` (as in the example above) to pause a background when it is off-screen or when the user prefers reduced motion. A paused shader requests no frames.
 
-### Procedural noise
+## Post-processing a view: `.effect(...)`
 
-A hash-based value noise, the building block for fire, clouds, and terrain:
-
-```wgsl
-fn hash21(p: vec2<f32>) -> f32 {
-    return fract(sin(dot(p, vec2<f32>(127.1, 311.7))) * 43758.5453123);
-}
-
-@fragment
-fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let cell = floor(uv * 10.0);
-    let n = hash21(cell + vec2<f32>(uniforms.time * 0.1, 0.0));
-
-    return vec4<f32>(n, n, n, 1.0);
-}
-```
-
-## How ShaderSurface behaves
-
-`ShaderSurface` wraps a `GpuSurface` around an internal `GpuView`:
-
-1. **Setup** concatenates the prelude with your fragment, compiles it into a `wgpu::ShaderModule`, and builds a 24-byte uniform buffer, a bind group, and a render pipeline against the current surface format. Blending is `REPLACE` on SDR surfaces and disabled on HDR ones.
-2. **Render** rewrites the uniform buffer with the latest time and resolution, clears to transparent, and draws the six-vertex quad.
-3. **Every frame requests the next one.** `ShaderSurface` is unconditionally animated — there is no static mode. If your effect does not use `uniforms.time`, you are paying for frames you do not need; write a `GpuView` that only requests redraws when something changes.
-4. **The surface format is fixed at setup.** If it changes afterwards (an HDR toggle, for instance) the renderer panics rather than silently rendering into a mismatched target.
-
-### Compile time vs. run time
-
-WaterUI's own built-in shaders — the mesh gradients, the image generator, the scene blit — are compiled ahead of time during `cargo build` and shipped in the binary as `shaderloom::CompiledShader` constants under `waterui::graphics::shaders`. That replaced the previous approach of compiling lazily on first use and hiding the stall behind a disk-persisted pipeline cache; the pre-warm module and the cache are both gone.
-
-Shaders *you* author through `shader!` or `ShaderSurface::new` are still compiled when the surface sets up. That is a one-time cost per surface, and it is why the format is captured at setup rather than re-checked per frame.
-
-## Accessing the inner GpuSurface
-
-`into_inner()` returns the `GpuSurface`, so you can apply per-surface settings like the MSAA cap or the HDR preference:
+A `ShaderEffect` runs your fragment over the **captured content of a view**. Build it from WGSL source, then apply it with `.effect(...)` from `FilterViewExt`, which the prelude brings in:
 
 ```rust,ignore
-use core::num::NonZeroU32;
+use waterui::graphics::filter_view::{ShaderEffect, ShaderEffectError};
+use waterui::prelude::*;
 
-let surface = shader!("shaders/plasma.wgsl")
-    .into_inner()
-    .msaa_max_samples(NonZeroU32::new(4).unwrap());
+fn scanlines(content: impl View) -> Result<impl View, ShaderEffectError> {
+    let shader = ShaderEffect::new(include_str!("crt.wgsl"))?
+        .param(0.35)
+        .animated();
+    Ok(content.effect(shader))
+}
 ```
 
-## When to drop down to GpuView
-
-`ShaderSurface` binds exactly one uniform buffer with time and resolution in it. The moment you need extra uniforms, textures, samplers, storage buffers, or a compute pass, write a `GpuView` and wrap it in a `GpuSurface` — see [GPU rendering with GpuSurface](02-gpu-surface.md). `AnimatedMeshGradient` is the shipped example: it carries a 16-entry color palette as a uniform, which `ShaderSurface` has no way to express.
-
-Two smaller notes for shader authors:
-
-- GPUs prefer uniform control flow. Reach for `select()`, `step()`, and `smoothstep()` before `if`.
-- WGSL floats are 32-bit. For pixel-precise work, multiply `uv` by `uniforms.resolution` rather than chasing precision in normalized space.
-
-## Example: a plasma effect
+`ShaderEffect::param(f32)` adds a constant parameter, and `ShaderEffect::animated()` marks the shader as time-driven, so the host renders another frame after each one. This `crt.wgsl` darkens every other pair of pixel rows by the strength in parameter 0 and flickers faintly:
 
 ```wgsl
-// src/shaders/plasma.wgsl
-
-const PI: f32 = 3.14159265359;
-
 @fragment
-fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
-    let t = uniforms.time * 0.5;
-    let p = uv * 10.0;
-
-    var v = 0.0;
-    v += sin(p.x + t);
-    v += sin(p.y + t * 0.7);
-    v += sin((p.x + p.y) * 0.5 + t * 1.3);
-    v += sin(length(p - vec2<f32>(5.0)) + t);
-
-    let r = sin(v * PI) * 0.5 + 0.5;
-    let g = sin(v * PI + 2.094) * 0.5 + 0.5;
-    let b = sin(v * PI + 4.189) * 0.5 + 0.5;
-
-    return vec4<f32>(r, g, b, 1.0);
+fn main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let color = textureSample(input_texture, input_sampler, in.uv);
+    let row = u32(in.position.y);
+    let line = select(1.0, 0.0, (row / 2u) % 2u == 1u);
+    let flicker = 0.97 + 0.03 * sin(uniforms.time * 50.0);
+    let shade = mix(1.0, line, effect_param(0u)) * flicker;
+    return vec4<f32>(color.rgb * shade, color.a);
 }
 ```
 
-```rust,ignore
-fn plasma_background() -> impl View {
-    shader!("shaders/plasma.wgsl").size(400.0, 300.0)
+An effect shader sees a different prelude from a paint shader. These declarations are available without writing them:
+
+| Name | Meaning |
+| --- | --- |
+| `input_texture`, `input_sampler` | The captured content, and a bilinear clamp-to-edge sampler |
+| `uniforms.resolution`, `uniforms.input_resolution` | Output and input size in physical pixels |
+| `uniforms.time`, `uniforms.time_delta` | Seconds on the host timeline, and since the previous frame |
+| `uniforms.frame`, `uniforms.param_count` | Frame sequence (wrapping at 2^32) and the number of parameters added |
+| `effect_param(index: u32) -> f32` | The parameters you added, in order |
+| `VertexOutput` | `position` (output pixel, top-left origin) and `uv` (addresses the input texture) |
+
+The names above and the vertex entry `shader_effect_vs` are reserved. The input carries premultiplied alpha in the working space, and your output must too.
+
+### Errors surface at construction
+
+`ShaderEffect::new` parses and validates the WGSL on the CPU and returns `Result<ShaderEffect, ShaderEffectError>`. The error is one of `Parse`, `Validation` or `MissingEntryPoint` (no `@fragment fn main`), with line and column numbers counted in *your* source, so no invalid shader reaches the renderer. Validation uses the capabilities of a core WebGPU device, so a shader that validates runs on every device; the one device-dependent check, that the input format can be filtered when your shader reads `input_sampler`, happens when the effect is set up on the GPU.
+
+A shader compiled into the binary propagates the error with `?`, as above. If you load a shader at run time, from a user's configuration file for example, handle the error where you read it and report it through the facade's `waterui::log` (the `tracing` crate):
+
+```rust
+use waterui::graphics::filter_view::{ShaderEffect, ShaderEffectError};
+use waterui::prelude::*;
+
+fn load_effect(source: &str) -> Option<ShaderEffect> {
+    match ShaderEffect::new(source) {
+        Ok(effect) => Some(effect.param(0.35)),
+        Err(error) => {
+            waterui::log::error!(%error, "rejected user shader");
+            None
+        }
+    }
+}
+
+fn is_missing_entry(error: &ShaderEffectError) -> bool {
+    matches!(error, ShaderEffectError::MissingEntryPoint)
 }
 ```
 
-## Next
+### Reactive parameters
 
-Shaders compose visual content from scratch. To transform views you already have, continue to [Filters and visual effects](04-filters.md).
+`.effect(...)` returns a `WithEffect` (`waterui::graphics::WithEffect`). For a `ShaderEffect`, its `param` takes any signal of a primitive number (`impl IntoSignalF32`, such as `Binding<f32>`) and its `animated` takes `impl IntoComputed<bool>`, so neither change rebuilds the view. Parameters are numbered in the order you add them, so the constants the `ShaderEffect` already carries come first:
+
+```rust
+use waterui::graphics::filter_view::ShaderEffect;
+use waterui::prelude::*;
+
+fn crt(
+    content: impl View,
+    shader: ShaderEffect,
+    strength: Binding<f32>,
+    running: Binding<bool>,
+) -> impl View {
+    content.effect(shader).param(strength).animated(running)
+}
+```
+
+A change to `strength` re-renders the effect and follows any animation the change carries (see [Animation](../06-advanced/01-animation.md)). An effect holds at most `waterui::graphics::SHADER_EFFECT_MAX_PARAMS` (16) parameters, constants and signals together. Adding a seventeenth is a contract violation: it panics in a debug build, and in a release build the extra parameter is logged and dropped.
+
+For built-in filters such as blur or brightness, which fuse into shared passes and need no WGSL, see [Filters](04-filters.md).
+
+## Which one to use
+
+| You want to... | Use |
+| --- | --- |
+| Fill a rectangle with generated pixels | `shader!` / `ShaderPaintView` |
+| Change how existing views look | `.effect(ShaderEffect)` |
+| A standard blur, tint or sharpen | a [filter](04-filters.md) |
+| Your own pipelines, buffers or compute | [`GpuContent`](02-gpu-surface.md) |
+
+Next: [Filters](04-filters.md).

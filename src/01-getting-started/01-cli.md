@@ -1,357 +1,244 @@
-# The Water CLI
+# The water CLI
 
 > **In this chapter, you will:**
-> - Install the `water` command-line tool
-> - Choose between playground and app project modes
-> - Learn `create`, `run`, `build`, `package`, `preview`, and the maintenance commands
+> - Install the prebuilt `water` binary and keep it current with `water update`
+> - Create, run, build and package a project with the platform and backend flags
+> - Choose a framework channel (`dev`, `nightly`, `stable`) for a project
+> - Find the command that owns preview, testing, benchmarks, the inspector and MCP
 
-`water` is the single entry point for WaterUI projects: scaffolding, cross-
-compiling for mobile and embedded targets, launching on simulators and devices,
-rendering previews, and packaging for distribution. It wraps Xcode, Gradle,
-GTK4, and ESP-IDF build systems so you stay in Rust.
+Every WaterUI project is entry-owning: WaterUI owns the program entry, and
+`water` generates and manages the Xcode, Gradle and desktop host projects for
+you. You never edit those by hand, and you never invoke `xcodebuild`, `gradle`
+or `adb` directly for an app. `water` is the one entry point for scaffolding,
+building, launching, previewing, testing and packaging.
 
-## Installation
+## Install
 
-From crates.io:
+Install the prebuilt binary. Nothing is compiled on your machine.
 
 ```bash
-cargo install waterui-cli
+# macOS and Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/water-rs/waterui/releases/download/cli-latest/waterui-cli-installer.sh | sh
 ```
 
-Or from a WaterUI checkout, which is what you want if you also work on the
-framework:
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/water-rs/waterui/releases/download/cli-latest/waterui-cli-installer.ps1 | iex"
+```
+
+Then check your toolchains:
+
+```bash
+water doctor          # report what is missing
+water doctor --fix    # install what it can
+```
+
+`water doctor --fix` asks before an install that changes the system outside
+`~/.water`, such as the Visual Studio Build Tools; `--yes` answers that
+prompt when nobody is at the terminal.
+
+`water update` re-runs the newest release's installer over a binary the
+installer put in place, and `water update --check` only reports the newest
+release. A `water` that came from Homebrew or `cargo install` belongs to that
+tool, so update it there.
+
+If you work on the framework itself, install the CLI from your checkout
+instead:
 
 ```bash
 cargo install --path cli --locked
 ```
 
-Verify:
+Contributors only: everyone else should use the installer, because a source
+install compiles the CLI and its whole dependency graph.
+
+## Create a project
 
 ```bash
-water --help
+water create "My App"
+cd my-app
+water run
 ```
 
-> **Tip**: While iterating on the CLI itself, `cargo build -p waterui-cli` is
-> much faster than a full install. Reinstall when you need the new binary on
-> your `PATH`.
+The name becomes the folder (`my-app`). There are no modes or package types to
+choose; `create` always produces the same entry-owning shape, described in
+[Project structure](04-project-structure.md).
 
-## Project modes
+| Flag | Meaning |
+| --- | --- |
+| `--bundle-id <ID>` | Bundle identifier. Defaults to `dev.waterui.<name>`. |
+| `--template app\|web` | `app` (default) is the standard Rust shell. `web` adds a `web/` Vite frontend mounted through `include_web!`. |
+| `--channel dev\|nightly\|stable` | Framework channel (see below). Defaults to `stable`. |
+| `--waterui-path <PATH>` | Use a local WaterUI checkout. Conflicts with `--channel` and `--framework-manifest`. |
+| `--framework-manifest <FILE>` | Pin to a certified `framework.json` on disk. Conflicts with `--channel` and `--waterui-path`. |
+| `--package-manager bun\|pnpm\|npm\|yarn`, `--vite-template <NAME>` | Frontend options for `--template web`. The package manager defaults to `bun`. |
 
-### Playground mode
+`water init` does the same for the current directory, taking the same
+`--bundle-id`, `--channel`, `--waterui-path` and `--framework-manifest` flags. With `--web new` it
+scaffolds a Vite frontend into `web/`; with `--web <path>` it adopts an
+existing web project, either copied into `web/` or referenced in place
+(`--web-mode copy|reference`).
 
-Playground mode manages every native backend project for you, inside the global
-build cache at `~/.water/build_cache/<absolute-project-path>/managed_backends/`.
-You write Rust and nothing else.
+## Framework channels
+
+A channel decides which WaterUI revision a project builds against. It is not a
+Rust toolchain channel.
+
+| Channel | What you get |
+| --- | --- |
+| `stable` | Formal crates.io releases with compatible native backends. The default. |
+| `nightly` | An immutable revision whose full integration suite passed, with the tested backend combination. With no certified nightly, selecting it fails rather than falling back to `dev`. |
+| `dev` | The integration branch, resolved to an exact commit. Compilation-checked, not test-certified. |
+
+`create` persists the channel and the exact resolved versions. Ordinary builds
+never upgrade them silently. To inspect or change the selection later:
 
 ```bash
-water create "My Experiment" --mode playground
+water channel                 # show the current selection
+water channel nightly         # select or update a channel
+water channel dev --rev <SHA> # pin dev to an exact commit
 ```
 
-`water create` writes four files and initialises a git repository if the
-directory is not already inside one:
-
-```text
-my-experiment/
-  Cargo.toml
-  Water.toml          # type = "playground"
-  src/lib.rs
-  .gitignore
-```
-
-Playground projects auto-initialise their backends on every `water run` and
-re-scaffold templates so manifest changes (permissions, theme colours) are
-always picked up. Nothing platform-specific lands in your working tree.
-
-> **Tip:** Playground mode is what you want while following this book.
-
-### App project mode
-
-App mode (the default) checks the native projects into your repository under
-`backends/`, so you can edit Xcode settings, add Swift or Kotlin sources, and
-wire the projects into CI.
+## Run, build, package
 
 ```bash
-water create "Production App" --backends apple,android
-```
-
-```text
-production-app/
-  Cargo.toml
-  Water.toml          # type = "app"
-  src/lib.rs
-  .gitignore
-  backends/
-    apple/            # Swift package, checked in
-    android/          # Gradle project, checked in
-    ffi/              # Generated FFI companion crate
-```
-
-Only the backends you asked for are scaffolded. `water backend add gtk4` adds
-another one later.
-
-## Command reference
-
-### `water create`
-
-```bash
-# Interactive: prompts for name, bundle id, and backends
-water create
-
-# Playground
-water create "Counter" --mode playground
-
-# App with explicit backends
-water create "My App" --backends apple,android
-
-# Custom bundle identifier
-water create "My App" --bundle-id dev.waterui.myapp --backends apple
-
-# Link to a local WaterUI checkout (framework development)
-water create "Dev App" --waterui-path ../waterui --backends apple
-```
-
-| Argument | Description |
-|----------|-------------|
-| `name` | Display name. The folder is its kebab-case form, the crate its snake_case form. |
-| `--bundle-id` | Bundle identifier. Defaults to `dev.waterui.<snake_case_name>`. |
-| `--backends` | Comma-separated: `apple`, `android`, `gtk4`, `hydrolysis`, `esp32`. App mode only. |
-| `--mode` | `app` (default) or `playground`. |
-| `--waterui-path` | Path to a local WaterUI checkout. |
-
-`--backends` accepts aliases: `ios`/`macos` map to `apple`, `gtk`/`linux` to
-`gtk4`, and `esp32s3`/`dew` to `esp32`. In app mode with no `--backends` and no
-prompt, you get `apple,android`.
-
-Host restrictions apply at scaffold time: GTK4 backends require a Linux host,
-and Hydrolysis requires macOS, Linux, or Windows.
-
-### `water run`
-
-Builds, packages, and launches in one step. This is the command you will use
-most.
-
-```bash
-water run --platform ios
-water run --platform ios --device "iPhone 16 Pro"
-water run --platform android
-water run --platform macos
-water run --platform macos --backend hydrolysis
-water run --platform linux                 # GTK4 by default
-water run --platform windows
-water run --platform esp32c3               # Dew firmware; --device qemu to emulate
-water run --platform ios --logs debug
-water run --platform ios --logs debug --native-logs
-```
-
-Omit `--platform` and `water run` targets the host: `macos`, `linux`, or
-`windows`.
-
-| Argument | Description |
-|----------|-------------|
-| `--platform`, `-p` | `ios`, `android`, `macos`, `linux`, `windows`, `web`, `esp32s3`, `esp32c3`. Defaults to the host. |
-| `--backend`, `-b` | `apple`, `android`, `gtk4`, `hydrolysis`, `dew`. Overrides the platform default. |
-| `--device`, `-d` | Device name or identifier. Defaults to the first booted or available device. |
-| `--path` | Project directory (defaults to `.`). |
-| `--logs` | Minimum level to stream: `error`, `warn`, `info`, `debug`, `verbose`. |
-| `--native-logs` | Include all native logs (`NSLog`, `logcat`), not just WaterUI's. |
-
-Platform defaults and the combinations the CLI accepts:
-
-| Platform | Default backend | Also accepts |
-|----------|----------------|--------------|
-| iOS | Apple | — |
-| macOS | Apple | Hydrolysis |
-| Android | Android | — |
-| Linux | GTK4 | Hydrolysis |
-| Windows | Hydrolysis | — |
-| Web | Hydrolysis | — |
-| ESP32-S3 / ESP32-C3 | Dew | — |
-
-For app-mode projects the default is the first configured backend in that
-priority order, so a project with only a Hydrolysis backend runs on Hydrolysis
-without `--backend`.
-
-`tracing::debug!` output only reaches your terminal with `--logs debug`.
-
-### `water build`
-
-Compile the Rust library for a target without packaging or launching -- useful
-in CI and as the step Xcode and Gradle call. App-mode projects only; playground
-projects go through `water run` and `water package`.
-
-```bash
-water build --platform ios
-water build --platform ios-simulator --arch arm64
-water build --platform android --arch arm64
+water run                                   # the host platform
+water run --platform ios                    # an iPhone or the iOS Simulator
+water run --platform android --device <ID>
+water run --platform linux --backend hydrolysis
 water build --platform macos --release
-water build --platform macos --output-dir ./out
-water build --platform esp32s3 --release
+water package --platform android --arch arm64 --distribution
 ```
 
-| Argument | Description |
-|----------|-------------|
-| `--platform`, `-p` | `ios`, `ios-simulator`, `android`, `macos`, `linux`, `windows`, `esp32s3`, `esp32c3`. |
-| `--backend`, `-b` | `apple`, `android`, `gtk4`, `hydrolysis`, `dew`. |
-| `--arch`, `-a` | `arm64`, `x86-64`, `armv7`, `x86`. Apple and Android backends only. |
-| `--release` | Optimised build. |
-| `--path` | Project directory (defaults to `.`). |
-| `--output-dir` | Copy the built library here. Apple and Android backends only. |
+`--platform` takes `ios`, `android`, `macos`, `linux`, `windows` and `web`
+(`web` for `run` and `package`). `build` and `package` also accept
+`ios-simulator`. For `run`, `macos`, `linux` and `windows` mean this machine:
+`--platform linux` on a Mac is an error.
 
-### `water package`
+Without `--backend` or a `[platforms.<platform>]` declaration in `Water.toml`,
+Apple platforms use `apple`; Android, Windows and the web use `hydrolysis`;
+and Linux uses the experimental `gtk4`, which is why the example above passes
+`--backend hydrolysis`. The platform tiers and what each backend realizes are
+in [Platforms](05-platforms.md).
 
-Produce installable artifacts. `--backend` is required.
+Flags shared across `run`, `build` and `package`:
+
+| Flag | Meaning |
+| --- | --- |
+| `-p, --platform` | Target platform. `run` defaults to the host; `build` and `package` require it. |
+| `-b, --backend apple\|hydrolysis\|gtk4\|winui` | Must agree with any platform declaration in `Water.toml`. `gtk4` and `winui` are experimental and ask for confirmation (`-y` skips it). |
+| `--path <DIR>` | Project directory. Defaults to `.`. |
+| `--release` / `--debug` | Optimization profile. `run` and `build` apply a light optimization by default to backends whose per-frame cost is high, and `--debug` turns it off. `package` builds `release` unless you pass `--debug`. |
+| `--offline` | Same as `cargo build --offline`. A declared font missing from the font cache then fails the command instead of being fetched. |
+
+`run` adds:
+
+| Flag | Meaning |
+| --- | --- |
+| `-d, --device <ID>` | iOS device name, identifier or UDID; Android serial or AVD name. Without it the last-used device wins, then a single unambiguous candidate, then a picker. |
+| `--painter gpu\|hwui` | The painter the Android Hydrolysis host draws with. Only with `--platform android --backend hydrolysis`; `[hydrolysis] painter` in `Water.toml` is the project default. |
+| `--logs error\|warn\|info\|debug\|verbose` | Streams device logs at or above that level and sets the application's own log level, so `debug` shows its `tracing::debug!` output. |
+| `--native-logs` | Include platform logs such as `NSLog`, not only WaterUI's. |
+| `--env <NAME>` | Export a variable from your shell into the app. Repeatable. |
+| `--profiling` | Release optimization with symbols kept for a profiler. |
+| `--no-dev-server` | Do not start the frontend dev server for `include_web!` mounts. |
+| `--tui` | Run in this terminal with the experimental TUI backend. |
+
+`build` adds `-a, --arch` (`arm64`, `x86-64`, `armv7`, `x86`; Apple targets are
+ARM64 only, Android defaults to `arm64`) and `--output-dir` to copy the built
+library. `package` adds `--distribution` for store builds, `--unsigned` for
+hosts with no signing identity, `--device <UDID>` to provision an iOS build
+for one device, `--painter` as on `run`, and `--arch` (long form only) as a
+comma-separated list that an Android package requires. Signing, store builds
+and the artifacts each platform produces are covered in
+[Packaging](../07-tools/07-packaging.md).
+
+Intel Apple targets are retired: `--arch x86-64` (or any non-ARM64
+architecture) on an Apple platform fails with an error saying Apple targets
+only support `arm64`.
+
+## Preview and test a view
 
 ```bash
-water package --platform ios --backend apple
-water package --platform ios --backend apple --release --distribution
-water package --platform android --backend android --arch arm64
-water package --platform android --backend android --arch arm64,x86-64
+water preview my_view --platform macos --output preview.png
+water preview --expr 'text("Hello")' --frame 390x844
+water preview test --all --code-file checks.rs
 ```
 
-| Argument | Description |
-|----------|-------------|
-| `--platform`, `-p` | `ios`, `ios-simulator`, `android`, `macos`, `linux`, `windows`, `web`. |
-| `--backend`, `-b` | Required: `apple`, `android`, `gtk4`, `hydrolysis`. |
-| `--release` | Optimised build. |
-| `--distribution` | Package for store submission. |
-| `--arch` | Android architectures, comma-separated: `arm64`, `x86-64`, `armv7`, `x86`. Required for Android. |
-| `--path` | Project directory (defaults to `.`). |
+`preview` renders a `#[preview]` function, or with `--expr` an expression
+returning `impl View` with the prelude in scope, to a PNG without running the
+app. `-f, --frame` (`WIDTHxHEIGHT`, default `375x667`), `-o, --output`
+(default `preview.png`), `--content-timeout`, `--scenario` and `--theme`
+shape the capture. `preview test` runs semantic assertions against the same
+render. See [Preview](../07-tools/01-preview.md) and
+[Testing](../07-tools/03-testing.md).
 
-ESP32 firmware is flashed by `water run --platform esp32s3|esp32c3`, not
-packaged.
-
-### `water preview`
-
-Render a view function to PNG without launching the app.
+## Benchmarks, inspector, MCP
 
 ```bash
-water preview my_card --platform macos --path ./app
-water preview dashboard --platform ios --frame 390x844
-water preview login_screen --output login.png
-water preview 'text("inline").bold()' --expr
+water bench [FILTER]       # run #[waterui::bench] functions
+water inspector            # attach the inspector to a debug build
+water mcp                  # serve the app to an agent over MCP
 ```
 
-The target is a `#[preview]` function path, or -- with `--expr` -- a WaterUI
-expression that evaluates to `impl View`:
+- `bench` takes `--samples`, `--warmups`, `--repetitions`, `--format
+  human|json|html`, and `--max-*` caps that tighten a bench's own budgets. See
+  [Benchmarks](../07-tools/04-benchmarks.md).
+- `inspector` attaches to a debug build on this machine, or to a remote target
+  with `--platform` and `--target host:port`. See
+  [Inspector](../07-tools/05-inspector.md).
+- `mcp` speaks MCP on stdio, with `--viewport` (default `390x844`) and
+  `--scale` (default `2`). See [MCP](../07-tools/06-mcp.md).
 
-```rust,ignore
-use waterui::prelude::*;
-
-#[preview]
-fn my_card() -> impl View {
-    text("Hello Preview!")
-}
-```
-
-| Argument | Description |
-|----------|-------------|
-| `target` | `#[preview]` function name or path, or an expression with `--expr`. |
-| `--expr` | Treat the target as an expression rather than a function path. |
-| `--platform`, `-p` | `ios`, `macos`, `android`. Defaults to the native preview platform. |
-| `--backend` | `apple`, `android`, `hydrolysis`. |
-| `--theme` | `material3`. Hydrolysis previews only. |
-| `--frame`, `-f` | `WIDTHxHEIGHT` (default `375x667`). |
-| `--output`, `-o` | Output file (default `preview.png`). |
-| `--scenario` / `--output-dir` | Hydrolysis scenario TOML for interaction capture, and where to write its frames. |
-| `--path` | Project directory (defaults to `.`). |
-
-Two subcommands share the same surface: `water preview test` runs semantic
-assertions against a preview (add `--all` to sweep every `#[preview]` in the
-crate), and `water preview perf` profiles it through the offscreen GPU
-pipeline. Preview symbols are `waterui_preview_<crate_name>_<function_name>`,
-so names must be unique within a crate.
-
-### `water doctor`
+## Devices
 
 ```bash
-water doctor
-water doctor --fix
-```
-
-The doctor probes the Apple toolchain (Xcode, iOS and macOS SDKs, installed
-simulators), the Rust toolchain and cross-compilation targets, the Android SDK
-and its components (platform-tools/`adb`, SDK platforms, build-tools, NDK, Rust
-Android targets, and at least one device or AVD), host tooling (CMake, Java,
-Kotlin, the `wasm32-unknown-unknown` target, `wasm-pack`), Linux system packages
-and GTK4 on Linux hosts, and `sccache`.
-
-Checks are reported as `[fixable]` or `[manual]`. `--fix` installs the fixable
-ones; anything else prints manual instructions. Checks for platforms your host
-cannot serve are skipped rather than failed.
-
-> **Tip:** Run `water doctor` first whenever a build fails in a way that does
-> not look like your code.
-
-### `water devices`
-
-```bash
-water devices
-water devices --platform ios
+water devices                        # all platforms
 water devices --platform android
-water devices --platform esp32          # ESP32 boards on serial ports
-water --json devices --platform all     # --json is a global flag
+water device capture --id <ID> -o shot.png
+water device tap --id <ID> --x 100 --y 200 --diff
+water device swipe --id <ID> --from 100,600 --to 100,200
+water device text --id <ID> --input "你好 こんにちは 안녕하세요"
+water device describe --id <ID>
 ```
 
-Output lists each device's name, identifier, and state.
+`devices` lists iOS, Android and macOS targets. `device` drives one of them:
+`capture` takes a screenshot (on macOS it can also select a process with
+`--pid`), `tap` and `swipe` send gestures, `text` types, and `describe` dumps
+the on-screen elements for automation. `--diff` on a gesture captures before
+and after images. The device identifier is a UDID for iOS, a serial for
+Android, and `local` for macOS; `describe` takes only an iOS or Android
+identifier. Device automation is the subject of
+[Automation](../appendix/automation.md).
 
-### `water device`
+## Maintenance
 
-Drive a running app for automation and screenshots:
+| Command | Purpose |
+| --- | --- |
+| `water clean` | Remove build artifacts. `-b` picks a backend, `-r` walks every project under `--path`, `--global-cache` cleans `~/.water/build_cache`. |
+| `water gc build-cache` | Remove stale managed caches. `--dry-run` only reports; `--shared-target` removes the shared Cargo target directory now. |
+| `water fetch` | Download the project's declared fonts into the font cache. |
+| `water completions <SHELL>` | Print a completion script for `bash`, `zsh`, `fish`, `elvish` or `powershell`, for example `water completions zsh > ~/.zfunc/_water`. |
+| `water update [--check]` | Replace the CLI binary, or report the newest release. |
+
+## Machine-readable output
+
+`--json` is global and goes before or after the subcommand. Status, warning
+and error messages become one JSON object per line on stdout, and `devices`,
+`device` and `doctor` print their results as JSON:
 
 ```bash
-water device capture --id <udid>
-water device tap --id <udid> --x 100 --y 200
-water device swipe --id <udid> --from 100,600 --to 100,200
-water device text --id <udid> --input "hello"
-water device describe --id <udid>       # dump on-screen UI elements
+water --json devices
 ```
 
-### `water backend`
+## Where things go wrong
 
-App-mode projects only:
+When a build fails, start with `water doctor` to find a missing or outdated
+toolchain. When the app builds but misbehaves, `water run --logs debug` shows
+its `tracing::debug!` output.
+The [troubleshooting appendix](../appendix/troubleshooting.md) lists the common
+failures.
 
-```bash
-water backend list
-water backend add gtk4
-water backend remove android --yes
-```
-
-Accepted names are `apple`, `android`, `gtk4`, `hydrolysis`, and `esp32`.
-
-### `water clean`
-
-```bash
-water clean                             # all backends in this project
-water clean --backend apple
-water clean --recursive --path ~/projects
-water clean --recursive --yes
-water clean --global-cache --yes        # wipe ~/.water/build_cache
-```
-
-`--backend` takes `apple`, `android`, `gtk4`, `hydrolysis`, or `all` (the
-default). In recursive mode the CLI finds every directory holding a valid
-`Water.toml` and clears each playground's managed cache or each app project's
-`target/`.
-
-### `water gc`
-
-```bash
-water gc build-cache
-```
-
-Removes stale entries from `~/.water/build_cache`, keeping the project at
-`--path` (default `.`) marked active.
-
-### `water inspector`
-
-Attach the inspector app to a running WaterUI runtime:
-
-```bash
-water inspector --target 127.0.0.1:9229
-```
-
-## Next steps
-
-Continue to [Installation and Setup](02-setup.md) to configure a platform
-toolchain, or jump to [Your First App](03-first-app.md) if `water doctor`
-already passes.
+Next: [Setup](02-setup.md) installs the platform toolchains `doctor` asks for,
+and [Your first app](03-first-app.md) builds something with what you just
+installed.

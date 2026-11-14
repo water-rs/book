@@ -1,28 +1,31 @@
 # Barcodes and QR codes
 
 > **In this chapter, you will:**
-> - Render QR codes and Code 128 barcodes from any string
-> - Tint modules with solid colors, gradients, and live reactive colors
-> - Fill a code with arbitrary GPU content through `fill_gpu`
-> - Size a code so that scanners can actually read it
+> - Render QR codes and Code 128 barcodes from a string or a live signal
+> - Tint modules with solid colors, gradients, and reactive colors
+> - Fill a code with an `Ink` through `fill_scene`
+> - Validate untrusted input with `BarcodeSource` before it reaches a view
 
-`waterui-barcode` encodes module data on the CPU once, packs it into a bit
-buffer, and rasterizes it in a fragment shader. There is no CPU rasterization
-path — every barcode is drawn on the GPU, so a code stays sharp at any size.
+A barcode is data that must survive being photographed at a bad angle in bad
+light. The component is built around that: it encodes the module matrix once,
+draws the dark modules as vector geometry on a [`Canvas`](../05-graphics/01-canvas.md),
+and leaves resolution and anti-aliasing to whichever renderer draws the screen
+around it, so a code stays crisp at any size.
 
-> **Feature flag:** barcodes require the `barcode` feature on `waterui`
-> (`waterui = { version = "...", features = ["barcode"] }`). The crate is then
-> re-exported as `waterui::barcode`.
+Barcode is a split crate, [`water-rs/barcode`](https://github.com/water-rs/barcode),
+that the facade re-exports. It requires the `barcode` feature on `waterui`
+(`waterui = { version = "...", features = ["barcode"] }`) and appears as
+`waterui::barcode`.
 
 ![QR code rendered by WaterUI for https://book.waterui.dev](../assets/visuals/04-rich/barcode-qr-book-waterui-dev.png)
 
-*A QR code rendered from the pinned WaterUI barcode component. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+*A QR code rendered by the WaterUI barcode component. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
 ## Quick start
 
-```rust,ignore
-use waterui::prelude::*;
+```rust
 use waterui::barcode::Barcode;
+use waterui::prelude::*;
 
 fn share_link() -> impl View {
     Barcode::qr("https://book.waterui.dev").size(280.0, 280.0)
@@ -33,17 +36,28 @@ fn product_label() -> impl View {
 }
 ```
 
-`Barcode::qr` and `Barcode::code128` both return a `Barcode`, which implements
-`View`. The free functions `qr_code(content)` and `code128(content)` are
-equivalent ergonomic entry points.
+`Barcode::qr` and `Barcode::code128` return a `Barcode`, which is a `View`.
+The free functions `waterui::barcode::qr_code(content)` and
+`waterui::barcode::code128(content)` call them. Content is any
+`impl IntoComputed<Str>`: a `&'static str` literal, a `String`, a `Str`, or a
+signal of any of them. A borrowed `&str` that is not `'static` does not
+convert; pass an owned `String` or `Str` instead.
 
 ### Give the code a size
 
-A `Barcode` renders through a GPU surface, and GPU surfaces stretch to fill
-whatever size their parent proposes. Inside a stack that offers no bounded
-height, that means the code can collapse. Pin it with `.size(width, height)`,
-and keep QR codes square — a stretched QR matrix is much harder for a scanner
-to lock onto.
+A barcode reports a natural size to layout, computed from the encoded symbol:
+256 points on each side by default, grown where needed so that every module,
+quiet zone included, is at least one point wide. A Code 128 symbol is 256
+points tall and at least as wide as its modules. When the container proposes
+neither axis, the barcode takes that natural size. When it proposes one axis,
+the other follows the natural aspect ratio, and when it proposes both, the
+barcode fills that box. A barcode never takes leftover space in a stack. Pin
+an exact box with `.size(width, height)` from
+[the modifiers chapter](../02-core/04-modifiers.md).
+
+A QR code keeps square modules: inside a non-square box it is centered in the
+largest square that fits. A Code 128 symbol stretches to fill its box, so its
+height is whatever you give it.
 
 ## Supported symbologies
 
@@ -52,26 +66,82 @@ to lock onto.
 | QR Code | `Barcode::qr(content)` | 2D matrix | URLs, tokens, arbitrary text |
 | Code 128 | `Barcode::code128(content)` | 1D bars | Alphanumeric product and asset codes |
 
-`BarcodeSymbology` (`Qr` / `Code128`) is `#[non_exhaustive]`, so any `match`
-you write against it needs a wildcard arm to survive future symbologies.
+`BarcodeSymbology` (`Qr`, `Code128`) is `#[non_exhaustive]`, so a `match`
+against it needs a wildcard arm.
 
-Encoding runs when the view builds its body. Content the encoder rejects — a
-payload too large for a QR symbol, or characters outside Code 128's charset —
-panics with the encoder's error instead of quietly rendering an empty code.
-Validate untrusted input before handing it to `Barcode`.
+Code 128 content is encoded with character set B unless it starts with one of
+the character-set markers `À` (set A), `Ɓ` (set B), or `Ć` (set C). The same
+markers switch sets inside the content.
+
+### Content can be a signal
+
+Because content is a signal, a rotating token or a live pairing URL re-encodes
+the matrix in place. The view is not rebuilt and the canvas closure does not run
+again: the new module path reaches the retained drawing as a live operand. A
+longer payload can grow the natural size, and the canvas reports that through
+its intrinsic-size signal, so layout measures again.
+
+```rust
+use waterui::barcode::Barcode;
+use waterui::prelude::*;
+
+fn live_pairing_code() -> impl View {
+    let session = Binding::container(1_u32);
+    let url = session.map(|session| Str::from(format!("https://book.waterui.dev/pair/{session}")));
+
+    vstack((
+        Barcode::qr(url).size(260.0, 260.0),
+        button("New code").action(move || session.with_mut(|session| *session += 1)),
+    ))
+    .spacing(12.0)
+}
+```
+
+Here your code produces every payload, so it always fits. Text a user types
+is different; check it first, as the next section shows.
+
+### Encoding failures
+
+Encoding runs while the view renders. Content the encoder rejects, such as a
+payload beyond QR capacity or characters outside Code 128's set, panics with
+the encoder's error instead of drawing an empty code. That is the right
+behavior for a literal you wrote, and the wrong one for text a user typed.
+Validate untrusted input first with `BarcodeSource`, which returns a
+`Result<BarcodeSource, BarcodeError>`:
+
+```rust
+use waterui::barcode::{Barcode, BarcodeSource};
+use waterui::log::warn;
+use waterui::prelude::*;
+
+fn checked_qr(input: Str) -> AnyView {
+    match BarcodeSource::qr(input.clone()) {
+        Ok(_) => AnyView::new(Barcode::qr(input).size(220.0, 220.0)),
+        Err(error) => {
+            warn!(%error, "content does not fit a QR code");
+            AnyView::new(text("This text is too long for a QR code"))
+        }
+    }
+}
+```
+
+`BarcodeSource::qr` and `BarcodeSource::code128` take `impl Into<Str>`.
+`BarcodeError` has two variants, `Qr` and `Code128`, and implements
+`std::error::Error` and `Display`. The Code 128 variant also covers content
+that is too short to encode.
 
 ## Coloring modules
 
-![WaterUI barcode preview with a gradient QR code and green Code128 barcode](../assets/visuals/04-rich/barcode-custom-colors.png)
+![WaterUI barcode preview with a gradient QR code and green Code 128 barcode](../assets/visuals/04-rich/barcode-custom-colors.png)
 
-*A Hydrolysis preview of custom barcode colors and gradient fills. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
+*A Hydrolysis preview of custom colors and a gradient fill. [Example source](https://github.com/water-rs/book/tree/main/examples/book-visuals).*
 
-Dark modules default to black, light modules and the quiet zone to white.
-`dark_color` and `light_color` override them:
+Dark modules default to black; light modules and the quiet zone default to
+white. `dark_color` and `light_color` override them:
 
-```rust,ignore
-use waterui::prelude::*;
+```rust
 use waterui::barcode::Barcode;
+use waterui::prelude::*;
 
 fn branded_qr() -> impl View {
     Barcode::qr("https://book.waterui.dev")
@@ -82,129 +152,166 @@ fn branded_qr() -> impl View {
 ```
 
 Keep the contrast high. Scanners threshold the image, so a dark-on-dark palette
-that looks tasteful on screen may not decode at all.
+that looks tasteful on screen may not decode at all. Colors are the unresolved
+`Color` type, so theme-aware colors resolve against the environment like any
+other component.
 
 ### Gradient fill
 
 `linear_gradient` replaces the solid dark fill with a two-stop gradient:
 
-```rust,ignore
-use waterui::prelude::*;
+```rust
 use waterui::barcode::Barcode;
+use waterui::prelude::*;
 
 fn gradient_qr() -> impl View {
     Barcode::qr("https://book.waterui.dev")
         .linear_gradient(
-            Color::srgb(0, 108, 255),   // start color
-            Color::srgb(255, 62, 122),  // end color
-            [0.0, 0.0],                 // start point: top-left
-            [1.0, 1.0],                 // end point: bottom-right
+            Color::srgb(0, 108, 255),
+            Color::srgb(255, 62, 122),
+            UnitPoint::TOP_LEADING,
+            UnitPoint::BOTTOM_TRAILING,
         )
         .size(280.0, 280.0)
 }
 ```
 
-The two endpoints are `UnitPoint`s normalized to the barcode square, so
-`[0.0, 0.0]` is the top-left corner and `[1.0, 1.0]` the bottom-right. The
-named constants work too: `UnitPoint::TOP_LEADING`, `UnitPoint::CENTER`,
-`UnitPoint::BOTTOM_TRAILING`, and friends.
+The endpoints are `UnitPoint`s normalized to the area the symbol occupies,
+quiet zone included, not to the whole surface. For a QR code that area is the
+centered square, so `TOP_LEADING` is the symbol's top-left corner even when the
+view is wider than the symbol; a Code 128 symbol fills its box, so there the
+two coincide. Anything `Into<UnitPoint>` is accepted, and
+`[0.0, 0.0]` is the same as `UnitPoint::TOP_LEADING`. Gradient colors
+interpolate in encoded sRGB.
 
 ### Reactive colors
 
-Every color argument takes `impl IntoComputed<Color>`, not a frozen `Color`.
-Pass a `Binding` or a `Computed` and the renderer re-tints in place — no view
-reconstruction, no re-encoding of the matrix:
+Every color argument is `impl IntoComputed<Color>`, so pass a `Binding` or a
+`Computed` and the retained drawing updates in place, with no view rebuild and no
+re-encoding:
 
-```rust,ignore
-use waterui::prelude::*;
+```rust
 use waterui::barcode::Barcode;
+use waterui::prelude::*;
 
 fn invertible_qr() -> impl View {
-    let inverted = Binding::bool(false);
+    let inverted = binding(false);
+    let ink = Color::srgb(12, 26, 45);
+    let paper = Color::srgb(255, 255, 255);
 
     vstack((
         Barcode::qr("https://book.waterui.dev")
-            .dark_color(inverted.map(|inverted| {
-                if inverted { Color::srgb(255, 255, 255) } else { Color::srgb(12, 26, 45) }
+            .dark_color(inverted.map({
+                let (ink, paper) = (ink.clone(), paper.clone());
+                move |inverted| if inverted { paper.clone() } else { ink.clone() }
             }))
-            .light_color(inverted.map(|inverted| {
-                if inverted { Color::srgb(12, 26, 45) } else { Color::srgb(255, 255, 255) }
+            .light_color(inverted.map(move |inverted| {
+                if inverted { ink.clone() } else { paper.clone() }
             }))
             .size(280.0, 280.0),
-        toggle("Invert for dark mode", &inverted),
+        toggle("Invert", &inverted),
     ))
     .spacing(16.0)
 }
 ```
 
 `SignalExt::map` borrows the binding, so the same `inverted` still drives the
-`toggle`. Flipping it uploads two new colors to the shader's uniform buffer and
-requests a redraw; the packed matrix buffer is untouched.
+`toggle`. See [the reactive chapter](../02-core/02-reactive.md) for the signal
+model.
 
-### `BarcodeFill`
+## Filling a code with an ink
 
-Solid and gradient fills are both values of the `BarcodeFill` enum, built with
-`BarcodeFill::solid(color)` and `BarcodeFill::linear_gradient(start, end,
-from, to)`. `dark_color` and `linear_gradient` construct it for you — you only
-need it when driving `BarcodeRenderer` directly.
+`fill_scene` takes any `Ink` and uses it as the fill: the ink draws across the
+whole box and is clipped to the dark modules, over the light color. A gradient,
+an image, or an animated drawing becomes the barcode's fill without either side
+knowing about the other.
 
-## Filling a code with GPU content
+`Ink` (`waterui::barcode::Ink`) is implemented for two things: a
+`FnOnce(&mut Cx) + 'static` closure, which draws on the barcode's own canvas
+with the `Cx` methods from [the canvas chapter](../05-graphics/01-canvas.md),
+and a canvas `Drawing`, which is scaled to cover the barcode's box.
 
-`fill_gpu` swaps the flat fill for any `GpuView`: an animated shader, a
-particle system, a rendered scene.
-
-```rust,ignore
-use waterui::prelude::*;
+```rust
 use waterui::barcode::Barcode;
-use waterui::graphics::GpuView;
+use waterui::canvas::{Cx, LinearGradient, Paint};
+use waterui::color::Srgb;
+use waterui::layout::{Point, Rect, Size};
+use waterui::prelude::*;
 
-fn artistic_qr(animated: impl GpuView) -> impl View {
+fn diagonal_ink(cx: &mut Cx) {
+    let size = cx.size();
+    let paint = size.map(|size: Size| -> Paint {
+        LinearGradient::new(Point::new(0.0, 0.0), Point::new(size.width, size.height))
+            .stop(0.0, Srgb::new(0.0, 0.42, 1.0))
+            .stop(1.0, Srgb::new(1.0, 0.24, 0.48))
+            .into()
+    });
+    cx.fill(size.map(Rect::from_size), paint);
+}
+
+fn artistic_qr() -> impl View {
     Barcode::qr("https://book.waterui.dev")
-        .fill_gpu(animated)
+        .fill_scene(diagonal_ink)
         .light_color(Color::srgb(255, 255, 255))
         .size(280.0, 280.0)
 }
 ```
 
-This returns a `BarcodeGpuFill<V>`, which renders in two passes: the fill view
-draws into an offscreen texture, then `BarcodeMaskEffect` composites it —
-sampling the fill texture where a module is dark and painting the light color
-everywhere else. `light_color` is the only modifier left on `BarcodeGpuFill`,
-since the dark modules now come from your GPU view.
+A function that accepts any ink takes `impl Ink`:
+
+```rust
+use waterui::barcode::{Barcode, Ink};
+use waterui::prelude::*;
+
+fn inked_qr(ink: impl Ink) -> impl View {
+    Barcode::qr("https://book.waterui.dev")
+        .fill_scene(ink)
+        .size(280.0, 280.0)
+}
+```
+
+`fill_scene` returns a `BarcodeSceneFill<I>`. Its only method of its own is
+`light_color`, since the dark modules now come from your ink; view modifiers
+such as `.size` apply as on any view. The barcode keeps its own natural size,
+whatever the ink would report.
 
 ## How it works
 
-### Matrix generation
+The crate encodes, builds geometry and draws on a canvas; the renderer
+rasterizes:
 
-QR matrices come from `fast_qr`; the matrix side length depends on payload
-length and error-correction level. Code 128 comes from `barcoders`, and its 1D
-bar pattern is repeated on every row so both symbologies feed the same square
-shader path. Both run once, when the `BarcodeSource` is constructed.
+1. **Matrix.** `fast_qr` encodes QR and `barcoders` encodes Code 128, once per
+   payload, into a bit-packed `BarcodeMatrix` (`1` is dark). A Code 128 matrix
+   has a single row, because bar height is a rendering concern.
+2. **Geometry.** All dark modules become one filled path; horizontally adjacent
+   modules merge into one rectangle, so the path grows with the bar count, not
+   the module count.
+3. **Drawing.** `Barcode` is a `Canvas` that fills the light background and
+   then the dark path, with the path, the colors and the gradient endpoints
+   bound as live operands. The canvas' intrinsic size follows the payload.
+4. **Rasterization.** Whichever renderer draws the screen around the canvas
+   rasterizes it, so a barcode needs no engine of its own.
 
-### Bit packing
-
-The matrix is packed into a `Vec<u32>` with one bit per module — `1` dark, `0`
-light. A 25×25 QR code is 625 modules, so 20 words. That buffer is uploaded
-once as a read-only GPU storage buffer.
-
-### Fragment shader
-
-`qr_render.wgsl` binds the packed matrix plus a uniform block holding the
-matrix dimension, quiet-zone width, output resolution, and color or gradient
-parameters. Per fragment it maps the pixel to a module coordinate, reads that
-one bit, and emits the dark color, the gradient sample, or the light color.
-Because the lookup is resolution-independent, scaling the view resizes modules
-rather than resampling pixels.
+`fill_scene` changes only the last fill: the canvas fills the light background,
+then runs the ink inside a clip shaped like the dark modules.
 
 ### Quiet zones
 
-| Symbology | Quiet zone (modules) |
+| Symbology | Quiet zone |
 |---|---|
-| QR Code | 4 |
-| Code 128 | 10 |
+| QR Code | 4 modules on every side |
+| Code 128 | 10 modules left and right, none above or below |
 
-The quiet zone is drawn in the light color and added automatically — you do not
-need to pad the view yourself.
+The quiet zone is part of the symbol and painted in the light color. You do not
+pad the view yourself.
+
+### Accessibility
+
+A barcode is exposed as an image whose label reads `QR code: <content>` or
+`Code 128 barcode: <content>`, and the label follows a reactive payload. If the
+environment already carries an `AccessibilityRole` or an `AccessibilityLabel`,
+the barcode leaves that one alone. See
+[the accessibility chapter](../06-advanced/05-accessibility.md).
 
 ## API reference
 
@@ -212,52 +319,49 @@ need to pad the view yourself.
 
 | Method | Description |
 |---|---|
-| `Barcode::qr(content)` | QR code from any `impl Into<Str>` |
-| `Barcode::code128(content)` | Code 128 barcode |
+| `Barcode::qr(content)` | QR code from `impl IntoComputed<Str>` |
+| `Barcode::code128(content)` | Code 128 barcode from `impl IntoComputed<Str>` |
 | `.dark_color(color)` | Solid dark-module fill, reactive |
 | `.light_color(color)` | Light-module and quiet-zone color, reactive |
-| `.linear_gradient(start, end, from, to)` | Gradient across dark modules, reactive colors |
-| `.fill_gpu(gpu_view)` | Fill dark modules with GPU content, returns `BarcodeGpuFill<V>` |
+| `.linear_gradient(start, end, from, to)` | Gradient over the dark modules, reactive colors |
+| `.fill_scene(ink)` | Fill dark modules with an `Ink`, returns `BarcodeSceneFill<I>` |
 
-Free functions `qr_code(content)` and `code128(content)` mirror the two
-constructors.
+`qr_code(content)` and `code128(content)` mirror the constructors.
 
-### `BarcodeGpuFill<V>`
+### `Ink` and `BarcodeSceneFill<I>`
 
-| Method | Description |
+`Ink` is the trait `fill_scene` accepts, with one method, `draw(self, cx: &mut
+Cx)`. It is implemented for `FnOnce(&mut Cx) + 'static` closures and for
+`Drawing`. `BarcodeSceneFill<I>` is a `View` with one method of its own,
+`.light_color(color)`.
+
+### `BarcodeFill`
+
+`BarcodeFill::solid(color)` and `BarcodeFill::linear_gradient(start, end, from,
+to)` build the two fills; the enum's variants are `Solid` and `LinearGradient`.
+`dark_color` and `linear_gradient` construct one for you. `BarcodeFill::default()`
+is solid black.
+
+### `BarcodeSource`, `BarcodeMatrix`, `BarcodeSymbology`, `BarcodeError`
+
+| Item | Description |
 |---|---|
-| `.light_color(color)` | Light-module and quiet-zone color, reactive |
-
-### `BarcodeRenderer`
-
-For direct GPU pipeline work. It implements `GpuView`, so wrap it in
-`GpuSurface::new` to place it in a view tree — which is exactly what `Barcode`
-does internally.
-
-| Method | Description |
-|---|---|
-| `BarcodeRenderer::new(source)` | Black modules on white, from a `BarcodeSource` |
-| `.with_fill(fill)` | Override with a `BarcodeFill` |
-| `.with_light_color(color)` | Override the light color, reactive |
-
-### `BarcodeSource`
-
-| Method | Description |
-|---|---|
-| `BarcodeSource::qr(content)` | Encode a QR matrix now |
-| `BarcodeSource::code128(content)` | Encode a Code 128 matrix now |
-| `.symbology()` | The `BarcodeSymbology` this source carries |
+| `BarcodeSource::qr(content)` / `::code128(content)` | Encode now; `Result<_, BarcodeError>` |
+| `.symbology()` | The `BarcodeSymbology` of this source |
 | `.quiet_zone()` | Quiet-zone width in modules |
-| `.set_size(pixels)` / `.size()` | Pixel size used when the source is rasterized offscreen (default 256) |
+| `.set_size(extent)` / `.size()` | Extent the symbol is when nothing else decides (default 256); `set_size` takes `&mut self` |
+| `.output_size()` | `(width, height)` after the module floor: points in layout, pixels for `generate` |
+| `BarcodeMatrix` | Public `width`, `height`, `packed_data` fields and `is_dark(x, y)`; no public method of `BarcodeSource` returns one |
 
-The encoded matrix itself is internal: get pixels through `Barcode` or
-`BarcodeRenderer` rather than reaching for the buffer.
+A standalone raster image from `BarcodeSource::generate` needs a GPU device and
+sits behind the crate's non-default `gpu` feature. The `waterui` facade does not
+enable it for you, so drawing a barcode into a view never needs it.
 
 ## Complete example
 
-```rust,ignore
-use waterui::prelude::*;
+```rust
 use waterui::barcode::Barcode;
+use waterui::prelude::*;
 
 fn share_page() -> impl View {
     let url = "https://book.waterui.dev";
@@ -277,12 +381,11 @@ fn share_page() -> impl View {
 
 ## Scanning is not included
 
-This crate generates codes; it does not read them. Decoding a barcode from the
-camera is not part of `waterui-barcode` at the pinned commit, and nothing in
-the current API exposes a scanner. If you need scanning today, drive the
-platform camera API yourself through your backend.
+This crate generates codes; it does not read them. Decoding from a camera is
+not part of `waterui-barcode`, and nothing in its API exposes a scanner.
 
 ## What's next
 
-Next comes [Graphics](../05-graphics/01-canvas.md), where you write the shaders
-and canvas drawing code that a barcode fill like `fill_gpu` consumes.
+[Charts](06-charts.md) is the other drawn component in this part. After it,
+Part V starts with [Canvas](../05-graphics/01-canvas.md), WaterUI's retained
+vector drawing view, which a barcode draws on.
